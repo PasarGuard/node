@@ -2,8 +2,9 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
-	"log"
+	log "marzban-node/logger"
 	"marzban-node/xray"
 	"net"
 	"net/http"
@@ -22,14 +23,17 @@ func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
 	s.ClientIP = ip
 
 	if s.Connected {
-		log.Printf("New connection from %s, Core control access was taken away from previous client.", s.ClientIP)
+		logMessage := fmt.Sprintf("New connection from %s, Core control access was taken away from previous client.", s.ClientIP)
+		log.InfoLog(logMessage)
 		if s.Core.Started() {
 			s.Core.Stop()
 		}
 	}
 
 	s.Connected = true
-	log.Printf("%s connected, Session ID = \"%s\".", s.ClientIP, s.SessionID)
+
+	logMessage := fmt.Sprintf("%s connected, Session ID = \"%s\".", s.ClientIP, s.SessionID)
+	log.InfoLog(logMessage)
 
 	json.NewEncoder(w).Encode(s.response("session_id", s.SessionID))
 }
@@ -56,9 +60,10 @@ func (s *Service) Ping(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{})
 }
 
-func (s *Service) Disconnect(w http.ResponseWriter, r *http.Request) {
+func (s *Service) Disconnect(w http.ResponseWriter, _ *http.Request) {
 	if s.Connected {
-		log.Printf("%s disconnected, Session ID = \"%s\".", s.ClientIP, s.SessionID)
+		logMessage := fmt.Sprintf("%s disconnected, Session ID = \"%s\".", s.ClientIP, s.SessionID)
+		log.InfoLog(logMessage)
 	}
 
 	s.SessionID = uuid.Nil
@@ -97,16 +102,14 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logs := s.Core.GetLogs()
-	// TODO: close function
-	// defer logs.Close()
-
 	err = s.Core.Start(*config)
 	if err != nil {
-		log.Printf("Failed to start core: %s", err)
+		log.ErrorLog("Failed to start core: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+
+	logs := s.Core.GetLogs()
 
 	startTime := time.Now()
 	endTime := startTime.Add(3 * time.Second)

@@ -14,7 +14,7 @@ func InitConfig() {
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
 	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/marzban-node/ssl_cert.pem")
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/marzban-node/ssl_key.pem")
-	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "")
+	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/marzban-node/ssl_client_cert_file.pem")
 	Debug = GetEnvAsBool("DEBUG", false)
 
 }

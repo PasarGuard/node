@@ -17,8 +17,8 @@ func InfoLog(message string) {
 	Info.Println(message)
 }
 
-func ErrorLog(message error) {
-	Error.Println(message)
+func ErrorLog(message string, error error) {
+	Error.Printf(message, error)
 }
 
 func DebugLog(message string) {

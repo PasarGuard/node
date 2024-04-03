@@ -24,7 +24,7 @@ type Service struct {
 func NewService() *Service {
 	core, err := xray.NewXRayCore()
 	if err != nil {
-		log.ErrorLog(err)
+		log.ErrorLog("Failed to create new core: ", err)
 	}
 
 	s := &Service{

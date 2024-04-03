@@ -74,8 +74,8 @@ func (x *XRayCore) CaptureProcessLogs() {
 			for scanner.Scan() {
 				output := scanner.Text()
 				x.LogsBuffer = append(x.LogsBuffer, output)
-				for _, buf := range x.TempLogBuffers {
-					buf = append(buf, output)
+				for i := range x.TempLogBuffers {
+					x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
 				}
 				log.DebugLog(output)
 			}
@@ -88,8 +88,8 @@ func (x *XRayCore) CaptureProcessLogs() {
 			for scanner.Scan() {
 				output := scanner.Text()
 				x.LogsBuffer = append(x.LogsBuffer, output)
-				for _, buf := range x.TempLogBuffers {
-					buf = append(buf, output)
+				for i := range x.TempLogBuffers {
+					x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
 				}
 			}
 		}()
@@ -176,7 +176,7 @@ func (x *XRayCore) Restart(config XRayConfig) {
 	x.Stop()
 	err := x.Start(config)
 	if err != nil {
-		log.ErrorLog(err)
+		log.ErrorLog("Failed to start core: ", err)
 	}
 }
 

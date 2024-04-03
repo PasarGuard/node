@@ -5,10 +5,9 @@ import (
 	"crypto/x509"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"log"
 	"marzban-node/certificate"
 	"marzban-node/config"
-	"marzban-node/logger"
+	log "marzban-node/logger"
 	"marzban-node/service"
 	"net/http"
 	"os"
@@ -23,13 +22,13 @@ func createServer(addr string, r chi.Router) (server *http.Server) {
 
 	serverCert, err := tls.LoadX509KeyPair(config.SslCertFile, config.SslKeyFile)
 	if err != nil {
-		log.Fatalf("Failed to load server certificate and key: %v", err)
+		log.ErrorLog("Failed to load server certificate and key: ", err)
 	}
 
 	clientCertPool := x509.NewCertPool()
 	clientCert, err := os.ReadFile(config.SslClientCertFile)
 	if err != nil {
-		log.Fatalf("Failed to read client certificate: %v", err)
+		log.ErrorLog("Failed to read client certificate: ", err)
 	}
 	clientCertPool.AppendCertsFromPEM(clientCert)
 
@@ -49,7 +48,7 @@ func createServer(addr string, r chi.Router) (server *http.Server) {
 
 func main() {
 	config.InitConfig()
-	logger.InitLogger()
+	log.InitLogger()
 	certFileExists := fileExists(config.SslCertFile)
 	keyFileExists := fileExists(config.SslKeyFile)
 	if !certFileExists || !keyFileExists {
@@ -67,9 +66,9 @@ func main() {
 	server := createServer(addr, s.Router)
 
 	// Start server with TLS
-	log.Printf("Server is listening on %s\n", addr)
+	log.InfoLog("Server is listening on " + addr)
 	err := server.ListenAndServeTLS("", "")
 	if err != nil {
-		log.Fatalf("Failed to start server: %v\n", err)
+		log.ErrorLog("Failed to start server: ", err)
 	}
 }
