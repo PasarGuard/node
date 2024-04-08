@@ -1,49 +1,41 @@
 package logger
 
 import (
+	"fmt"
 	"log"
-	"os"
 )
 
-var (
-	Info     *log.Logger
-	Error    *log.Logger
-	Debug    *log.Logger
-	Warning  *log.Logger
-	Critical *log.Logger
+const (
+	colorReset   = "\033[0m"
+	colorRed     = "\033[31m"
+	colorGreen   = "\033[32m"
+	colorYellow  = "\033[33m"
+	colorBlue    = "\033[34m"
+	colorMagenta = "\033[35m"
+	colorCyan    = "\033[36m"
 )
 
 func InfoLog(message string) {
-	Info.Println(message)
+	formattedLog := fmt.Sprintf("%s[Info] %s %s", colorGreen, colorReset, message)
+	log.Println(formattedLog)
 }
 
-func ErrorLog(message string, error error) {
-	Error.Printf(message, error)
+func ErrorLog(message string, err error) {
+	formattedLog := fmt.Sprintf("%s[Error]%s %s %s", colorRed, colorReset, message, err)
+	log.Println(formattedLog)
 }
 
 func DebugLog(message string) {
-	Debug.Println(message)
+	formattedLog := fmt.Sprintf("%s[Debug] %s %s", colorBlue, colorReset, message)
+	fmt.Println(formattedLog)
 }
 
 func WarningLog(message string) {
-	Warning.Println(message)
+	formattedLog := fmt.Sprintf("%s[Warning] %s %s", colorYellow, colorReset, message)
+	log.Println(formattedLog)
 }
 
 func CriticalLog(message string) {
-	Critical.Println(message)
-}
-
-func InitLogger() {
-	infoHandle := os.Stdout
-	errorHandle := os.Stderr
-	debugHandle := os.Stdout
-	warningHandle := os.Stdout
-	criticalHandle := os.Stderr
-
-	Info = log.New(infoHandle, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	Error = log.New(errorHandle, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
-	Debug = log.New(debugHandle, "Debug: ", log.Ldate|log.Ltime|log.Lshortfile)
-	Warning = log.New(warningHandle, "Warning: ", log.Ldate|log.Ltime|log.Lshortfile)
-	Critical = log.New(criticalHandle, "Critical: ", log.Ldate|log.Ltime|log.Lshortfile)
-
+	formattedLog := fmt.Sprintf("%s[Info] %s %s", colorMagenta, colorReset, message)
+	log.Println(formattedLog)
 }

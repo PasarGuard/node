@@ -5,7 +5,7 @@ import (
 	"marzban-node/config"
 )
 
-type XRayConfig struct {
+type Config struct {
 	Log       Log           `json:"log,omitempty"`
 	Inbounds  []Inbound     `json:"inbounds"`
 	Outbounds []interface{} `json:"outbounds,omitempty"`
@@ -99,8 +99,8 @@ type Certificate struct {
 	KeyFile         string `json:"keyFile"`
 }
 
-func NewXRayConfig(config string, peerIP string) (*XRayConfig, error) {
-	var xrayConfig XRayConfig
+func NewXRayConfig(config string, peerIP string) (*Config, error) {
+	var xrayConfig Config
 	err := json.Unmarshal([]byte(config), &xrayConfig)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func NewXRayConfig(config string, peerIP string) (*XRayConfig, error) {
 	return &xrayConfig, nil
 }
 
-func (x *XRayConfig) ToJSON() (string, error) {
+func (x *Config) ToJSON() (string, error) {
 	b, err := json.Marshal(x)
 	if err != nil {
 		return "", err
@@ -120,7 +120,7 @@ func (x *XRayConfig) ToJSON() (string, error) {
 	return string(b), nil
 }
 
-func (x *XRayConfig) applyAPI(peerIP string) {
+func (x *Config) applyAPI(peerIP string) {
 	for i, inbound := range x.Inbounds {
 		if inbound.Protocol == "dokodemo-door" {
 			x.Inbounds = append(x.Inbounds[:i], x.Inbounds[i+1:]...)

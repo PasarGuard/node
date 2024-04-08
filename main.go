@@ -48,7 +48,6 @@ func createServer(addr string, r chi.Router) (server *http.Server) {
 
 func main() {
 	config.InitConfig()
-	log.InitLogger()
 	certFileExists := fileExists(config.SslCertFile)
 	keyFileExists := fileExists(config.SslKeyFile)
 	if !certFileExists || !keyFileExists {

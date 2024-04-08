@@ -16,9 +16,9 @@ type Service struct {
 	Connected   bool
 	ClientIP    string
 	SessionID   uuid.UUID
-	Core        *xray.XRayCore
+	Core        *xray.Core
 	CoreVersion string
-	Config      xray.XRayConfig
+	Config      xray.Config
 }
 
 func NewService() *Service {

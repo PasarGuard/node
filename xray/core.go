@@ -12,7 +12,7 @@ import (
 	"regexp"
 )
 
-type XRayCore struct {
+type Core struct {
 	ExecutablePath string
 	AssetsPath     string
 	Version        string
@@ -25,8 +25,8 @@ type XRayCore struct {
 	Env            map[string]string
 }
 
-func NewXRayCore() (*XRayCore, error) {
-	core := &XRayCore{
+func NewXRayCore() (*Core, error) {
+	core := &Core{
 		ExecutablePath: config.XrayExecutablePath,
 		AssetsPath:     config.XrayAssetsPath,
 		LogsBuffer:     make([]string, 0, 100),
@@ -47,7 +47,7 @@ func NewXRayCore() (*XRayCore, error) {
 	return core, nil
 }
 
-func (x *XRayCore) GetVersion() (string, error) {
+func (x *Core) GetVersion() (string, error) {
 	cmd := exec.Command(x.ExecutablePath, "version")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -65,42 +65,7 @@ func (x *XRayCore) GetVersion() (string, error) {
 	return "", errors.New("could not parse Xray version")
 }
 
-func (x *XRayCore) CaptureProcessLogs() {
-	if config.Debug {
-		go func() {
-			reader, writer := io.Pipe()
-			x.Process.Stdout = writer
-			scanner := bufio.NewScanner(reader)
-			for scanner.Scan() {
-				output := scanner.Text()
-				x.LogsBuffer = append(x.LogsBuffer, output)
-				for i := range x.TempLogBuffers {
-					x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
-				}
-				log.DebugLog(output)
-			}
-		}()
-	} else {
-		go func() {
-			reader, writer := io.Pipe()
-			x.Process.Stdout = writer
-			scanner := bufio.NewScanner(reader)
-			for scanner.Scan() {
-				output := scanner.Text()
-				x.LogsBuffer = append(x.LogsBuffer, output)
-				for i := range x.TempLogBuffers {
-					x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
-				}
-			}
-		}()
-	}
-}
-
-func (x *XRayCore) GetLogs() []string {
-	return x.LogsBuffer
-}
-
-func (x *XRayCore) Started() bool {
+func (x *Core) Started() bool {
 	if x.Process == nil {
 		return false
 	}
@@ -113,7 +78,7 @@ func (x *XRayCore) Started() bool {
 	return true
 }
 
-func (x *XRayCore) Start(config XRayConfig) error {
+func (x *Core) Start(config Config) error {
 	if x.Started() {
 		return errors.New("Xray is started already")
 	}
@@ -129,9 +94,14 @@ func (x *XRayCore) Start(config XRayConfig) error {
 	if err != nil {
 		return err
 	}
+
+	// Create a pipe to capture the command's output
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
 	cmd.Stdin = bytes.NewBufferString(xrayJson)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
 	err = cmd.Start()
 	if err != nil {
@@ -139,7 +109,9 @@ func (x *XRayCore) Start(config XRayConfig) error {
 	}
 
 	x.Process = cmd
-	x.CaptureProcessLogs()
+
+	// Start capturing process logs
+	go x.CaptureProcessLogs(stdoutPipe)
 
 	// execute on start functions
 	for _, f := range x.OnStartFuncs {
@@ -149,7 +121,7 @@ func (x *XRayCore) Start(config XRayConfig) error {
 	return nil
 }
 
-func (x *XRayCore) Stop() {
+func (x *Core) Stop() {
 	if !x.Started() {
 		return
 	}
@@ -164,7 +136,7 @@ func (x *XRayCore) Stop() {
 	}
 }
 
-func (x *XRayCore) Restart(config XRayConfig) {
+func (x *Core) Restart(config Config) {
 	if x.Restarting {
 		return
 	}
@@ -180,10 +152,28 @@ func (x *XRayCore) Restart(config XRayConfig) {
 	}
 }
 
-func (x *XRayCore) OnStart(f func()) {
+func (x *Core) CaptureProcessLogs(stdoutPipe io.Reader) {
+	scanner := bufio.NewScanner(stdoutPipe)
+	for scanner.Scan() {
+		output := scanner.Text()
+		x.LogsBuffer = append(x.LogsBuffer, output)
+		for i := range x.TempLogBuffers {
+			x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
+		}
+		if config.Debug {
+			log.DebugLog(output)
+		}
+	}
+}
+
+func (x *Core) GetLogs() []string {
+	return x.LogsBuffer
+}
+
+func (x *Core) OnStart(f func()) {
 	x.OnStartFuncs = append(x.OnStartFuncs, f)
 }
 
-func (x *XRayCore) OnStop(f func()) {
+func (x *Core) OnStop(f func()) {
 	x.OnStopFuncs = append(x.OnStopFuncs, f)
 }

@@ -12,7 +12,7 @@ func InitConfig() {
 	if err != nil {
 		log.ErrorLog("Failed to load env file , Error: ", err)
 	}
-	
+
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)
 	XrayApiPort = GetEnvAsInt("XRAY_API_PORT", 62051)
 	NodeHost = GetEnv("NODE_HOST", "0.0.0.0")
