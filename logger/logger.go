@@ -20,6 +20,11 @@ func InfoLog(message string) {
 	log.Println(formattedLog)
 }
 
+func ApiLog(message string) {
+	formattedLog := fmt.Sprintf("%s[Api] %s %s", colorCyan, colorReset, message)
+	log.Println(formattedLog)
+}
+
 func ErrorLog(message string, err error) {
 	formattedLog := fmt.Sprintf("%s[Error]%s %s %s", colorRed, colorReset, message, err)
 	log.Println(formattedLog)
