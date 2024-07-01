@@ -56,28 +56,28 @@ func RewriteSslFile() {
 	// Write certificate to file
 	certFile, err := os.Create(config.SslCertFile)
 	if err != nil {
-		log.ErrorLog("Problem in creating SslCert File: ", err)
+		log.Error("Problem in creating SslCert File: ", err)
 		return
 	}
 	defer certFile.Close()
 
 	_, err = certFile.WriteString(cert)
 	if err != nil {
-		log.ErrorLog("Problem in writing SslCert File: ", err)
+		log.Error("Problem in writing SslCert File: ", err)
 		return
 	}
 
 	// Write key to file
 	keyFile, err := os.Create(config.SslKeyFile)
 	if err != nil {
-		log.ErrorLog("Problem in creating SslKey File: ", err)
+		log.Error("Problem in creating SslKey File: ", err)
 		return
 	}
 	defer keyFile.Close()
 
 	_, err = keyFile.WriteString(key)
 	if err != nil {
-		log.ErrorLog("Problem in writing SslKey File: ", err)
+		log.Error("Problem in writing SslKey File: ", err)
 		return
 	}
 }
