@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"github.com/joho/godotenv"
 	log "marzban-node/logger"
 	"os"
@@ -9,19 +8,19 @@ import (
 	"strconv"
 )
 
-func InitConfig() {
+func init() {
 	err := godotenv.Load()
 	if err != nil {
-		log.ErrorLog("Failed to load env file , Error: ", err)
+		log.Error("Failed to load env file , Error: ", err)
 	}
 
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)
-	XrayApiPort = GetEnvAsInt("XRAY_API_PORT", 62051)
 	XrayExecutablePath = GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray")
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
 	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/marzban-node/ssl_cert.pem")
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/marzban-node/ssl_key.pem")
 	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/marzban-node/ssl_client_cert_file.pem")
+	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/marzban-node/generated_config-debug.json")
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
 
@@ -34,8 +33,7 @@ func InitConfig() {
 	if re.MatchString(nodeHostStr) {
 		NodeHost = nodeHostStr
 	} else {
-		message := fmt.Sprintf("%s is not a valid IP address.\n WEBAPP_HOST will be set to 0.0.0.0", nodeHostStr)
-		log.WarningLog(message)
+		log.Warning(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 0.0.0.0")
 		NodeHost = "0.0.0.0"
 	}
 }
@@ -65,13 +63,13 @@ func GetEnvAsInt(name string, defaultVal int) int {
 }
 
 var (
-	ServicePort        int
-	XrayApiPort        int
-	NodeHost           string
-	XrayExecutablePath string
-	XrayAssetsPath     string
-	SslCertFile        string
-	SslKeyFile         string
-	SslClientCertFile  string
-	Debug              bool
+	ServicePort         int
+	NodeHost            string
+	XrayExecutablePath  string
+	XrayAssetsPath      string
+	SslCertFile         string
+	SslKeyFile          string
+	SslClientCertFile   string
+	Debug               bool
+	GeneratedConfigPath string
 )

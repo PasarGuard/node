@@ -11,28 +11,36 @@ import (
 	"time"
 )
 
-func (s *Service) addUser(w http.ResponseWriter, r *http.Request) {
-	var user xray.User
-	err := json.NewDecoder(r.Body).Decode(&user)
+func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
+	api := s.GetXrayAPI()
+	if api.HandlerServiceClient == nil {
+		http.Error(w, "handler service is not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	var data UserData
+	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
 		http.Error(w, "Failed to decode user: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	user := data.User
 	email := fmt.Sprintf("%s.%d", user.Username, user.ID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	proxySetting := xray.SetupUserAccount(user, email)
-	for _, inbound := range s.Config.Inbounds {
+	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err = xray.AddUserToInbound(ctx, s.HandlerClient, inbound.Tag, account)
+			err = api.AddInboundUser(ctx, inbound.Tag, account)
 			if err != nil {
 				errorMessage := "Failed to add user:"
 				http.Error(w, errorMessage+err.Error(), http.StatusInternalServerError)
-				log.ErrorLog(errorMessage, err)
+				log.Error(errorMessage, err)
+				return
 			}
 		}
 	}
@@ -41,15 +49,21 @@ func (s *Service) addUser(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("user added successfully"))
 }
 
-func (s *Service) updateUser(w http.ResponseWriter, r *http.Request) {
-	var user xray.User
+func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	api := s.GetXrayAPI()
+	if api.HandlerServiceClient == nil {
+		http.Error(w, "handler service is not available", http.StatusServiceUnavailable)
+		return
+	}
 
-	err := json.NewDecoder(r.Body).Decode(&user)
+	var data UserData
+	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
 		http.Error(w, "Failed to decode user: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	user := data.User
 	email := fmt.Sprintf("%s.%d", user.Username, user.ID)
 
 	var activeInbounds []string
@@ -59,22 +73,23 @@ func (s *Service) updateUser(w http.ResponseWriter, r *http.Request) {
 
 	proxySetting := xray.SetupUserAccount(user, email)
 
-	for _, inbound := range s.Config.Inbounds {
+	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err = xray.AlertInboundUser(ctx, s.HandlerClient, inbound.Tag, account)
+			err = api.AddInboundUser(ctx, inbound.Tag, account)
 			activeInbounds = append(activeInbounds, inbound.Tag)
 			if err != nil {
 				errorMessage := "Failed to add user:"
 				http.Error(w, errorMessage+err.Error(), http.StatusInternalServerError)
-				log.ErrorLog(errorMessage, err)
+				log.Error(errorMessage, err)
+				return
 			}
 		}
 	}
 
-	for _, inbound := range s.Config.Inbounds {
+	for _, inbound := range s.GetConfig().Inbounds {
 		if !slices.Contains(activeInbounds, inbound.Tag) {
-			_ = xray.RemoveUserFromInbound(ctx, s.HandlerClient, inbound.Tag, email)
+			_ = api.RemoveInboundUser(ctx, inbound.Tag, email)
 		}
 	}
 
@@ -82,20 +97,28 @@ func (s *Service) updateUser(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("user added successfully"))
 }
 
-func (s *Service) removeUser(w http.ResponseWriter, r *http.Request) {
-	var user xray.User
-	err := json.NewDecoder(r.Body).Decode(&user)
+func (s *Service) RemoveUser(w http.ResponseWriter, r *http.Request) {
+	api := s.GetXrayAPI()
+	if api.HandlerServiceClient == nil {
+		http.Error(w, "handler service is not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	var data UserData
+	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
 		http.Error(w, "Failed to decode user: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	user := data.User
 	email := fmt.Sprintf("%s.%d", user.Username, user.ID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	for _, inbound := range s.Config.Inbounds {
-		_ = xray.RemoveUserFromInbound(ctx, s.HandlerClient, inbound.Tag, email)
+	for _, inbound := range s.GetConfig().Inbounds {
+		_ = api.RemoveInboundUser(ctx, inbound.Tag, email)
 	}
 
 	w.WriteHeader(http.StatusOK)

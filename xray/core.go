@@ -3,52 +3,50 @@ package xray
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
-	"marzban-node/config"
-	log "marzban-node/logger"
 	"os"
 	"os/exec"
 	"regexp"
+	"sync"
+
+	cnf "marzban-node/config"
+	log "marzban-node/logger"
 )
 
 type Core struct {
-	ExecutablePath string
-	AssetsPath     string
-	Version        string
-	Process        *exec.Cmd
-	Restarting     bool
-	LogsBuffer     []string
-	TempLogBuffers map[int][]string
-	OnStartFuncs   []func()
-	OnStopFuncs    []func()
-	Env            map[string]string
+	executablePath string
+	assetsPath     string
+	version        string
+	process        *exec.Cmd
+	restarting     bool
+	logsChan       chan string
+	tempLogBuffers []string
+	cancelFunc     context.CancelFunc
+	mu             sync.Mutex
 }
 
 func NewXRayCore() (*Core, error) {
+	var tempLog []string
 	core := &Core{
-		ExecutablePath: config.XrayExecutablePath,
-		AssetsPath:     config.XrayAssetsPath,
-		LogsBuffer:     make([]string, 0, 100),
-		TempLogBuffers: make(map[int][]string),
-		OnStartFuncs:   make([]func(), 0),
-		OnStopFuncs:    make([]func(), 0),
-		Env: map[string]string{
-			"XRAY_LOCATION_ASSET": config.XrayAssetsPath,
-		},
+		executablePath: cnf.XrayExecutablePath,
+		assetsPath:     cnf.XrayAssetsPath,
+		logsChan:       make(chan string, 100),
+		tempLogBuffers: tempLog,
 	}
 
-	version, err := core.GetVersion()
+	version, err := core.RefreshVersion()
 	if err != nil {
 		return nil, err
 	}
-	core.Version = version
+	core.setVersion(version)
 
 	return core, nil
 }
 
-func (x *Core) GetVersion() (string, error) {
-	cmd := exec.Command(x.ExecutablePath, "version")
+func (x *Core) RefreshVersion() (string, error) {
+	cmd := exec.Command(x.executablePath, "version")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -65,20 +63,31 @@ func (x *Core) GetVersion() (string, error) {
 	return "", errors.New("could not parse Xray version")
 }
 
-func (x *Core) Started() bool {
-	if x.Process == nil {
-		return false
-	}
-
-	err := x.Process.Process.Signal(os.Interrupt)
-	if err != nil {
-		return false
-	}
-
-	return true
+func (x *Core) setVersion(version string) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.version = version
 }
 
-func (x *Core) Start(config Config) error {
+func (x *Core) GetVersion() string {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.version
+}
+
+func (x *Core) Started() bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.process == nil || x.process.Process == nil {
+		return false
+	}
+	if x.process.ProcessState == nil {
+		return true
+	}
+	return false
+}
+
+func (x *Core) Start(config *Config) error {
 	if x.Started() {
 		return errors.New("Xray is started already")
 	}
@@ -88,15 +97,20 @@ func (x *Core) Start(config Config) error {
 		config.Log.LogLevel = "warning"
 	}
 
-	cmd := exec.Command(x.ExecutablePath, "run", "-config", "stdin:")
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+x.AssetsPath)
+	cmd := exec.Command(x.executablePath, "run", "-config", "stdin:")
+	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+x.assetsPath)
+
 	xrayJson, err := config.ToJSON()
 	if err != nil {
 		return err
 	}
 
-	// Create a pipe to capture the command's output
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
@@ -108,14 +122,25 @@ func (x *Core) Start(config Config) error {
 		return err
 	}
 
-	x.Process = cmd
+	ctx := x.makeContext()
+
+	x.process = cmd
 
 	// Start capturing process logs
-	go x.CaptureProcessLogs(stdoutPipe)
+	go x.captureProcessLogs(ctx, stdout)
+	go x.captureProcessLogs(ctx, stderr)
+	go x.fillChannel(ctx)
 
-	// execute on start functions
-	for _, f := range x.OnStartFuncs {
-		go f()
+	if cnf.Debug {
+		jsonFile, err := os.Create(cnf.GeneratedConfigPath)
+		if err != nil {
+			log.Error("Can't create generated config json file", err)
+		} else {
+			_, err = jsonFile.WriteString(xrayJson)
+			if err != nil {
+				log.Error("Problem in writing generated config json File: ", err)
+			}
+		}
 	}
 
 	return nil
@@ -126,54 +151,105 @@ func (x *Core) Stop() {
 		return
 	}
 
-	_ = x.Process.Process.Kill()
-	x.Process = nil
-	log.WarningLog("Xray core stopped")
+	_ = x.process.Process.Kill()
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.process = nil
 
-	// execute on stop functions
-	for _, f := range x.OnStopFuncs {
-		go f()
-	}
+	x.cancelFunc()
+
+	log.Warning("Xray core stopped")
 }
 
-func (x *Core) Restart(config Config) {
-	if x.Restarting {
-		return
+func (x *Core) Restart(config *Config) error {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.restarting {
+		return errors.New("Xray is already restarted")
 	}
 
-	x.Restarting = true
-	defer func() { x.Restarting = false }()
+	x.restarting = true
+	defer func() { x.restarting = false }()
 
-	log.WarningLog("Restarting Xray core...")
+	log.Warning("restarting Xray core...")
 	x.Stop()
 	err := x.Start(config)
 	if err != nil {
-		log.ErrorLog("Failed to start core: ", err)
+		return err
 	}
+	return nil
 }
 
-func (x *Core) CaptureProcessLogs(stdoutPipe io.Reader) {
+func (x *Core) captureProcessLogs(ctx context.Context, stdoutPipe io.Reader) {
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
-		output := scanner.Text()
-		x.LogsBuffer = append(x.LogsBuffer, output)
-		for i := range x.TempLogBuffers {
-			x.TempLogBuffers[i] = append(x.TempLogBuffers[i], output)
-		}
-		if config.Debug {
-			log.DebugLog(output)
+		select {
+		case <-ctx.Done():
+			return // Exit gracefully if stop signal received
+		default:
+			output := scanner.Text()
+			if cnf.Debug {
+				log.DetectLogType(output)
+			}
+			x.mu.Lock()
+			x.tempLogBuffers = append(x.tempLogBuffers, output)
+			x.mu.Unlock()
 		}
 	}
 }
 
-func (x *Core) GetLogs() []string {
-	return x.LogsBuffer
+func (x *Core) tempLogPop(n int) []string {
+	if n <= 0 {
+		return nil
+	}
+
+	x.mu.Lock()
+	defer x.mu.Unlock()
+
+	if len(x.tempLogBuffers) == 0 {
+		return nil
+	}
+
+	if n > len(x.tempLogBuffers) {
+		n = len(x.tempLogBuffers)
+	}
+
+	logList := x.tempLogBuffers[:n]
+	x.tempLogBuffers = x.tempLogBuffers[n:]
+	return logList
 }
 
-func (x *Core) OnStart(f func()) {
-	x.OnStartFuncs = append(x.OnStartFuncs, f)
+func (x *Core) fillChannel(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return // Exit gracefully if stop signal received
+		default:
+			chanLen := len(x.logsChan)
+			if chanLen < 100 {
+				logList := x.tempLogPop(100 - chanLen)
+				if logList != nil {
+					x.mu.Lock()
+					for _, lastLog := range logList {
+						x.logsChan <- lastLog
+					}
+					x.mu.Unlock()
+				}
+			}
+		}
+	}
 }
 
-func (x *Core) OnStop(f func()) {
-	x.OnStopFuncs = append(x.OnStopFuncs, f)
+func (x *Core) GetLogs() chan string {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.logsChan
+}
+
+func (x *Core) makeContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.cancelFunc = cancel
+	return ctx
 }

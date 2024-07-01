@@ -1,18 +1,19 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"marzban-node/xray"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"marzban-node/config"
 	log "marzban-node/logger"
-	"marzban-node/tools"
-	"marzban-node/xray_api"
 )
 
 const NodeVersion = "go-0.0.1"
@@ -23,41 +24,42 @@ func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
-	s.SessionID = uuid.New()
+	sessionID := uuid.New()
+	s.SetSessionID(sessionID)
 
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return
 	}
 
-	s.ClientIP = ip
+	s.SetIP(ip)
 
-	if s.Connected {
-		log.InfoLog("New connection from ", s.ClientIP, " Core control access was taken away from previous client.")
-		if s.Core.Started() {
-			s.Core.Stop()
-		}
+	if s.IsConnected() {
+		log.Info("New connection from ", ip, " core control access was taken away from previous client.")
+		s.core.Stop()
 	}
 
-	s.Connected = true
+	s.SetConnected(true)
 
-	log.InfoLog(s.ClientIP, " connected, Session ID = ", s.SessionID)
+	log.Info(ip, " connected, Session ID = ", sessionID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response("session_id", s.SessionID))
+	json.NewEncoder(w).Encode(s.response("session_id", sessionID))
 }
 
 func (s *Service) Disconnect(w http.ResponseWriter, _ *http.Request) {
-	if s.Connected {
-		log.InfoLog(s.ClientIP, " disconnected, Session ID = ", s.SessionID)
+	if s.IsConnected() {
+		log.Info(s.clientIP, " disconnected, Session ID = ", s.GetSessionID())
 	}
 
-	s.SessionID = uuid.Nil
-	s.ClientIP = ""
-	s.Connected = false
+	s.SetSessionID(uuid.Nil)
+	s.SetIP("")
+	s.SetConnected(false)
 
-	if s.Core.Started() {
-		s.Core.Stop()
+	core := s.GetCore()
+
+	if core.Started() {
+		core.Stop()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -70,101 +72,136 @@ func (s *Service) Ping(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
-	var body startBody
+	var body map[string]interface{}
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		http.Error(w, "Failed to decode config: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	body.Config.ApplyAPI(s.ApiPort)
-
-	err = s.Core.Start(body.Config)
+	newConfig, err := s.makeConfigReady(body["config"].(string))
 	if err != nil {
-		log.ErrorLog("Failed to start core: ", err)
+		log.Error(err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = s.GetCore().Start(newConfig)
+	if err != nil {
+		log.Error("Failed to start core: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	logs := s.Core.GetLogs()
-
-	startTime := time.Now()
-	endTime := startTime.Add(3 * time.Second)
-	for time.Now().Before(endTime) {
-		for _, newLog := range logs {
-			if strings.Contains(newLog, "Xray "+s.CoreVersion+" started") {
-				break
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if !s.Core.Started() {
-		http.Error(w, "Failed to start core.", http.StatusServiceUnavailable)
-		return
-	}
-
-	err = s.makeHandler()
+	err = s.checkXrayStatus()
 	if err != nil {
+		log.Error(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.SetConfig(newConfig)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
-	s.Core.Stop()
+	s.GetCore().Stop()
+
+	s.SetConfig(nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
-	var body startBody
+	var body map[string]interface{}
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		http.Error(w, "Failed to decode config: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	body.Config.ApplyAPI(s.ApiPort)
-
-	s.Core.Restart(body.Config)
-
-	err = s.makeHandler()
+	newConfig, err := s.makeConfigReady(body["config"].(string))
 	if err != nil {
+		log.Error(err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = s.GetCore().Restart(newConfig)
+	if err != nil {
+		log.Error(err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	err = s.checkXrayStatus()
+	if err != nil {
+		log.Error(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.SetConfig(newConfig)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.response())
 }
 
+func (s *Service) makeConfigReady(config string) (*xray.Config, error) {
+	newConfig, err := xray.NewXRayConfig(config)
+	if err != nil {
+		return nil, errors.New("Failed to decode config: " + err.Error())
+	}
+
+	err = newConfig.ApplyAPI(s.GetAPIPort())
+	if err != nil {
+		return nil, errors.New("Failed to apply API: " + err.Error())
+	}
+	return newConfig, nil
+}
+
+func (s *Service) checkXrayStatus() error {
+	core := s.GetCore()
+
+	logChan := core.GetLogs()
+	version := core.GetVersion()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+Loop:
+	for {
+		select {
+		case lastLog := <-logChan:
+			if strings.Contains(lastLog, "Xray "+version+" started") {
+				break Loop
+			} else {
+				regex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)\] (.+)$`)
+				matches := regex.FindStringSubmatch(lastLog)
+				if len(matches) > 3 && matches[2] == "Error" {
+					return errors.New("Failed to start xray: " + matches[3])
+				}
+			}
+		case <-ctx.Done():
+			return errors.New("Failed to start xray: context done.")
+		}
+	}
+	return nil
+}
+
 func (s *Service) response(extra ...interface{}) map[string]interface{} {
+	core := s.GetCore()
 	res := map[string]interface{}{
-		"connected":    s.Connected,
-		"started":      s.Core.Started(),
-		"core_version": s.CoreVersion,
+		"connected":    s.IsConnected(),
+		"started":      core.Started(),
+		"core_version": core.GetVersion(),
 		"node_version": NodeVersion,
 	}
 	for i := 0; i < len(extra); i += 2 {
 		res[extra[i].(string)] = extra[i+1]
 	}
 	return res
-}
-
-func (s *Service) makeHandler() error {
-	sslCert, err := tools.ReadFileAsString(config.SslClientCertFile)
-	if err != nil {
-		return err
-	}
-
-	s.HandlerClient, err = xray_api.NewXrayClient("127.0.0.1", s.ApiPort, sslCert, "Gozargah")
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
 }

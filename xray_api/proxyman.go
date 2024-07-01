@@ -8,9 +8,8 @@ import (
 	"marzban-node/xray_api/types"
 )
 
-func (x *XrayClient) AlertInbound(ctx context.Context, tag string, operation *serial.TypedMessage) error {
-	client := command.NewHandlerServiceClient(x.channel)
-
+func (x *XrayAPI) AlertInbound(ctx context.Context, tag string, operation *serial.TypedMessage) error {
+	client := *x.HandlerServiceClient
 	_, err := client.AlterInbound(ctx, &command.AlterInboundRequest{Tag: tag, Operation: operation})
 	if err != nil {
 		return err
@@ -18,9 +17,8 @@ func (x *XrayClient) AlertInbound(ctx context.Context, tag string, operation *se
 	return nil
 }
 
-func (x *XrayClient) AlertOutbound(ctx context.Context, tag string, operation *serial.TypedMessage) error {
-	client := command.NewHandlerServiceClient(x.channel)
-
+func (x *XrayAPI) AlertOutbound(ctx context.Context, tag string, operation *serial.TypedMessage) error {
+	client := *x.HandlerServiceClient
 	_, err := client.AlterOutbound(ctx, &command.AlterOutboundRequest{Tag: tag, Operation: operation})
 	if err != nil {
 		return err
@@ -28,7 +26,7 @@ func (x *XrayClient) AlertOutbound(ctx context.Context, tag string, operation *s
 	return nil
 }
 
-func (x *XrayClient) AddInboundUser(ctx context.Context, tag string, user types.Account) error {
+func (x *XrayAPI) AddInboundUser(ctx context.Context, tag string, user types.Account) error {
 	// Create the AddUserOperation message
 	account, err := user.Message()
 	if err != nil {
@@ -49,7 +47,7 @@ func (x *XrayClient) AddInboundUser(ctx context.Context, tag string, user types.
 	return x.AlertInbound(ctx, tag, operation)
 }
 
-func (x *XrayClient) RemoveInboundUser(ctx context.Context, tag, email string) error {
+func (x *XrayAPI) RemoveInboundUser(ctx context.Context, tag, email string) error {
 	operation, err := types.ToTypedMessage(&command.RemoveUserOperation{
 		Email: email,
 	})
@@ -61,7 +59,7 @@ func (x *XrayClient) RemoveInboundUser(ctx context.Context, tag, email string) e
 	return x.AlertInbound(ctx, tag, operation)
 }
 
-func (x *XrayClient) AddOutboundUser(ctx context.Context, tag string, user types.Account) error {
+func (x *XrayAPI) AddOutboundUser(ctx context.Context, tag string, user types.Account) error {
 	// Create the AddUserOperation message
 	account, err := user.Message()
 	if err != nil {
@@ -82,7 +80,7 @@ func (x *XrayClient) AddOutboundUser(ctx context.Context, tag string, user types
 	return x.AlertOutbound(ctx, tag, operation)
 }
 
-func (x *XrayClient) RemoveOutboundUser(ctx context.Context, tag, email string) error {
+func (x *XrayAPI) RemoveOutboundUser(ctx context.Context, tag, email string) error {
 	operation, err := types.ToTypedMessage(&command.RemoveUserOperation{
 		Email: email,
 	})

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/google/uuid"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,6 +15,17 @@ var upgrader = websocket.Upgrader{
 }
 
 func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := uuid.Parse(r.URL.Query().Get("session_id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if sessionID != s.GetSessionID() {
+		http.Error(w, "Session ID mismatch.", http.StatusForbidden)
+		return
+	}
+
 	interval, err := strconv.ParseFloat(r.URL.Query().Get("interval"), 64)
 	if err != nil {
 		http.Error(w, "Invalid interval value.", http.StatusBadRequest)
@@ -36,7 +48,8 @@ func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
 
 	cache := ""
 	lastSentTs := time.Now()
-	logs := s.Core.GetLogs()
+	logChan := s.GetCore().GetLogs()
+
 	for {
 		if interval > 0 && time.Since(lastSentTs).Seconds() >= interval && cache != "" {
 			err = conn.WriteMessage(websocket.TextMessage, []byte(cache))
@@ -47,16 +60,14 @@ func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
 			lastSentTs = time.Now()
 		}
 
-		if len(logs) == 0 {
+		log := <-logChan
+		if len(log) == 0 {
 			_, _, err = conn.ReadMessage()
 			if err != nil {
 				break
 			}
 			continue
 		}
-
-		log := logs[0]
-		logs = logs[1:]
 
 		if interval > 0 {
 			cache += log + "\n"

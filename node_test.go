@@ -8,6 +8,8 @@ import (
 	"marzban-node/service"
 	"marzban-node/tools"
 	"marzban-node/xray"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,23 +32,52 @@ func TestService(t *testing.T) {
 		t.Error(err)
 	}
 
-	core := s.GetCore()
-
-	log.InfoLog("core created.")
-	log.InfoLog("Version: ", core.Version)
-
 	err = newConfig.ApplyAPI(s.GetAPIPort())
 	if err != nil {
 		t.Error(err)
 	}
 
-	err = core.Start(*newConfig)
+	core := s.GetCore()
+
+	log.Info("core created.")
+	log.Info("Version: ", core.GetVersion())
+
+	err = core.Start(newConfig)
 	if err != nil {
 		t.Error(err)
 	}
-	time.Sleep(20 * time.Second)
+
+	logChan := core.GetLogs()
+	version := core.GetVersion()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+Loop:
+	for {
+		select {
+		case lastLog := <-logChan:
+			if strings.Contains(lastLog, "Xray "+version+" started") {
+				break Loop
+			} else {
+				regex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^\]]+)\] (.+)$`)
+				matches := regex.FindStringSubmatch(lastLog)
+				if len(matches) > 3 && matches[2] == "Error" {
+					t.Error(matches)
+				}
+			}
+		case <-ctx.Done():
+			t.Error("context done")
+			return
+		}
+	}
+
+	if !core.Started() {
+		t.Error("core is not running")
+	}
 
 	api := s.GetXrayAPI()
+	log.Info("api created.")
 
 	ctx1, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
@@ -56,10 +87,12 @@ func TestService(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
 	for _, stat := range stats {
-		log.InfoLog(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Info(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
+	time.Sleep(10 * time.Second)
 	// test HandlerServiceClient
 	user := xray.User{
 		ID:       1,
@@ -92,8 +125,12 @@ func TestService(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			} else {
-				log.InfoLog("Added user to inbound ", inbound.Tag)
+				log.Info("Added user to inbound ", inbound.Tag)
 			}
 		}
 	}
+
+	time.Sleep(time.Second * 10)
+
+	core.Stop()
 }

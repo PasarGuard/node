@@ -1,35 +1,34 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"marzban-node/tools"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
-	"marzban-node/certificate"
 	"marzban-node/config"
 	log "marzban-node/logger"
 	"marzban-node/service"
 )
 
-func fileExists(filename string) bool {
-	_, err := os.Stat(filename)
-	return !os.IsNotExist(err)
-}
-
 func createServer(addr string, r chi.Router) (server *http.Server) {
 
 	serverCert, err := tls.LoadX509KeyPair(config.SslCertFile, config.SslKeyFile)
 	if err != nil {
-		log.ErrorLog("Failed to load server certificate and key: ", err)
+		log.Error("Failed to load server certificate and key: ", err)
 	}
 
 	clientCertPool := x509.NewCertPool()
 	clientCert, err := os.ReadFile(config.SslClientCertFile)
 	if err != nil {
-		log.ErrorLog("Failed to read client certificate: ", err)
+		log.Error("Failed to read client certificate: ", err)
 	}
 	clientCertPool.AppendCertsFromPEM(clientCert)
 
@@ -48,27 +47,55 @@ func createServer(addr string, r chi.Router) (server *http.Server) {
 }
 
 func main() {
-	config.InitConfig()
-	certFileExists := fileExists(config.SslCertFile)
-	keyFileExists := fileExists(config.SslKeyFile)
+	certFileExists := tools.FileExists(config.SslCertFile)
+	keyFileExists := tools.FileExists(config.SslKeyFile)
 	if !certFileExists || !keyFileExists {
-		certificate.RewriteSslFile()
+		tools.RewriteSslFile()
 	}
-	sslClientCertFile := fileExists(config.SslClientCertFile)
+	sslClientCertFile := tools.FileExists(config.SslClientCertFile)
 
 	if !sslClientCertFile {
 		panic("SSL_CLIENT_CERT_FILE is required for rest service.")
 	}
 
 	addr := fmt.Sprintf("%s:%d", config.NodeHost, config.ServicePort)
-	s := service.NewService()
+	s, err := service.NewService()
+	if err != nil {
+		panic(err)
+	}
 
 	server := createServer(addr, s.Router)
 
+	// Create a channel to listen for interrupt signals
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
+
 	// Start server with TLS
-	log.InfoLog("Server is listening on " + addr)
-	err := server.ListenAndServeTLS("", "")
-	if err != nil {
-		log.ErrorLog("Failed to start server: ", err)
+	go func() {
+		log.Info("Server is listening on", addr)
+		log.Info("Press Ctrl+C to stop")
+		if err = server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Error("Failed to start server: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	<-stopChan
+	log.Info("Shutting down server...")
+
+	// Create a context with timeout for the shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Shutdown the server gracefully
+	if err = server.Shutdown(ctx); err != nil {
+		log.Error("Server forced to shutdown: %v", err)
 	}
+
+	log.Info("Performing cleanup job...")
+
+	s.StopJobs()
+
+	// Add your cleanup code here
+	log.Info("Server gracefully stopped")
 }

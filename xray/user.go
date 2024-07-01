@@ -1,45 +1,11 @@
 package xray
 
 import (
-	"context"
 	"github.com/google/uuid"
-	"marzban-node/xray_api"
 	"marzban-node/xray_api/proto/proxy/shadowsocks"
 	"marzban-node/xray_api/types"
 	"slices"
 )
-
-func AddUserToInbound(ctx context.Context, api *xray_api.XrayClient, tag string, account types.Account) error {
-	err := api.AddInboundUser(ctx, tag, account)
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
-}
-
-func RemoveUserFromInbound(ctx context.Context, api *xray_api.XrayClient, tag, email string) error {
-	err := api.RemoveInboundUser(ctx, tag, email)
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
-}
-
-func AlertInboundUser(ctx context.Context, api *xray_api.XrayClient, tag string, account types.Account) error {
-	err := api.RemoveInboundUser(ctx, tag, account.GetEmail())
-	if err != nil {
-		return err
-	}
-
-	err = api.AddInboundUser(ctx, tag, account)
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
-}
 
 func SetupUserAccount(user User, email string) types.ProxySettings {
 	settings := types.ProxySettings{}
@@ -133,33 +99,33 @@ func IsActiveInbound(inbound Inbound, user User, settings types.ProxySettings) (
 	return nil, false
 }
 
-type vmessSetting struct {
+type VmessSetting struct {
 	ID uuid.UUID `json:"id"`
 }
 
-type vlessSetting struct {
+type VlessSetting struct {
 	ID   uuid.UUID       `json:"id"`
 	Flow types.XTLSFlows `json:"flow"`
 }
 
-type trojanSetting struct {
+type TrojanSetting struct {
 	Password string          `json:"password"`
 	Flow     types.XTLSFlows `json:"flow"`
 }
 
-type shadowsocksSetting struct {
+type ShadowsocksSetting struct {
 	Password string                 `json:"password"`
 	Method   shadowsocks.CipherType `json:"method"`
 }
 
-type proxy struct {
-	Vmess       *vmessSetting       `json:"vmess,omitempty"`
-	Vless       *vlessSetting       `json:"vless,omitempty"`
-	Trojan      *trojanSetting      `json:"trojan,omitempty"`
-	Shadowsocks *shadowsocksSetting `json:"shadowsocks,omitempty"`
+type Proxy struct {
+	Vmess       *VmessSetting       `json:"vmess,omitempty"`
+	Vless       *VlessSetting       `json:"vless,omitempty"`
+	Trojan      *TrojanSetting      `json:"trojan,omitempty"`
+	Shadowsocks *ShadowsocksSetting `json:"shadowsocks,omitempty"`
 }
 
-type inbounds struct {
+type Inbounds struct {
 	Vmess       []string `json:"vmess,omitempty"`
 	Vless       []string `json:"vless,omitempty"`
 	Trojan      []string `json:"trojan,omitempty"`
@@ -170,6 +136,6 @@ type inbounds struct {
 type User struct {
 	ID       int      `json:"id"`
 	Username string   `json:"username,omitempty"`
-	Proxies  proxy    `json:"proxies,omitempty"`
-	Inbounds inbounds `json:"inbounds,omitempty"`
+	Proxies  Proxy    `json:"proxies,omitempty"`
+	Inbounds Inbounds `json:"Inbounds,omitempty"`
 }

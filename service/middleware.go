@@ -10,7 +10,7 @@ import (
 	"net/http"
 )
 
-func (s *Service) checkSessionID(next http.Handler) http.Handler {
+func (s *Service) CheckSessionID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// check ip
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -18,7 +18,7 @@ func (s *Service) checkSessionID(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if ip != s.ClientIP {
+		if ip != s.GetIP() {
 			http.Error(w, "IP address is not valid", http.StatusForbidden)
 			return
 		}
@@ -37,7 +37,7 @@ func (s *Service) checkSessionID(next http.Handler) http.Handler {
 			return
 		}
 
-		if sessionID != s.SessionID {
+		if sessionID != s.GetSessionID() {
 			http.Error(w, "Session ID mismatch.", http.StatusForbidden)
 			return
 		}
@@ -51,7 +51,7 @@ func LogRequest(next http.Handler) http.Handler {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
-		logMessage := fmt.Sprintf("%s, %s, %s, %d \n", r.RemoteAddr, r.Method, r.URL.Path, ww.Status())
-		log.ApiLog(logMessage)
+		logMessage := fmt.Sprintf("%s, %s, %s, %d", r.RemoteAddr, r.Method, r.URL.Path, ww.Status())
+		log.Api(logMessage)
 	})
 }

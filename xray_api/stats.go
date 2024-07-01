@@ -16,56 +16,80 @@ const (
 	Uplink   LinkType = "uplink"
 )
 
+type SysStatsResponse struct {
+	NumGoroutine uint32 `json:"NumGoroutine,omitempty"`
+	NumGC        uint32 `json:"NumGC,omitempty"`
+	Alloc        uint64 `json:"Alloc,omitempty"`
+	TotalAlloc   uint64 `json:"TotalAlloc,omitempty"`
+	Sys          uint64 `json:"Sys,omitempty"`
+	Mallocs      uint64 `json:"Mallocs,omitempty"`
+	Frees        uint64 `json:"Frees,omitempty"`
+	LiveObjects  uint64 `json:"LiveObjects,omitempty"`
+	PauseTotalNs uint64 `json:"PauseTotalNs,omitempty"`
+	Uptime       uint32 `json:"Uptime,omitempty"`
+}
+
 func (l LinkType) String() string {
 	return string(l)
 }
 
 type StatResponse struct {
-	Name  string
-	Type  string
-	Link  string
-	Value int64
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Link  string `json:"link"`
+	Value int64  `json:"value"`
 }
 
 type UserStatsResponse struct {
-	Email    string
-	Uplink   int64
-	Downlink int64
+	Email    string `json:"email"`
+	Uplink   int64  `json:"uplink"`
+	Downlink int64  `json:"downlink"`
 }
 
 type InboundStatsResponse struct {
-	Tag      string
-	Uplink   int64
-	Downlink int64
+	Tag      string `json:"tag"`
+	Uplink   int64  `json:"uplink"`
+	Downlink int64  `json:"downlink"`
 }
 
 type OutboundStatsResponse struct {
-	Tag      string
-	Uplink   int64
-	Downlink int64
+	Tag      string `json:"tag"`
+	Uplink   int64  `json:"uplink"`
+	Downlink int64  `json:"downlink"`
 }
 
-func (x *XrayClient) GetSysStats(ctx context.Context) (*command.SysStatsResponse, error) {
-	client := command.NewStatsServiceClient(x.channel)
+func (x *XrayAPI) GetSysStats(ctx context.Context) (*SysStatsResponse, error) {
+	client := *x.StatsServiceClient
 	resp, err := client.GetSysStats(ctx, &command.SysStatsRequest{})
 	if err != nil {
 		return nil, status.Errorf(codes.Unknown, "failed to get sys stats: %v", err)
 	}
 
-	return resp, nil
+	return &SysStatsResponse{
+		NumGoroutine: resp.NumGoroutine,
+		NumGC:        resp.NumGC,
+		Alloc:        resp.Alloc,
+		TotalAlloc:   resp.TotalAlloc,
+		Sys:          resp.Sys,
+		Mallocs:      resp.Mallocs,
+		Frees:        resp.Frees,
+		LiveObjects:  resp.LiveObjects,
+		PauseTotalNs: resp.PauseTotalNs,
+		Uptime:       resp.Uptime,
+	}, nil
 }
 
-func (x *XrayClient) QueryStats(ctx context.Context, pattern string, reset bool) (*command.QueryStatsResponse, error) {
-	client := command.NewStatsServiceClient(x.channel)
+func (x *XrayAPI) QueryStats(ctx context.Context, pattern string, reset bool) (*command.QueryStatsResponse, error) {
+	client := *x.StatsServiceClient
 	resp, err := client.QueryStats(ctx, &command.QueryStatsRequest{Pattern: pattern, Reset_: reset})
 	if err != nil {
-		return nil, status.Errorf(codes.Unknown, "failed to get sys stats: %v", err)
+		return nil, err
 	}
 
 	return resp, nil
 }
 
-func (x *XrayClient) GetUsersStats(ctx context.Context, reset bool) ([]StatResponse, error) {
+func (x *XrayAPI) GetUsersStats(ctx context.Context, reset bool) ([]StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("user>>>"), reset)
 	if err != nil {
 		return nil, err
@@ -73,13 +97,14 @@ func (x *XrayClient) GetUsersStats(ctx context.Context, reset bool) ([]StatRespo
 
 	var stats []StatResponse
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
 		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
-		link := parts[len(parts)]
-		statType := parts[len(parts)-1]
+		parts := strings.Split(data, ">>>")
+		name := parts[1]
+		link := parts[2]
+		statType := parts[3]
 
 		// Create a new StatResponse object and add it to the slice
 		stats = append(stats, StatResponse{
@@ -93,7 +118,7 @@ func (x *XrayClient) GetUsersStats(ctx context.Context, reset bool) ([]StatRespo
 	return stats, nil
 }
 
-func (x *XrayClient) GetInboundsStats(ctx context.Context, reset bool) ([]StatResponse, error) {
+func (x *XrayAPI) GetInboundsStats(ctx context.Context, reset bool) ([]StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("inbound>>>"), reset)
 	if err != nil {
 		return nil, err
@@ -101,13 +126,14 @@ func (x *XrayClient) GetInboundsStats(ctx context.Context, reset bool) ([]StatRe
 
 	var stats []StatResponse
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
 		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
-		link := parts[len(parts)]
-		statType := parts[len(parts)-1]
+		parts := strings.Split(data, ">>>")
+		name := parts[1]
+		link := parts[2]
+		statType := parts[3]
 
 		// Create a new StatResponse object and add it to the slice
 		stats = append(stats, StatResponse{
@@ -121,7 +147,7 @@ func (x *XrayClient) GetInboundsStats(ctx context.Context, reset bool) ([]StatRe
 	return stats, nil
 }
 
-func (x *XrayClient) GetOutboundsStats(ctx context.Context, reset bool) ([]StatResponse, error) {
+func (x *XrayAPI) GetOutboundsStats(ctx context.Context, reset bool) ([]StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("outbound>>>"), reset)
 	if err != nil {
 		return nil, err
@@ -129,13 +155,13 @@ func (x *XrayClient) GetOutboundsStats(ctx context.Context, reset bool) ([]StatR
 
 	var stats []StatResponse
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
-		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
-		link := parts[len(parts)]
-		statType := parts[len(parts)-1]
+		parts := strings.Split(data, ">>>")
+		name := parts[1]
+		statType := parts[2]
+		link := parts[3]
 
 		// Create a new StatResponse object and add it to the slice
 		stats = append(stats, StatResponse{
@@ -149,7 +175,7 @@ func (x *XrayClient) GetOutboundsStats(ctx context.Context, reset bool) ([]StatR
 	return stats, nil
 }
 
-func (x *XrayClient) GetUserStats(ctx context.Context, email string, reset bool) (*UserStatsResponse, error) {
+func (x *XrayAPI) GetUserStats(ctx context.Context, email string, reset bool) (*UserStatsResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("user>>>%s>>>", email), reset)
 	if err != nil {
 		return nil, err
@@ -158,11 +184,11 @@ func (x *XrayClient) GetUserStats(ctx context.Context, email string, reset bool)
 	var stats UserStatsResponse
 
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
 		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
+		parts := strings.Split(data, ">>>")
 		link := parts[len(parts)]
 
 		if link == Downlink.String() {
@@ -171,11 +197,12 @@ func (x *XrayClient) GetUserStats(ctx context.Context, email string, reset bool)
 			stats.Uplink = value
 		}
 	}
+	stats.Email = email
 
 	return &stats, nil
 }
 
-func (x *XrayClient) GetInboundStats(ctx context.Context, tag string, reset bool) (*InboundStatsResponse, error) {
+func (x *XrayAPI) GetInboundStats(ctx context.Context, tag string, reset bool) (*InboundStatsResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("inbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err
@@ -184,11 +211,11 @@ func (x *XrayClient) GetInboundStats(ctx context.Context, tag string, reset bool
 	var stats InboundStatsResponse
 
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
 		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
+		parts := strings.Split(data, ">>>")
 		link := parts[len(parts)]
 
 		if link == Downlink.String() {
@@ -197,11 +224,12 @@ func (x *XrayClient) GetInboundStats(ctx context.Context, tag string, reset bool
 			stats.Uplink = value
 		}
 	}
+	stats.Tag = tag
 
 	return &stats, nil
 }
 
-func (x *XrayClient) GetOutboundStats(ctx context.Context, tag string, reset bool) (*OutboundStatsResponse, error) {
+func (x *XrayAPI) GetOutboundStats(ctx context.Context, tag string, reset bool) (*OutboundStatsResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("outbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err
@@ -210,11 +238,11 @@ func (x *XrayClient) GetOutboundStats(ctx context.Context, tag string, reset boo
 	var stats OutboundStatsResponse
 
 	for _, stat := range resp.GetStat() {
-		name := stat.GetName()
+		data := stat.GetName()
 		value := stat.GetValue()
 
 		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(name, ">>>")
+		parts := strings.Split(data, ">>>")
 		link := parts[len(parts)]
 
 		if link == Downlink.String() {
@@ -223,6 +251,7 @@ func (x *XrayClient) GetOutboundStats(ctx context.Context, tag string, reset boo
 			stats.Uplink = value
 		}
 	}
+	stats.Tag = tag
 
 	return &stats, nil
 }

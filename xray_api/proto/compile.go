@@ -13,7 +13,6 @@ import (
 	"strings"
 )
 
-// Helper function to check for errors
 func check(e error) {
 	if e != nil {
 		panic(e)
@@ -38,8 +37,8 @@ func downloadLatestRelease(url string, dest string) {
 	check(err)
 }
 
-// Function to extract tarball
-func extractTarGz(src, dest string) {
+// Function to extract tarball while ignoring the top-level directory
+func extractTarGz(src, dest string) (string, error) {
 	file, err := os.Open(src)
 	check(err)
 	defer file.Close()
@@ -49,6 +48,7 @@ func extractTarGz(src, dest string) {
 	defer gzr.Close()
 
 	tr := tar.NewReader(gzr)
+	var topLevelDir string
 
 	for {
 		header, err := tr.Next()
@@ -57,7 +57,17 @@ func extractTarGz(src, dest string) {
 		}
 		check(err)
 
-		target := filepath.Join(dest, header.Name)
+		// Skip pax_global_header
+		if header.Name == "pax_global_header" {
+			continue
+		}
+
+		// Extract only the top-level directory
+		if topLevelDir == "" {
+			topLevelDir = strings.Split(header.Name, string(filepath.Separator))[0]
+		}
+		target := filepath.Join(dest, strings.TrimPrefix(header.Name, topLevelDir+string(filepath.Separator)))
+
 		switch header.Typeflag {
 		case tar.TypeDir:
 			err = os.MkdirAll(target, 0755)
@@ -72,6 +82,7 @@ func extractTarGz(src, dest string) {
 			check(err)
 		}
 	}
+	return filepath.Join(dest, topLevelDir), nil
 }
 
 // Function to copy .pb.go files to the destination directory and modify imports
@@ -126,6 +137,26 @@ func modifyImports(content, oldPrefix, newPrefix string) string {
 	return re.ReplaceAllString(content, newPrefix)
 }
 
+// Function to move contents of srcDir to destDir
+func moveContents(srcDir, destDir string) {
+	err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		check(err)
+		relPath, err := filepath.Rel(srcDir, path)
+		check(err)
+		destPath := filepath.Join(destDir, relPath)
+		if info.IsDir() {
+			err := os.MkdirAll(destPath, 0755)
+			check(err)
+		} else {
+			err := os.Rename(path, destPath)
+			check(err)
+		}
+		return nil
+	})
+	check(err)
+}
+
+// init function to run the downloader and file modifier
 func main() {
 	// Get latest version tag from GitHub API
 	resp, err := http.Get("https://api.github.com/repos/XTLS/xray-core/releases/latest")
@@ -158,12 +189,20 @@ func main() {
 	downloadLatestRelease(downloadUrl, tarballPath)
 	fmt.Println("Source downloaded. Extracting...")
 
-	// Extract tarball
+	// Extract tarball and get the top-level directory
 	extractDir := filepath.Join(tmpDir, "extracted")
 	err = os.MkdirAll(extractDir, 0755)
 	check(err)
-	extractTarGz(tarballPath, extractDir)
+	topLevelDir, err := extractTarGz(tarballPath, extractDir)
+	check(err)
 	fmt.Println("Source extracted.")
+
+	// Move contents to the destination directory
+	finalExtractDir := filepath.Join(tmpDir, "final")
+	err = os.MkdirAll(finalExtractDir, 0755)
+	check(err)
+	moveContents(topLevelDir, finalExtractDir)
+	fmt.Println("Top-level directory ignored.")
 
 	// Copy .pb.go files to the destination directory and modify imports
 	destDir := "." // or any directory you want to copy files to
@@ -171,6 +210,6 @@ func main() {
 	newPrefix := "marzban-node/xray_api/proto"
 
 	fmt.Println("Copying .pb.go files and modifying imports...")
-	copyAndModifyPbGoFiles(extractDir, destDir, oldPrefix, newPrefix)
+	copyAndModifyPbGoFiles(finalExtractDir, destDir, oldPrefix, newPrefix)
 	fmt.Println("Done.")
 }

@@ -3,7 +3,6 @@ package types
 import (
 	"github.com/google/uuid"
 	"marzban-node/xray_api/proto/common/serial"
-
 	"marzban-node/xray_api/proto/proxy/shadowsocks"
 	"marzban-node/xray_api/proto/proxy/trojan"
 	"marzban-node/xray_api/proto/proxy/vless"

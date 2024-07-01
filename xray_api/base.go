@@ -3,36 +3,39 @@ package xray_api
 import (
 	"fmt"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"marzban-node/xray_api/proto/app/proxyman/command"
+	statsService "marzban-node/xray_api/proto/app/stats/command"
 )
 
-type XrayClient struct {
-	address string
-	port    int
-	channel *grpc.ClientConn
+type XrayAPI struct {
+	HandlerServiceClient *command.HandlerServiceClient
+	StatsServiceClient   *statsService.StatsServiceClient
+	GrpcClient           *grpc.ClientConn
 }
 
-func NewXrayClient(address string, port int, sslCert, sslTargetName string) (*XrayClient, error) {
-	if sslTargetName == "" {
-		sslTargetName = "Gozargah"
-	}
+func NewXrayAPI(apiPort int) (*XrayAPI, error) {
+	x := &XrayAPI{}
 
-	x := &XrayClient{
-		address: address,
-		port:    port,
-	}
+	var err error
+	x.GrpcClient, err = grpc.NewClient(fmt.Sprintf("127.0.0.1:%v", apiPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	creds, err := credentials.NewClientTLSFromFile(sslCert, sslTargetName)
 	if err != nil {
 		return nil, err
 	}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%d", address, port), opts...)
-	if err != nil {
-		return nil, err
-	}
-	x.channel = conn
+	hsClient := command.NewHandlerServiceClient(x.GrpcClient)
+	ssClient := statsService.NewStatsServiceClient(x.GrpcClient)
+	x.HandlerServiceClient = &hsClient
+	x.StatsServiceClient = &ssClient
 
 	return x, nil
+}
+
+func (x *XrayAPI) Close() {
+	if x.GrpcClient != nil {
+		x.GrpcClient.Close()
+	}
+	x.StatsServiceClient = nil
+	x.HandlerServiceClient = nil
 }
