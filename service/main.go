@@ -1,65 +1,60 @@
 package service
 
 import (
-	"encoding/json"
 	"github.com/go-chi/chi/v5"
-	log "marzban-node/logger"
-	"marzban-node/middleware"
-	"marzban-node/xray"
-	"net/http"
-
-	"github.com/google/uuid"
 )
 
-type Service struct {
-	Router      chi.Router
-	Connected   bool
-	ClientIP    string
-	SessionID   uuid.UUID
-	Core        *xray.Core
-	CoreVersion string
-	Config      xray.Config
-}
+func NewService() (*Service, error) {
 
-func NewService() *Service {
-	core, err := xray.NewXRayCore()
+	s := new(Service)
+	err := s.Init()
 	if err != nil {
-		log.ErrorLog("Failed to create new core: ", err)
+		return nil, err
 	}
 
-	s := &Service{
-		Router: chi.NewRouter(),
-		Core:   core,
-	}
-	s.CoreVersion = s.Core.Version
+	s.startJobs()
 
-	s.Router.Use(middleware.LogRequest)
+	router := s.GetRouter()
 
-	s.Router.Post("/", s.Base)
-	s.Router.Post("/ping", s.Ping)
-	s.Router.Post("/connect", s.Connect)
-	s.Router.Post("/disconnect", s.Disconnect)
-	s.Router.Post("/start", s.Start)
-	s.Router.Post("/stop", s.Stop)
-	s.Router.Post("/restart", s.Restart)
+	// Api Handlers
+	router.Use(LogRequest)
 
-	s.Router.HandleFunc("/logs", s.Logs)
+	router.Post("/", s.Base)
+	router.Post("/connect", s.Connect)
+	router.HandleFunc("/logs", s.Logs)
 
-	return s
-}
+	router.Group(func(protected chi.Router) {
+		// middleware
+		protected.Use(s.CheckSessionID)
 
-func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
-	json.NewEncoder(w).Encode(s.response())
-}
+		router.Post("/ping", s.Ping)
+		router.Post("/start", s.Start)
+		router.Post("/stop", s.Stop)
+		router.Post("/restart", s.Restart)
+		router.Post("/disconnect", s.Disconnect)
+	})
 
-func (s *Service) response(extra ...interface{}) map[string]interface{} {
-	res := map[string]interface{}{
-		"connected":    s.Connected,
-		"started":      s.Core.Started(),
-		"core_version": s.CoreVersion,
-	}
-	for i := 0; i < len(extra); i += 2 {
-		res[extra[i].(string)] = extra[i+1]
-	}
-	return res
+	// users api
+	router.Group(func(userGroup chi.Router) {
+		userGroup.Use(s.CheckSessionID)
+		userGroup.Mount("/user", userGroup)
+
+		router.Post("/add", s.AddUser)
+		router.Post("/update", s.UpdateUser)
+		router.Post("/remove", s.RemoveUser)
+	})
+
+	// stats api
+	router.Group(func(statsGroup chi.Router) {
+		statsGroup.Use(s.CheckSessionID)
+		statsGroup.Mount("/stats", statsGroup)
+
+		router.Post("/users", s.GetUsersStats)
+		router.Post("/inbounds", s.GetInboundsStats)
+		router.Post("/outbounds", s.GetOutboundsStats)
+		router.Post("/system", s.GetSystemStats)
+		router.Post("/nodes", s.GetNodeStats)
+	})
+
+	return s, nil
 }

@@ -2,12 +2,20 @@ package xray
 
 import (
 	"encoding/json"
-	"marzban-node/config"
+)
+
+type Protocol string
+
+const (
+	Vmess       = "vmess"
+	Vless       = "vless"
+	Trojan      = "trojan"
+	Shadowsocks = "shadowsocks"
 )
 
 type Config struct {
 	Log       Log           `json:"log,omitempty"`
-	Inbounds  []Inbound     `json:"inbounds"`
+	Inbounds  []Inbound     `json:"Inbounds"`
 	Outbounds []interface{} `json:"outbounds,omitempty"`
 	Routing   Routing       `json:"routing,omitempty"`
 	API       API           `json:"api"`
@@ -18,18 +26,18 @@ type Config struct {
 type Log struct {
 	Access   string `json:"access,omitempty"`
 	Error    string `json:"error,omitempty"`
-	LogLevel string `json:"logLevel,omitempty"`
+	LogLevel string `json:"loglevel,omitempty"`
 	DnsLog   string `json:"dnsLog,omitempty"`
 }
 
 type Inbound struct {
-	Listen         string      `json:"listen"`
-	Port           int         `json:"port"`
-	Protocol       string      `json:"protocol"`
-	Settings       interface{} `json:"settings"`
-	StreamSettings interface{} `json:"streamSettings"`
-	Tag            string      `json:"tag"`
-	Sniffing       interface{} `json:"sniffing"`
+	Listen         string                 `json:"listen,omitempty"`
+	Port           int                    `json:"port,omitempty"`
+	Protocol       string                 `json:"protocol"`
+	Settings       map[string]interface{} `json:"settings"`
+	StreamSettings map[string]interface{} `json:"streamSettings,omitempty"`
+	Tag            string                 `json:"tag"`
+	Sniffing       interface{}            `json:"sniffing,omitempty"`
 }
 
 type API struct {
@@ -49,8 +57,13 @@ type Levels struct {
 }
 
 type Level struct {
+	Handshake         int  `json:"handshake,omitempty"`
+	ConnIdle          int  `json:"connIdle,omitempty"`
+	UplinkOnly        int  `json:"uplinkOnly,omitempty"`
+	DownlinkOnly      int  `json:"downlinkOnly,omitempty"`
 	StatsUserUplink   bool `json:"statsUserUplink"`
 	StatsUserDownlink bool `json:"statsUserDownlink"`
+	BufferSize        int  `json:"bufferSize,omitempty"`
 }
 
 type System struct {
@@ -99,90 +112,85 @@ type Certificate struct {
 	KeyFile         string `json:"keyFile"`
 }
 
-func NewXRayConfig(config string, peerIP string) (*Config, error) {
-	var xrayConfig Config
-	err := json.Unmarshal([]byte(config), &xrayConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply API changes
-	xrayConfig.applyAPI(peerIP)
-
-	return &xrayConfig, nil
-}
-
-func (x *Config) ToJSON() (string, error) {
-	b, err := json.Marshal(x)
+func (c *Config) ToJSON() (string, error) {
+	b, err := json.Marshal(c)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
 }
 
-func (x *Config) applyAPI(peerIP string) {
-	for i, inbound := range x.Inbounds {
+func NewXRayConfig(config string) (*Config, error) {
+	var xrayConfig Config
+	err := json.Unmarshal([]byte(config), &xrayConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &xrayConfig, nil
+}
+
+func (c *Config) ApplyAPI(apiPort int) error {
+	for i, inbound := range c.Inbounds {
 		if inbound.Protocol == "dokodemo-door" {
-			x.Inbounds = append(x.Inbounds[:i], x.Inbounds[i+1:]...)
-			break
+			c.Inbounds = append(c.Inbounds[:i], c.Inbounds[i+1:]...)
 		}
 	}
 
-	apiTag := x.API.Tag
-	for i, rule := range x.Routing.Rules {
+	apiTag := c.API.Tag
+	for i, rule := range c.Routing.Rules {
 		if apiTag != "" && rule.OutboundTag == apiTag {
-			x.Routing.Rules = append(x.Routing.Rules[:i], x.Routing.Rules[i+1:]...)
-			break
+			c.Routing.Rules = append(c.Routing.Rules[:i], c.Routing.Rules[i+1:]...)
 		}
 	}
 
-	x.API.Services = []string{"HandlerService", "StatsService", "LoggerService"}
-	x.API.Tag = "API"
+	c.API.Services = []string{"HandlerService", "LoggerService", "StatsService"}
+	c.API.Tag = "API"
 
-	x.Stats = Stats{}
+	c.Stats = Stats{}
 
-	x.Policy = Policy{
-		Levels: Levels{
-			Zero: Level{
-				StatsUserUplink:   true,
-				StatsUserDownlink: true,
-			},
-		},
-		System: System{
-			StatsInboundDownlink:  false,
-			StatsInboundUplink:    false,
-			StatsOutboundDownlink: true,
-			StatsOutboundUplink:   true,
-		},
-	}
+	c.checkPolicy()
 
 	inbound := Inbound{
-		Listen:   "0.0.0.0",
-		Port:     config.XrayApiPort,
+		Listen:   "127.0.0.1",
+		Port:     apiPort,
 		Protocol: "dokodemo-door",
-		Settings: Settings{
-			Address: "127.0.0.1",
+		Settings: map[string]interface{}{
+			"address": "127.0.0.1",
 		},
-		StreamSettings: StreamSettings{
-			Security: "tls",
-			TLSSettings: TLSSettings{
-				Certificates: []Certificate{
-					{
-						CertificateFile: config.SslCertFile,
-						KeyFile:         config.SslKeyFile,
-					},
-				},
-			},
-		},
+		//StreamSettings: map[string]interface{}{
+		//	"security": "tls",
+		//	"tlsSettings": map[string]interface{}{
+		//		"certificates": []map[string]string{
+		//			{
+		//				"certificateFile": cert,
+		//				"keyFile":         key,
+		//			},
+		//		},
+		//	},
+		//},
 		Tag: "API_INBOUND",
 	}
-	x.Inbounds = append([]Inbound{inbound}, x.Inbounds...)
+	c.Inbounds = append([]Inbound{inbound}, c.Inbounds...)
 
 	rule := Rule{
 		InboundTag:  []string{"API_INBOUND"},
-		Source:      []string{"127.0.0.1", peerIP},
+		Source:      []string{"127.0.0.1"},
 		OutboundTag: "API",
 		Type:        "field",
 	}
-	x.Routing.Rules = append([]Rule{rule}, x.Routing.Rules...)
+	c.Routing.Rules = append([]Rule{rule}, c.Routing.Rules...)
+	return nil
+}
+
+func (c *Config) checkPolicy() {
+	c.Policy.Levels.Zero.StatsUserDownlink = true
+	c.Policy.Levels.Zero.StatsUserUplink = true
+
+	c.Policy.System = System{
+		StatsInboundDownlink:  false,
+		StatsInboundUplink:    false,
+		StatsOutboundDownlink: true,
+		StatsOutboundUplink:   true,
+	}
 }
