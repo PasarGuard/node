@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"time"
 
 	cnf "marzban-node/config"
 	log "marzban-node/logger"
@@ -237,6 +238,7 @@ func (x *Core) fillChannel(ctx context.Context) {
 				}
 			}
 		}
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 

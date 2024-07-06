@@ -94,16 +94,15 @@ Loop:
 
 	time.Sleep(10 * time.Second)
 	// test HandlerServiceClient
-	user := xray.User{
-		ID:       1,
-		Username: "Mosed",
-		Inbounds: xray.Inbounds{
+	user := &xray.User{
+		Email: "Mosed.1",
+		Inbounds: &xray.Inbounds{
 			Vmess:       []string{"VMESS_TCP_INBOUND", "VMESS_no_tls"},
 			Vless:       []string{"VLESS_Reality"},
 			Trojan:      []string{},
 			Shadowsocks: []string{},
 		},
-		Proxies: xray.Proxy{
+		Proxies: &xray.Proxy{
 			Vmess: &xray.VmessSetting{
 				ID: uuid.New(),
 			},
@@ -115,8 +114,7 @@ Loop:
 
 	ctx2, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-	email := fmt.Sprintf("%s.%d", user.Username, user.ID)
-	proxySetting := xray.SetupUserAccount(user, email)
+	proxySetting := xray.SetupUserAccount(user)
 
 	for _, inbound := range newConfig.Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)

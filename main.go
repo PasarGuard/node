@@ -89,7 +89,7 @@ func main() {
 
 	// Shutdown the server gracefully
 	if err = server.Shutdown(ctx); err != nil {
-		log.Error("Server forced to shutdown: %v", err)
+		log.Error("Server forced to shutdown: ", err)
 	}
 
 	log.Info("Performing cleanup job...")

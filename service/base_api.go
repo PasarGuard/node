@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"marzban-node/xray"
 	"net"
 	"net/http"
 	"regexp"
@@ -72,17 +71,23 @@ func (s *Service) Ping(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
-	var body map[string]interface{}
+	var body startBody
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	newConfig, err := s.makeConfigReady(body["config"].(string))
+	newConfig := body.Config
+	if newConfig == nil {
+		http.Error(w, "no config received", http.StatusNotAcceptable)
+		return
+	}
+
+	err = newConfig.ApplyAPI(s.GetAPIPort())
 	if err != nil {
-		log.Error(err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Error("Failed to apply API: ", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -116,17 +121,16 @@ func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
-	var body map[string]interface{}
+	var body startBody
 	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	newConfig, err := s.makeConfigReady(body["config"].(string))
-	if err != nil {
-		log.Error(err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	newConfig := body.Config
+	if newConfig == nil {
+		http.Error(w, "no config received", http.StatusNotAcceptable)
 		return
 	}
 
@@ -148,19 +152,6 @@ func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.response())
-}
-
-func (s *Service) makeConfigReady(config string) (*xray.Config, error) {
-	newConfig, err := xray.NewXRayConfig(config)
-	if err != nil {
-		return nil, errors.New("Failed to decode config: " + err.Error())
-	}
-
-	err = newConfig.ApplyAPI(s.GetAPIPort())
-	if err != nil {
-		return nil, errors.New("Failed to apply API: " + err.Error())
-	}
-	return newConfig, nil
 }
 
 func (s *Service) checkXrayStatus() error {

@@ -27,28 +27,80 @@ type Service struct {
 	mu         sync.Mutex
 }
 
-type session struct {
-	SessionId string `json:"session_id"`
+type userBody struct {
+	User *xray.User `json:"user"`
+}
+
+type startBody struct {
+	Config *xray.Config `json:"config"`
 }
 
 func (s *Service) Init() error {
+	s.SetSessionID(uuid.Nil)
+	s.SetIP("")
+	s.SetConnected(false)
+
 	s.SetRouter()
 	s.ResetAPIPort()
+
 	err := s.ResetCore()
 	if err != nil {
 		return err
 	}
+
 	err = s.ResetXrayAPI()
 	if err != nil {
-
 	}
+
+	s.startJobs()
+
 	return nil
 }
 
 func (s *Service) SetRouter() {
+	router := chi.NewRouter()
+
+	// Api Handlers
+	router.Use(LogRequest)
+
+	router.Post("/", s.Base)
+	router.Post("/connect", s.Connect)
+	router.HandleFunc("/logs", s.Logs)
+
+	router.Group(func(protected chi.Router) {
+		// check session and need to return data as context
+		protected.Use(s.checkSessionID)
+
+		protected.Post("/ping", s.Ping)
+		protected.Post("/start", s.Start)
+		protected.Post("/restart", s.Restart)
+		protected.Post("/stop", s.Stop)
+		protected.Post("/disconnect", s.Disconnect)
+
+		// users api
+		protected.Group(func(userGroup chi.Router) {
+			userGroup.Mount("/user", userGroup)
+
+			userGroup.Post("/add", s.AddUser)
+			userGroup.Post("/update", s.UpdateUser)
+			userGroup.Post("/remove", s.RemoveUser)
+		})
+
+		// stats api
+		protected.Group(func(statsGroup chi.Router) {
+			statsGroup.Mount("/stats", statsGroup)
+
+			statsGroup.Post("/users", s.GetUsersStats)
+			statsGroup.Post("/inbounds", s.GetInboundsStats)
+			statsGroup.Post("/outbounds", s.GetOutboundsStats)
+			statsGroup.Post("/system", s.GetSystemStats)
+			statsGroup.Post("/node", s.GetNodeStats)
+		})
+	})
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Router = chi.NewRouter()
+	s.Router = router
 }
 
 func (s *Service) GetRouter() chi.Router {
@@ -167,6 +219,7 @@ func (s *Service) startJobs() {
 
 func (s *Service) StopJobs() {
 	s.GetCore().Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancelFunc()
@@ -186,11 +239,7 @@ func (s *Service) getSystemStats(ctx context.Context) {
 				s.stats = stats
 				s.mu.Unlock()
 			}
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
-}
-
-type UserData struct {
-	User xray.User `json:"user"`
 }
