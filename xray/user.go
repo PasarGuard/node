@@ -7,13 +7,13 @@ import (
 	"slices"
 )
 
-func SetupUserAccount(user User, email string) types.ProxySettings {
+func SetupUserAccount(user *User) types.ProxySettings {
 	settings := types.ProxySettings{}
 
 	if user.Proxies.Vmess != nil && user.Proxies.Vmess.ID != uuid.Nil {
 		settings.Vmess = &types.VMessAccount{
 			BaseAccount: types.BaseAccount{
-				Email: email,
+				Email: user.Email,
 				Level: uint32(0),
 			},
 			ID: user.Proxies.Vmess.ID,
@@ -23,7 +23,7 @@ func SetupUserAccount(user User, email string) types.ProxySettings {
 	if user.Proxies.Vless != nil && user.Proxies.Vless.ID != uuid.Nil {
 		settings.Vless = &types.VLESSAccount{
 			BaseAccount: types.BaseAccount{
-				Email: email,
+				Email: user.Email,
 				Level: uint32(0),
 			},
 			ID:   user.Proxies.Vless.ID,
@@ -34,7 +34,7 @@ func SetupUserAccount(user User, email string) types.ProxySettings {
 	if user.Proxies.Trojan != nil && &user.Proxies.Trojan.Password != nil {
 		settings.Trojan = &types.TrojanAccount{
 			BaseAccount: types.BaseAccount{
-				Email: email,
+				Email: user.Email,
 				Level: uint32(0),
 			},
 			Password: user.Proxies.Trojan.Password,
@@ -44,7 +44,7 @@ func SetupUserAccount(user User, email string) types.ProxySettings {
 	if user.Proxies.Shadowsocks != nil && &user.Proxies.Shadowsocks.Password != nil {
 		settings.Shadowsocks = &types.ShadowsocksAccount{
 			BaseAccount: types.BaseAccount{
-				Email: email,
+				Email: user.Email,
 				Level: uint32(0),
 			},
 			Password: user.Proxies.Trojan.Password,
@@ -55,7 +55,7 @@ func SetupUserAccount(user User, email string) types.ProxySettings {
 	return settings
 }
 
-func IsActiveInbound(inbound Inbound, user User, settings types.ProxySettings) (types.Account, bool) {
+func IsActiveInbound(inbound Inbound, user *User, settings types.ProxySettings) (types.Account, bool) {
 	switch inbound.Protocol {
 	case Vmess:
 		if slices.Contains(user.Inbounds.Vmess, inbound.Tag) {
@@ -109,8 +109,7 @@ type VlessSetting struct {
 }
 
 type TrojanSetting struct {
-	Password string          `json:"password"`
-	Flow     types.XTLSFlows `json:"flow"`
+	Password string `json:"password"`
 }
 
 type ShadowsocksSetting struct {
@@ -134,8 +133,7 @@ type Inbounds struct {
 
 // User struct used to get detail of a user from main panel
 type User struct {
-	ID       int      `json:"id"`
-	Username string   `json:"username,omitempty"`
-	Proxies  Proxy    `json:"proxies,omitempty"`
-	Inbounds Inbounds `json:"Inbounds,omitempty"`
+	Email    string    `json:"email"`
+	Proxies  *Proxy    `json:"proxies,omitempty"`
+	Inbounds *Inbounds `json:"inbounds,omitempty"`
 }

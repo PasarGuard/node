@@ -1,17 +1,28 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
-	log "marzban-node/logger"
 	"net"
 	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/google/uuid"
+
+	log "marzban-node/logger"
 )
 
-func (s *Service) CheckSessionID(next http.Handler) http.Handler {
+func (s *Service) checkSessionID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// check ip
+		clientIP := s.GetIP()
+		clientID := s.GetSessionID()
+		if clientIP == "" || clientID == uuid.Nil {
+			http.Error(w, "please connect first", http.StatusTooEarly)
+			return
+		}
+
 		// check ip
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
@@ -23,21 +34,21 @@ func (s *Service) CheckSessionID(next http.Handler) http.Handler {
 			return
 		}
 
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "please connect first", http.StatusUnauthorized)
+			return
+		}
+
+		tokenString := strings.Split(authHeader, " ")[1]
 		// check session id
-		var body session
-		err = json.NewDecoder(r.Body).Decode(&body)
+		sessionID, err := uuid.Parse(tokenString)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "please send valid uuid", http.StatusUnprocessableEntity)
 			return
 		}
 
-		sessionID, err := uuid.Parse(body.SessionId)
-		if err != nil {
-			http.Error(w, "please send valid uuid", http.StatusBadRequest)
-			return
-		}
-
-		if sessionID != s.GetSessionID() {
+		if sessionID != clientID {
 			http.Error(w, "Session ID mismatch.", http.StatusForbidden)
 			return
 		}

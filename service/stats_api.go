@@ -95,7 +95,7 @@ func (s *Service) GetSystemStats(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
 
 	response, err := api.GetSysStats(ctx)
