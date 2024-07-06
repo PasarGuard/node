@@ -26,7 +26,7 @@ func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
 
 	user := body.User
 	if user == nil {
-		http.Error(w, "no config received", http.StatusNotAcceptable)
+		http.Error(w, "no user received", http.StatusNotAcceptable)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	user := body.User
 	if user == nil {
-		http.Error(w, "no config received", http.StatusNotAcceptable)
+		http.Error(w, "no user received", http.StatusNotAcceptable)
 		return
 	}
 
@@ -117,7 +117,7 @@ func (s *Service) RemoveUser(w http.ResponseWriter, r *http.Request) {
 
 	user := body.User
 	if user == nil {
-		http.Error(w, "no config received", http.StatusNotAcceptable)
+		http.Error(w, "no user received", http.StatusNotAcceptable)
 		return
 	}
 

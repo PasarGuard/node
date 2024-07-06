@@ -158,17 +158,6 @@ func (c *Config) ApplyAPI(apiPort int) error {
 		Settings: map[string]interface{}{
 			"address": "127.0.0.1",
 		},
-		//StreamSettings: map[string]interface{}{
-		//	"security": "tls",
-		//	"tlsSettings": map[string]interface{}{
-		//		"certificates": []map[string]string{
-		//			{
-		//				"certificateFile": cert,
-		//				"keyFile":         key,
-		//			},
-		//		},
-		//	},
-		//},
 		Tag: "API_INBOUND",
 	}
 	c.Inbounds = append([]Inbound{inbound}, c.Inbounds...)
