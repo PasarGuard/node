@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -133,13 +134,20 @@ func (x *Core) Start(config *Config) error {
 	go x.fillChannel(ctx)
 
 	if cnf.Debug {
-		jsonFile, err := os.Create(cnf.GeneratedConfigPath)
+		var prettyJSON bytes.Buffer
+		var jsonFile *os.File
+		err = json.Indent(&prettyJSON, []byte(xrayJson), "", "    ")
 		if err != nil {
-			log.Error("Can't create generated config json file", err)
+			log.Error("Problem in formatting JSON: ", err)
 		} else {
-			_, err = jsonFile.WriteString(xrayJson)
+			jsonFile, err = os.Create(cnf.GeneratedConfigPath)
 			if err != nil {
-				log.Error("Problem in writing generated config json File: ", err)
+				log.Error("Can't create generated config json file", err)
+			} else {
+				_, err = jsonFile.WriteString(prettyJSON.String())
+				if err != nil {
+					log.Error("Problem in writing generated config json File: ", err)
+				}
 			}
 		}
 	}
@@ -181,8 +189,8 @@ func (x *Core) Restart(config *Config) error {
 	return nil
 }
 
-func (x *Core) captureProcessLogs(ctx context.Context, stdoutPipe io.Reader) {
-	scanner := bufio.NewScanner(stdoutPipe)
+func (x *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
+	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

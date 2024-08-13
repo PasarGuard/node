@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"marzban-node/tools"
 	"net/http"
@@ -74,7 +75,7 @@ func main() {
 	go func() {
 		log.Info("Server is listening on", addr)
 		log.Info("Press Ctrl+C to stop")
-		if err = server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		if err = server.ListenAndServeTLS("", ""); err != nil && !errors.Is(http.ErrServerClosed, err) {
 			log.Error("Failed to start server: %v", err)
 		}
 	}()
@@ -82,6 +83,9 @@ func main() {
 	// Wait for interrupt signal
 	<-stopChan
 	log.Info("Shutting down server...")
+
+	log.Info("Performing cleanup job...")
+	s.StopJobs()
 
 	// Create a context with timeout for the shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -92,10 +96,5 @@ func main() {
 		log.Error("Server forced to shutdown: ", err)
 	}
 
-	log.Info("Performing cleanup job...")
-
-	s.StopJobs()
-
-	// Add your cleanup code here
 	log.Info("Server gracefully stopped")
 }

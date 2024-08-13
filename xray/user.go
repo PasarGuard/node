@@ -5,6 +5,7 @@ import (
 	"marzban-node/xray_api/proto/proxy/shadowsocks"
 	"marzban-node/xray_api/types"
 	"slices"
+	"strings"
 )
 
 func SetupUserAccount(user *User) types.ProxySettings {
@@ -48,7 +49,19 @@ func SetupUserAccount(user *User) types.ProxySettings {
 				Level: uint32(0),
 			},
 			Password: user.Proxies.Trojan.Password,
-			Method:   user.Proxies.Shadowsocks.Method,
+		}
+		if val, ok := shadowsocks.CipherType_value[strings.ToUpper(user.Proxies.Shadowsocks.Method)]; ok {
+			settings.Shadowsocks.Method = shadowsocks.CipherType(val)
+		} else {
+			settings.Shadowsocks.Method = shadowsocks.CipherType_NONE
+		}
+
+		settings.Shadowsocks2022 = &types.Shadowsocks2022Account{
+			BaseAccount: types.BaseAccount{
+				Email: user.Email,
+				Level: uint32(0),
+			},
+			Key: user.Proxies.Shadowsocks.Password,
 		}
 	}
 
@@ -93,6 +106,10 @@ func IsActiveInbound(inbound Inbound, user *User, settings types.ProxySettings) 
 		}
 	case Shadowsocks:
 		if slices.Contains(user.Inbounds.Shadowsocks, inbound.Tag) {
+			method, methodOk := inbound.Settings["method"].(string)
+			if methodOk && strings.HasPrefix("2022-blake3", method) {
+				return settings.Shadowsocks2022, true
+			}
 			return settings.Shadowsocks, true
 		}
 	}
@@ -113,8 +130,8 @@ type TrojanSetting struct {
 }
 
 type ShadowsocksSetting struct {
-	Password string                 `json:"password"`
-	Method   shadowsocks.CipherType `json:"method"`
+	Password string `json:"password"`
+	Method   string `json:"method"`
 }
 
 type Proxy struct {

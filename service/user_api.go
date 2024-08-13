@@ -30,14 +30,14 @@ func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	proxySetting := xray.SetupUserAccount(user)
 	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err := api.AddInboundUser(ctx, inbound.Tag, account)
+			err = api.AddInboundUser(ctx, inbound.Tag, account)
 			if err != nil {
 				errorMessage := "Failed to add user:"
 				http.Error(w, errorMessage+err.Error(), http.StatusInternalServerError)
@@ -73,14 +73,14 @@ func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	var activeInbounds []string
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	proxySetting := xray.SetupUserAccount(user)
 	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err := api.AddInboundUser(ctx, inbound.Tag, account)
+			err = api.AddInboundUser(ctx, inbound.Tag, account)
 			activeInbounds = append(activeInbounds, inbound.Tag)
 			if err != nil {
 				errorMessage := "Failed to add user:"
@@ -121,7 +121,7 @@ func (s *Service) RemoveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	for _, inbound := range s.GetConfig().Inbounds {

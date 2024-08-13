@@ -109,8 +109,6 @@ func (s *Service) GetSystemStats(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) GetNodeStats(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.stats)
+	json.NewEncoder(w).Encode(s.GetStats())
 }

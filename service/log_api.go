@@ -1,7 +1,6 @@
 package service
 
 import (
-	"github.com/google/uuid"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,17 +14,6 @@ var upgrader = websocket.Upgrader{
 }
 
 func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
-	sessionID, err := uuid.Parse(r.URL.Query().Get("session_id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if sessionID != s.GetSessionID() {
-		http.Error(w, "Session ID mismatch.", http.StatusForbidden)
-		return
-	}
-
 	interval, err := strconv.ParseFloat(r.URL.Query().Get("interval"), 64)
 	if err != nil {
 		http.Error(w, "Invalid interval value.", http.StatusBadRequest)

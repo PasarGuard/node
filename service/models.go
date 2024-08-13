@@ -65,7 +65,6 @@ func (s *Service) SetRouter() {
 
 	router.Post("/", s.Base)
 	router.Post("/connect", s.Connect)
-	router.HandleFunc("/logs", s.Logs)
 
 	router.Group(func(protected chi.Router) {
 		// check session and need to return data as context
@@ -76,6 +75,8 @@ func (s *Service) SetRouter() {
 		protected.Post("/restart", s.Restart)
 		protected.Post("/stop", s.Stop)
 		protected.Post("/disconnect", s.Disconnect)
+
+		protected.HandleFunc("/logs", s.Logs)
 
 		// users api
 		protected.Group(func(userGroup chi.Router) {
@@ -90,11 +91,11 @@ func (s *Service) SetRouter() {
 		protected.Group(func(statsGroup chi.Router) {
 			statsGroup.Mount("/stats", statsGroup)
 
-			statsGroup.Post("/users", s.GetUsersStats)
-			statsGroup.Post("/inbounds", s.GetInboundsStats)
-			statsGroup.Post("/outbounds", s.GetOutboundsStats)
-			statsGroup.Post("/system", s.GetSystemStats)
-			statsGroup.Post("/node", s.GetNodeStats)
+			statsGroup.Get("/users", s.GetUsersStats)
+			statsGroup.Get("/inbounds", s.GetInboundsStats)
+			statsGroup.Get("/outbounds", s.GetOutboundsStats)
+			statsGroup.Get("/system", s.GetSystemStats)
+			statsGroup.Get("/node", s.GetNodeStats)
 		})
 	})
 
@@ -209,23 +210,7 @@ func (s *Service) GetXrayAPI() *xray_api.XrayAPI {
 	return s.xrayAPI
 }
 
-func (s *Service) startJobs() {
-	ctx, cancel := context.WithCancel(context.Background())
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancelFunc = cancel
-	go s.getSystemStats(ctx)
-}
-
-func (s *Service) StopJobs() {
-	s.GetCore().Stop()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cancelFunc()
-}
-
-func (s *Service) getSystemStats(ctx context.Context) {
+func (s *Service) recordSystemStats(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -242,4 +227,26 @@ func (s *Service) getSystemStats(ctx context.Context) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+func (s *Service) GetStats() tools.SystemStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stats
+}
+
+func (s *Service) startJobs() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelFunc = cancel
+	go s.recordSystemStats(ctx)
+}
+
+func (s *Service) StopJobs() {
+	s.GetCore().Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelFunc()
 }
