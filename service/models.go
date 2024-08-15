@@ -76,7 +76,7 @@ func (s *Service) SetRouter() {
 		protected.Post("/stop", s.Stop)
 		protected.Post("/disconnect", s.Disconnect)
 
-		protected.HandleFunc("/logs", s.Logs)
+		protected.Get("/logs", s.Logs)
 
 		// users api
 		protected.Group(func(userGroup chi.Router) {
