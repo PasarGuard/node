@@ -63,18 +63,18 @@ func (s *Service) SetRouter() {
 	// Api Handlers
 	router.Use(LogRequest)
 
-	router.Post("/", s.Base)
-	router.Post("/connect", s.Connect)
+	router.Get("/", s.Base)
+	router.Get("/connect", s.Connect)
 
 	router.Group(func(protected chi.Router) {
 		// check session and need to return data as context
 		protected.Use(s.checkSessionID)
 
-		protected.Post("/ping", s.Ping)
+		protected.Get("/ping", s.Ping)
 		protected.Post("/start", s.Start)
 		protected.Post("/restart", s.Restart)
-		protected.Post("/stop", s.Stop)
-		protected.Post("/disconnect", s.Disconnect)
+		protected.Get("/stop", s.Stop)
+		protected.Get("/disconnect", s.Disconnect)
 
 		protected.Get("/logs", s.Logs)
 

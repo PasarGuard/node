@@ -38,7 +38,7 @@ func NewXRayCore() (*Core, error) {
 		tempLogBuffers: tempLog,
 	}
 
-	version, err := core.RefreshVersion()
+	version, err := core.refreshVersion()
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func NewXRayCore() (*Core, error) {
 	return core, nil
 }
 
-func (x *Core) RefreshVersion() (string, error) {
+func (x *Core) refreshVersion() (string, error) {
 	cmd := exec.Command(x.executablePath, "version")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -99,6 +99,8 @@ func (x *Core) Start(config *Config) error {
 		config.Log.LogLevel = "warning"
 	}
 
+	accessFile, errorFile := config.RemoveLogFiles()
+
 	cmd := exec.Command(x.executablePath, "run", "-config", "stdin:")
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+x.assetsPath)
 
@@ -123,6 +125,8 @@ func (x *Core) Start(config *Config) error {
 	if err != nil {
 		return err
 	}
+
+	log.SetLogFile(accessFile, errorFile)
 
 	ctx := x.makeContext()
 
@@ -197,9 +201,7 @@ func (x *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 			return // Exit gracefully if stop signal received
 		default:
 			output := scanner.Text()
-			if cnf.Debug {
-				log.DetectLogType(output)
-			}
+			log.DetectLogType(output)
 			x.mu.Lock()
 			x.tempLogBuffers = append(x.tempLogBuffers, output)
 			x.mu.Unlock()
@@ -246,7 +248,7 @@ func (x *Core) fillChannel(ctx context.Context) {
 				}
 			}
 		}
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 

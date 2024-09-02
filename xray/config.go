@@ -186,3 +186,12 @@ func (c *Config) checkPolicy() {
 		StatsOutboundUplink:   true,
 	}
 }
+
+func (c *Config) RemoveLogFiles() (accessFile, errorFile string) {
+	accessFile = c.Log.Access
+	c.Log.Access = ""
+	errorFile = c.Log.Error
+	c.Log.Error = ""
+
+	return accessFile, errorFile
+}
