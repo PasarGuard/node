@@ -98,6 +98,13 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = s.ResetXrayAPI()
+	if err != nil {
+		log.Error("Failed to reset xray API: ", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
 	err = s.checkXrayStatus()
 	if err != nil {
 		log.Error(err)
@@ -134,9 +141,23 @@ func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = newConfig.ApplyAPI(s.GetAPIPort())
+	if err != nil {
+		log.Error("Failed to apply API: ", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
 	err = s.GetCore().Restart(newConfig)
 	if err != nil {
 		log.Error(err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	err = s.ResetXrayAPI()
+	if err != nil {
+		log.Error("Failed to reset xray API: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}

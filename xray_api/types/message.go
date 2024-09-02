@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 
 	"marzban-node/xray_api/proto/common/serial"
 )
@@ -12,7 +12,7 @@ func ToTypedMessage(account proto.Message) (*serial.TypedMessage, error) {
 		return nil, err
 	}
 	return &serial.TypedMessage{
-		Type:  proto.MessageName(account),
+		Type:  string(proto.MessageName(account)),
 		Value: data,
 	}, nil
 }

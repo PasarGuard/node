@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -37,7 +38,7 @@ func NewXRayCore() (*Core, error) {
 		tempLogBuffers: tempLog,
 	}
 
-	version, err := core.RefreshVersion()
+	version, err := core.refreshVersion()
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +47,7 @@ func NewXRayCore() (*Core, error) {
 	return core, nil
 }
 
-func (x *Core) RefreshVersion() (string, error) {
+func (x *Core) refreshVersion() (string, error) {
 	cmd := exec.Command(x.executablePath, "version")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -98,6 +99,8 @@ func (x *Core) Start(config *Config) error {
 		config.Log.LogLevel = "warning"
 	}
 
+	accessFile, errorFile := config.RemoveLogFiles()
+
 	cmd := exec.Command(x.executablePath, "run", "-config", "stdin:")
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+x.assetsPath)
 
@@ -123,6 +126,8 @@ func (x *Core) Start(config *Config) error {
 		return err
 	}
 
+	log.SetLogFile(accessFile, errorFile)
+
 	ctx := x.makeContext()
 
 	x.process = cmd
@@ -133,13 +138,20 @@ func (x *Core) Start(config *Config) error {
 	go x.fillChannel(ctx)
 
 	if cnf.Debug {
-		jsonFile, err := os.Create(cnf.GeneratedConfigPath)
+		var prettyJSON bytes.Buffer
+		var jsonFile *os.File
+		err = json.Indent(&prettyJSON, []byte(xrayJson), "", "    ")
 		if err != nil {
-			log.Error("Can't create generated config json file", err)
+			log.Error("Problem in formatting JSON: ", err)
 		} else {
-			_, err = jsonFile.WriteString(xrayJson)
+			jsonFile, err = os.Create(cnf.GeneratedConfigPath)
 			if err != nil {
-				log.Error("Problem in writing generated config json File: ", err)
+				log.Error("Can't create generated config json file", err)
+			} else {
+				_, err = jsonFile.WriteString(prettyJSON.String())
+				if err != nil {
+					log.Error("Problem in writing generated config json File: ", err)
+				}
 			}
 		}
 	}
@@ -181,17 +193,15 @@ func (x *Core) Restart(config *Config) error {
 	return nil
 }
 
-func (x *Core) captureProcessLogs(ctx context.Context, stdoutPipe io.Reader) {
-	scanner := bufio.NewScanner(stdoutPipe)
+func (x *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
+	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			return // Exit gracefully if stop signal received
 		default:
 			output := scanner.Text()
-			if cnf.Debug {
-				log.DetectLogType(output)
-			}
+			log.DetectLogType(output)
 			x.mu.Lock()
 			x.tempLogBuffers = append(x.tempLogBuffers, output)
 			x.mu.Unlock()
@@ -238,7 +248,7 @@ func (x *Core) fillChannel(ctx context.Context) {
 				}
 			}
 		}
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 

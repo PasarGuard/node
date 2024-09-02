@@ -1,82 +1,79 @@
 package service
 
 import (
-	"github.com/google/uuid"
+	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+type logResponse struct {
+	Logs  []string `json:"logs,omitempty"`
+	Error string   `json:"error,omitempty"`
+}
+
+func sendLogs(w http.ResponseWriter, logs []string, status int) {
+	err := ""
+	if status != http.StatusOK {
+		err = http.StatusText(status)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(logResponse{
+		Logs:  logs,
+		Error: err,
+	})
 }
 
 func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
-	sessionID, err := uuid.Parse(r.URL.Query().Get("session_id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	core := s.GetCore()
+	if !core.Started() {
+		sendLogs(w, []string{}, http.StatusTooEarly)
 	}
+	logs := make([]string, 0, 100)
+	logChan := core.GetLogs()
+	timeout := time.After(60 * time.Second)
+	counter := 0
 
-	if sessionID != s.GetSessionID() {
-		http.Error(w, "Session ID mismatch.", http.StatusForbidden)
-		return
-	}
-
-	interval, err := strconv.ParseFloat(r.URL.Query().Get("interval"), 64)
-	if err != nil {
-		http.Error(w, "Invalid interval value.", http.StatusBadRequest)
-		return
-	}
-
-	if interval > 10 && interval > 0 {
-		http.Error(w, "Interval must be more than 0 and at most 10 seconds.", http.StatusBadRequest)
-		return
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer func(conn *websocket.Conn) {
-		_ = conn.Close()
-	}(conn)
-
-	cache := ""
-	lastSentTs := time.Now()
-	logChan := s.GetCore().GetLogs()
+	ticker := time.NewTicker(100 * time.Millisecond) // Periodic check every 100ms
+	defer ticker.Stop()
 
 	for {
-		if interval > 0 && time.Since(lastSentTs).Seconds() >= interval && cache != "" {
-			err = conn.WriteMessage(websocket.TextMessage, []byte(cache))
-			if err != nil {
-				break
+		select {
+		case log, ok := <-logChan:
+			if !ok { // If the channel is closed, break the loop
+				sendLogs(w, logs, http.StatusInternalServerError)
 			}
-			cache = ""
-			lastSentTs = time.Now()
-		}
+			// Add the log to the logs slice using the counter
+			if counter < cap(logs) {
+				logs = logs[:counter+1]
+				logs[counter] = log
+				counter++
+			}
 
-		log := <-logChan
-		if len(log) == 0 {
-			_, _, err = conn.ReadMessage()
-			if err != nil {
-				break
+			if counter >= 100 {
+				// Send the collected logs immediately
+				sendLogs(w, logs, http.StatusOK)
+				return
 			}
 			continue
-		}
 
-		if interval > 0 {
-			cache += log + "\n"
-			continue
-		}
+		case <-ticker.C:
+			if len(logs) > 0 && len(logChan) == 0 {
+				// If the cache is not empty and the channel is empty, send the logs
+				sendLogs(w, logs, http.StatusOK)
+				return
+			}
 
-		err = conn.WriteMessage(websocket.TextMessage, []byte(log))
-		if err != nil {
-			break
+		case <-timeout:
+			if len(logs) > 0 {
+				sendLogs(w, logs, http.StatusOK)
+			} else {
+				sendLogs(w, logs, http.StatusNoContent)
+			}
+			return
+
+		case <-r.Context().Done(): // If the client disconnects or the request is canceled
+			sendLogs(w, logs, http.StatusRequestTimeout)
+			return
 		}
 	}
 }

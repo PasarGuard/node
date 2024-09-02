@@ -131,16 +131,19 @@ func NewXRayConfig(config string) (*Config, error) {
 }
 
 func (c *Config) ApplyAPI(apiPort int) error {
-	for i, inbound := range c.Inbounds {
-		if inbound.Protocol == "dokodemo-door" {
+	// Remove the existing inbound with the API_INBOUND tag
+	for i := len(c.Inbounds) - 1; i >= 0; i-- {
+		if c.Inbounds[i].Tag == "API_INBOUND" {
 			c.Inbounds = append(c.Inbounds[:i], c.Inbounds[i+1:]...)
 		}
 	}
 
-	apiTag := c.API.Tag
-	for i, rule := range c.Routing.Rules {
-		if apiTag != "" && rule.OutboundTag == apiTag {
-			c.Routing.Rules = append(c.Routing.Rules[:i], c.Routing.Rules[i+1:]...)
+	if c.API.Tag != "" {
+		apiTag := c.API.Tag
+		for i, rule := range c.Routing.Rules {
+			if apiTag != "" && rule.OutboundTag == apiTag {
+				c.Routing.Rules = append(c.Routing.Rules[:i], c.Routing.Rules[i+1:]...)
+			}
 		}
 	}
 
@@ -182,4 +185,13 @@ func (c *Config) checkPolicy() {
 		StatsOutboundDownlink: true,
 		StatsOutboundUplink:   true,
 	}
+}
+
+func (c *Config) RemoveLogFiles() (accessFile, errorFile string) {
+	accessFile = c.Log.Access
+	c.Log.Access = ""
+	errorFile = c.Log.Error
+	c.Log.Error = ""
+
+	return accessFile, errorFile
 }

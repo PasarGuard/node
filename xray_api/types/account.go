@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	"marzban-node/xray_api/proto/common/serial"
 	"marzban-node/xray_api/proto/proxy/shadowsocks"
+	"marzban-node/xray_api/proto/proxy/shadowsocks_2022"
 	"marzban-node/xray_api/proto/proxy/trojan"
 	"marzban-node/xray_api/proto/proxy/vless"
 	"marzban-node/xray_api/proto/proxy/vmess"
@@ -78,9 +79,19 @@ func (sa *ShadowsocksAccount) Message() (*serial.TypedMessage, error) {
 	return ToTypedMessage(&shadowsocks.Account{Password: sa.Password, CipherType: sa.Method})
 }
 
+type Shadowsocks2022Account struct {
+	BaseAccount
+	Key string
+}
+
+func (sa *Shadowsocks2022Account) Message() (*serial.TypedMessage, error) {
+	return ToTypedMessage(&shadowsocks_2022.User{Key: sa.Key, Email: sa.Email})
+}
+
 type ProxySettings struct {
-	Vmess       *VMessAccount
-	Vless       *VLESSAccount
-	Trojan      *TrojanAccount
-	Shadowsocks *ShadowsocksAccount
+	Vmess           *VMessAccount
+	Vless           *VLESSAccount
+	Trojan          *TrojanAccount
+	Shadowsocks     *ShadowsocksAccount
+	Shadowsocks2022 *Shadowsocks2022Account
 }
