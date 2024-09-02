@@ -1,17 +1,18 @@
 package config
 
 import (
-	"github.com/joho/godotenv"
-	log "marzban-node/logger"
+	"log"
 	"os"
 	"regexp"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 func init() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Error("Failed to load env file , Error: ", err)
+		log.Fatalf("Failed to load env file , Error: %v", err)
 	}
 
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)
@@ -33,7 +34,7 @@ func init() {
 	if re.MatchString(nodeHostStr) {
 		NodeHost = nodeHostStr
 	} else {
-		log.Warning(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 0.0.0.0")
+		log.Println(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 0.0.0.0")
 		NodeHost = "0.0.0.0"
 	}
 }
