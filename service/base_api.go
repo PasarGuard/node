@@ -15,7 +15,7 @@ import (
 	log "marzban-node/logger"
 )
 
-const NodeVersion = "go-0.0.1"
+const NodeVersion = "go-0.1.0"
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
