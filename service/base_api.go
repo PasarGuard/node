@@ -15,11 +15,11 @@ import (
 	log "marzban-node/logger"
 )
 
-const NodeVersion = "go-0.1.0"
+const NodeVersion = "go-0.1.1"
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response())
+	_ = json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func (s *Service) Connect(w http.ResponseWriter, r *http.Request) {
 	log.Info(ip, " connected, Session ID = ", sessionID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response("session_id", sessionID))
+	_ = json.NewEncoder(w).Encode(s.response("session_id", sessionID))
 }
 
 func (s *Service) Disconnect(w http.ResponseWriter, _ *http.Request) {
@@ -62,12 +62,12 @@ func (s *Service) Disconnect(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response())
+	_ = json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Ping(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 	s.SetConfig(newConfig)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response())
+	_ = json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
@@ -124,7 +124,7 @@ func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 	s.SetConfig(nil)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response())
+	_ = json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +172,7 @@ func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
 	s.SetConfig(newConfig)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.response())
+	_ = json.NewEncoder(w).Encode(s.response())
 }
 
 func (s *Service) checkXrayStatus() error {

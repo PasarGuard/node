@@ -58,7 +58,6 @@ func (va *VLESSAccount) Message() (*serial.TypedMessage, error) {
 type TrojanAccount struct {
 	BaseAccount
 	Password string
-	Flow     XTLSFlows
 }
 
 func (ta *TrojanAccount) Message() (*serial.TypedMessage, error) {

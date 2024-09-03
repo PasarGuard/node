@@ -32,7 +32,7 @@ func SetupUserAccount(user *User) types.ProxySettings {
 		}
 	}
 
-	if user.Proxies.Trojan != nil && &user.Proxies.Trojan.Password != nil {
+	if user.Proxies.Trojan != nil && user.Proxies.Trojan.Password != "" {
 		settings.Trojan = &types.TrojanAccount{
 			BaseAccount: types.BaseAccount{
 				Email: user.Email,
@@ -42,7 +42,7 @@ func SetupUserAccount(user *User) types.ProxySettings {
 		}
 	}
 
-	if user.Proxies.Shadowsocks != nil && &user.Proxies.Shadowsocks.Password != nil {
+	if user.Proxies.Shadowsocks != nil && user.Proxies.Shadowsocks.Password != "" {
 		settings.Shadowsocks = &types.ShadowsocksAccount{
 			BaseAccount: types.BaseAccount{
 				Email: user.Email,
@@ -78,16 +78,17 @@ func IsActiveInbound(inbound Inbound, user *User, settings types.ProxySettings) 
 		if slices.Contains(user.Inbounds.Vless, inbound.Tag) {
 			account := *settings.Vless
 
-			network, networkOk := inbound.StreamSettings["network"].(string)
-			tls, tlsOk := inbound.StreamSettings["security"].(string)
+			if user.Proxies.Vless.Flow == types.VISION {
 
-			headerMap, headerMapOk := inbound.StreamSettings["header"].(map[string]interface{})
-			headerType, headerTypeOk := "", false
-			if headerMapOk {
-				headerType, headerTypeOk = headerMap["Type"].(string)
-			}
+				network, networkOk := inbound.StreamSettings["network"].(string)
+				tls, tlsOk := inbound.StreamSettings["security"].(string)
 
-			if user.Proxies.Vless.Flow != types.NONE {
+				headerMap, headerMapOk := inbound.StreamSettings["header"].(map[string]interface{})
+				headerType, headerTypeOk := "", false
+				if headerMapOk {
+					headerType, headerTypeOk = headerMap["Type"].(string)
+				}
+
 				if networkOk && (network == "tcp" || network == "kcp") {
 					if !(tlsOk && (tls == "tls" || tls == "reality")) || (headerTypeOk && headerType == "http") {
 						account.Flow = types.NONE
