@@ -15,8 +15,7 @@ func UtcTime() (*time.Time, error) {
 	defer resp.Body.Close()
 
 	var body response
-	err = json.NewDecoder(resp.Body).Decode(&resp)
-	if err != nil {
+	if err = json.NewDecoder(resp.Body).Decode(&resp); err != nil {
 		return nil, err
 	}
 

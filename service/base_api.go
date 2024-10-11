@@ -15,7 +15,7 @@ import (
 	log "marzban-node/logger"
 )
 
-const NodeVersion = "go-0.1.1"
+const NodeVersion = "go-0.1.2"
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -72,8 +72,7 @@ func (s *Service) Ping(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 	var body startBody
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -84,29 +83,25 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = newConfig.ApplyAPI(s.GetAPIPort())
-	if err != nil {
+	if err := newConfig.ApplyAPI(s.GetAPIPort()); err != nil {
 		log.Error("Failed to apply API: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.GetCore().Start(newConfig)
-	if err != nil {
+	if err := s.GetCore().Start(newConfig); err != nil {
 		log.Error("Failed to start core: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.ResetXrayAPI()
-	if err != nil {
+	if err := s.ResetXrayAPI(); err != nil {
 		log.Error("Failed to reset xray API: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.checkXrayStatus()
-	if err != nil {
+	if err := s.checkXrayStatus(); err != nil {
 		log.Error(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -129,8 +124,7 @@ func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
 	var body startBody
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -141,29 +135,25 @@ func (s *Service) Restart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = newConfig.ApplyAPI(s.GetAPIPort())
-	if err != nil {
+	if err := newConfig.ApplyAPI(s.GetAPIPort()); err != nil {
 		log.Error("Failed to apply API: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.GetCore().Restart(newConfig)
-	if err != nil {
+	if err := s.GetCore().Restart(newConfig); err != nil {
 		log.Error(err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.ResetXrayAPI()
-	if err != nil {
+	if err := s.ResetXrayAPI(); err != nil {
 		log.Error("Failed to reset xray API: ", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	err = s.checkXrayStatus()
-	if err != nil {
+	if err := s.checkXrayStatus(); err != nil {
 		log.Error(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

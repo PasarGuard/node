@@ -61,8 +61,7 @@ func RewriteSslFile() {
 	}
 	defer certFile.Close()
 
-	_, err = certFile.WriteString(cert)
-	if err != nil {
+	if _, err = certFile.WriteString(cert); err != nil {
 		log.Error("Problem in writing SslCert File: ", err)
 		return
 	}
@@ -75,8 +74,7 @@ func RewriteSslFile() {
 	}
 	defer keyFile.Close()
 
-	_, err = keyFile.WriteString(key)
-	if err != nil {
+	if _, err = keyFile.WriteString(key); err != nil {
 		log.Error("Problem in writing SslKey File: ", err)
 		return
 	}

@@ -25,11 +25,11 @@ func (s *Service) checkSessionID(next http.Handler) http.Handler {
 
 		// check ip
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
+		switch {
+		case err != nil:
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
-		}
-		if ip != s.GetIP() {
+		case ip != s.GetIP():
 			http.Error(w, "IP address is not valid", http.StatusForbidden)
 			return
 		}
@@ -43,13 +43,12 @@ func (s *Service) checkSessionID(next http.Handler) http.Handler {
 		tokenString := strings.Split(authHeader, " ")[1]
 		// check session id
 		sessionID, err := uuid.Parse(tokenString)
-		if err != nil {
+		switch {
+		case err != nil:
 			http.Error(w, "please send valid uuid", http.StatusUnprocessableEntity)
 			return
-		}
-
-		if sessionID != clientID {
-			http.Error(w, "Session ID mismatch.", http.StatusForbidden)
+		case sessionID != clientID:
+			http.Error(w, "session id mismatch.", http.StatusForbidden)
 			return
 		}
 

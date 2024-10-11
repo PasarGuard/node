@@ -18,8 +18,7 @@ func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body userBody
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -33,16 +32,15 @@ func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
+	errorMessage := "Failed to add user:"
+
 	proxySetting := xray.SetupUserAccount(user)
 	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err = api.AddInboundUser(ctx, inbound.Tag, account)
-			if err != nil {
-				errorMessage := "Failed to add user:"
+			if err := api.AddInboundUser(ctx, inbound.Tag, account); err != nil {
 				http.Error(w, errorMessage+err.Error(), http.StatusInternalServerError)
 				log.Error(errorMessage, err)
-				return
 			}
 		}
 	}
@@ -59,8 +57,7 @@ func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body userBody
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -76,17 +73,16 @@ func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
+	errorMessage := "Failed to add user:"
+
 	proxySetting := xray.SetupUserAccount(user)
 	for _, inbound := range s.GetConfig().Inbounds {
 		account, isActive := xray.IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			err = api.AddInboundUser(ctx, inbound.Tag, account)
 			activeInbounds = append(activeInbounds, inbound.Tag)
-			if err != nil {
-				errorMessage := "Failed to add user:"
+			if err := api.AddInboundUser(ctx, inbound.Tag, account); err != nil {
 				http.Error(w, errorMessage+err.Error(), http.StatusInternalServerError)
 				log.Error(errorMessage, err)
-				return
 			}
 		}
 	}
@@ -109,8 +105,7 @@ func (s *Service) RemoveUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body userBody
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

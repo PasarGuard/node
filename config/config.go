@@ -35,8 +35,8 @@ func init() {
 	if re.MatchString(nodeHostStr) {
 		NodeHost = nodeHostStr
 	} else {
-		log.Println(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 0.0.0.0")
-		NodeHost = "0.0.0.0"
+		log.Println(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 127.0.0.1")
+		NodeHost = "127.0.0.1"
 	}
 }
 

@@ -57,26 +57,28 @@ func SetLogFile(accessPath, errorPath string) {
 	var err error
 
 	accessLogFile, err = openLogFile(accessPath)
-	if err != nil {
+	switch {
+	case err != nil:
 		Error("Error opening access log file: ", err)
 		Warning("Access log will not be recorded on file")
 		accessLogger = nil
-	} else if accessLogFile != nil {
+	case accessLogger != nil:
 		// Create the access logger
 		accessLogger = log.New(accessLogFile, "", 0)
-	} else {
+	default:
 		accessLogger = nil
 	}
 
 	errorLogFile, err = openLogFile(errorPath)
-	if err != nil {
+	switch {
+	case err != nil:
 		Error("Error opening error log file: ", err)
 		Warning("Error log will not be recorded on file")
 		errorLogger = nil
-	} else if errorLogFile != nil {
+	case errorLogFile != nil:
 		// Create the error logger
 		errorLogger = log.New(errorLogFile, "", 0)
-	} else {
+	default:
 		errorLogger = nil
 	}
 }

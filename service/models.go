@@ -43,13 +43,12 @@ func (s *Service) Init() error {
 	s.SetRouter()
 	s.ResetAPIPort()
 
-	err := s.ResetCore()
-	if err != nil {
+	if err := s.ResetCore(); err != nil {
 		return err
 	}
 
-	err = s.ResetXrayAPI()
-	if err != nil {
+	if err := s.ResetXrayAPI(); err != nil {
+		return err
 	}
 
 	s.startJobs()
