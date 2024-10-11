@@ -22,6 +22,7 @@ func init() {
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/marzban-node/ssl_key.pem")
 	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/marzban-node/ssl_client_cert_file.pem")
 	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/marzban-node/generated_config-debug.json")
+	MaxLogPerRequest = GetEnvAsInt("MAX_LOG_PER_REQUEST", 1000)
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
 
@@ -71,6 +72,7 @@ var (
 	SslCertFile         string
 	SslKeyFile          string
 	SslClientCertFile   string
+	MaxLogPerRequest    int
 	Debug               bool
 	GeneratedConfigPath string
 )

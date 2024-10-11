@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	cnf "marzban-node/config"
+	log "marzban-node/logger"
 	"os"
 	"os/exec"
 	"regexp"
 	"sync"
-	"time"
-
-	cnf "marzban-node/config"
-	log "marzban-node/logger"
 )
 
 type Core struct {
@@ -24,18 +22,15 @@ type Core struct {
 	process        *exec.Cmd
 	restarting     bool
 	logsChan       chan string
-	tempLogBuffers []string
 	cancelFunc     context.CancelFunc
 	mu             sync.Mutex
 }
 
 func NewXRayCore() (*Core, error) {
-	var tempLog []string
 	core := &Core{
 		executablePath: cnf.XrayExecutablePath,
 		assetsPath:     cnf.XrayAssetsPath,
-		logsChan:       make(chan string, 100),
-		tempLogBuffers: tempLog,
+		logsChan:       make(chan string),
 	}
 
 	version, err := core.refreshVersion()
@@ -135,7 +130,6 @@ func (x *Core) Start(config *Config) error {
 	// Start capturing process logs
 	go x.captureProcessLogs(ctx, stdout)
 	go x.captureProcessLogs(ctx, stderr)
-	go x.fillChannel(ctx)
 
 	if cnf.Debug {
 		var prettyJSON bytes.Buffer
@@ -202,53 +196,8 @@ func (x *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 		default:
 			output := scanner.Text()
 			log.DetectLogType(output)
-			x.mu.Lock()
-			x.tempLogBuffers = append(x.tempLogBuffers, output)
-			x.mu.Unlock()
+			x.logsChan <- output
 		}
-	}
-}
-
-func (x *Core) tempLogPop(n int) []string {
-	if n <= 0 {
-		return nil
-	}
-
-	x.mu.Lock()
-	defer x.mu.Unlock()
-
-	if len(x.tempLogBuffers) == 0 {
-		return nil
-	}
-
-	if n > len(x.tempLogBuffers) {
-		n = len(x.tempLogBuffers)
-	}
-
-	logList := x.tempLogBuffers[:n]
-	x.tempLogBuffers = x.tempLogBuffers[n:]
-	return logList
-}
-
-func (x *Core) fillChannel(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return // Exit gracefully if stop signal received
-		default:
-			chanLen := len(x.logsChan)
-			if chanLen < 100 {
-				logList := x.tempLogPop(100 - chanLen)
-				if logList != nil {
-					x.mu.Lock()
-					for _, lastLog := range logList {
-						x.logsChan <- lastLog
-					}
-					x.mu.Unlock()
-				}
-			}
-		}
-		time.Sleep(time.Millisecond * 50)
 	}
 }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"marzban-node/config"
 	"net/http"
 	"time"
 )
@@ -42,6 +43,7 @@ func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
 			if !ok { // If the channel is closed, break the loop
 				sendLogs(w, logs, http.StatusInternalServerError)
 			}
+
 			// Add the log to the logs slice using the counter
 			if counter < cap(logs) {
 				logs = logs[:counter+1]
@@ -49,7 +51,7 @@ func (s *Service) Logs(w http.ResponseWriter, r *http.Request) {
 				counter++
 			}
 
-			if counter >= 100 {
+			if counter >= config.MaxLogPerRequest {
 				// Send the collected logs immediately
 				sendLogs(w, logs, http.StatusOK)
 				return
