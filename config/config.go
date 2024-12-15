@@ -12,7 +12,7 @@ import (
 func init() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("Failed to load env file , Error: %v", err)
+		log.Printf("Failed to load env file, node will use default values, Error: %v", err)
 	}
 
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)
@@ -20,8 +20,9 @@ func init() {
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
 	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/marzban-node/ssl_cert.pem")
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/marzban-node/ssl_key.pem")
-	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/marzban-node/ssl_client_cert_file.pem")
-	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/marzban-node/generated_config-debug.json")
+	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/marzban-node/ssl_client_cert.pem")
+	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/marzban-node/generated/")
+	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "rest")
 	MaxLogPerRequest = GetEnvAsInt("MAX_LOG_PER_REQUEST", 1000)
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
@@ -38,6 +39,22 @@ func init() {
 		log.Println(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 127.0.0.1")
 		NodeHost = "127.0.0.1"
 	}
+}
+
+// Warning: only use in tests
+func SetEnv(port, maxLogPerRequest int, host, xrayExecutablePath, xrayAssetsPath, sslCertFile, sslKeyFile, sslClientCertFile,
+	serviceProtocol, generatedConfigPath string, debug bool) {
+	ServicePort = port
+	NodeHost = host
+	XrayExecutablePath = xrayExecutablePath
+	XrayAssetsPath = xrayAssetsPath
+	SslCertFile = sslCertFile
+	SslKeyFile = sslKeyFile
+	SslClientCertFile = sslClientCertFile
+	ServiceProtocol = serviceProtocol
+	MaxLogPerRequest = maxLogPerRequest
+	GeneratedConfigPath = generatedConfigPath
+	Debug = debug
 }
 
 func GetEnv(key, fallback string) string {
@@ -72,6 +89,7 @@ var (
 	SslCertFile         string
 	SslKeyFile          string
 	SslClientCertFile   string
+	ServiceProtocol     string
 	MaxLogPerRequest    int
 	Debug               bool
 	GeneratedConfigPath string

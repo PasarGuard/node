@@ -6,8 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"marzban-node/config"
-	log "marzban-node/logger"
+	"log"
 	"math/big"
 	"os"
 	"time"
@@ -47,35 +46,32 @@ func generateCertificate() (string, string, error) {
 	return string(certOut), string(keyOut), nil
 }
 
-func RewriteSslFile() {
+func RewriteSslFile(certPath, keyPath string) error {
 	cert, key, err := generateCertificate()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// Write certificate to file
-	certFile, err := os.Create(config.SslCertFile)
+	certFile, err := os.Create(certPath)
 	if err != nil {
-		log.Error("Problem in creating SslCert File: ", err)
-		return
+		return err
 	}
 	defer certFile.Close()
 
 	if _, err = certFile.WriteString(cert); err != nil {
-		log.Error("Problem in writing SslCert File: ", err)
-		return
+		return err
 	}
 
 	// Write key to file
-	keyFile, err := os.Create(config.SslKeyFile)
+	keyFile, err := os.Create(keyPath)
 	if err != nil {
-		log.Error("Problem in creating SslKey File: ", err)
-		return
+		return err
 	}
 	defer keyFile.Close()
 
 	if _, err = keyFile.WriteString(key); err != nil {
-		log.Error("Problem in writing SslKey File: ", err)
-		return
+		return err
 	}
+	return nil
 }

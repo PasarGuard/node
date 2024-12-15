@@ -1,4 +1,4 @@
-FROM golang:1.23 as builder
+FROM golang:1.23.2 as builder
 
 WORKDIR /app
 COPY go.mod .
@@ -6,17 +6,19 @@ COPY go.sum .
 RUN go mod download
 COPY . .
 
-RUN go build -o main .
+COPY . .
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o main -ldflags="-w -s" .
 
-FROM ubuntu:latest
+FROM alpine:latest
 
 RUN mkdir /app
 WORKDIR /app
 COPY --from=builder /app/main .
 
-RUN apt-get update \
-    && apt-get install -y curl unzip \
-    && rm -rf /var/lib/apt/lists/* \
+RUN apk update \
+    && apk add --no-cache curl bash \
     && bash -c "$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
 
 ENTRYPOINT ["./main", "serve"]
