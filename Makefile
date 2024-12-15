@@ -77,15 +77,13 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "arch" ]; then \
 		sudo pacman -Sy --noconfirm curl bash; \
 	fi
-
-	bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)";
 else
 	@echo "Unsupported operating system: $(UNAME_S)"
 	@exit 1
 endif
 
 install_xray: update_os
-	bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
+	sudo bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
 
 test-integration:
 	TEST_INTEGRATION=true go test ./... -v
