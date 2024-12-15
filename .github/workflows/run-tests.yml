@@ -27,6 +27,7 @@ jobs:
 
       - name: Create certificate
         run: |
+          mkdir certs
           make generate_server_cert
           make generate_client_cert
 
