@@ -23,7 +23,7 @@ jobs:
           check-latest: true
 
       - name: Get project dependencies
-        run: go mod download
+        run: make deps
 
       - name: Create certificate
         run: |

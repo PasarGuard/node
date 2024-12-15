@@ -26,6 +26,10 @@ clean:
 	go clean -v -i $(PWD)
 	rm -f $(NAME)-* w$(NAME)-*.exe
 
+deps:
+	go mod download
+	go mod tidy
+
 generate_grpc_code:
 	protoc \
 	--go_out=. \
