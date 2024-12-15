@@ -25,6 +25,9 @@ jobs:
       - name: Get project dependencies
         run: make deps
 
+      - name: Install xray-core
+        run: make install_xray
+
       - name: Create certificate
         run: |
           mkdir certs

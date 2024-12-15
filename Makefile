@@ -46,6 +46,47 @@ generate_client_cert:
 	openssl req -x509 -newkey rsa:4096 -keyout ./certs/ssl_client_key.pem \
  	-out ./certs/ssl_client_cert.pem -days 36500 -nodes -subj "/CN=Gozargah"
 
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+DISTRO := $(shell . /etc/os-release 2>/dev/null && echo $$ID || echo "unknown")
+
+update_os:
+ifeq ($(UNAME_S),Linux)
+	@echo "Detected OS: Linux"
+	@echo "Distribution: $(DISTRO)"
+
+	# Debian/Ubuntu
+	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ]; then \
+		sudo apt-get update && \
+		sudo apt-get install -y curl bash; \
+	fi
+
+	# Alpine Linux
+	if [ "$(DISTRO)" = "alpine" ]; then \
+		apk update && \
+		apk add --no-cache curl bash; \
+	fi
+
+	# CentOS/RHEL/Fedora
+	if [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ]; then \
+		sudo yum update -y && \
+		sudo yum install -y curl bash; \
+	fi
+
+	# Arch Linux
+	if [ "$(DISTRO)" = "arch" ]; then \
+		sudo pacman -Sy --noconfirm curl bash; \
+	fi
+
+	bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)";
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
+install_xray: update_os
+	bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
+
 test-integration:
 	TEST_INTEGRATION=true go test ./... -v
 
