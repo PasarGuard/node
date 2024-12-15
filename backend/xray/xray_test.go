@@ -18,7 +18,7 @@ var (
 	jsonFile       = "./config.json"
 	executablePath = "/usr/local/bin/xray"
 	assetsPath     = "/usr/local/share/xray"
-	configPath     = "/var/lib/marzban-node/generated/"
+	configPath     = "../../generated/"
 )
 
 func TestXrayBackend(t *testing.T) {
