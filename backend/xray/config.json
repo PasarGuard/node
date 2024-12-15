@@ -6,7 +6,7 @@
         {
             "tag": "Shadowsocks TCP",
             "listen": "0.0.0.0",
-            "port": 1080,
+            "port": 4080,
             "protocol": "shadowsocks",
             "settings": {
                 "clients": [],
@@ -51,7 +51,7 @@
         {
             "tag": "VMESS TCP NOTLS",
             "listen": "0.0.0.0",
-            "port": 443,
+            "port": 4433,
             "protocol": "vmess",
             "settings": {
                 "clients": []
@@ -71,7 +71,7 @@
         {
             "tag": "TROJAN TCP NOTLS",
             "listen": "0.0.0.0",
-            "port": 443,
+            "port": 4434,
             "protocol": "trojan",
             "settings": {
                 "clients": []
