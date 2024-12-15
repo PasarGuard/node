@@ -30,7 +30,7 @@ var (
 	sslKeyFile          = "../../certs/ssl_key.pem"
 	sslClientCertFile   = "../../certs/ssl_client_cert.pem"
 	sslClientKeyFile    = "../../certs/ssl_client_key.pem"
-	generatedConfigPath = "/var/lib/marzban-node/generated/"
+	generatedConfigPath = "../../generated/"
 	addr                = fmt.Sprintf("%s:%d", nodeHost, servicePort)
 	configPath          = "../../backend/xray/config.json"
 )
