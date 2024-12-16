@@ -214,8 +214,14 @@ func TestRESTConnection(t *testing.T) {
 	}
 
 	user := &common.User{
-		Email:    "test_user1@example.com",
-		Inbounds: []string{"VMESS TCP NOTLS", "VLESS TCP REALITY", "TROJAN TCP NOTLS", "Shadowsocks TCP", "Shadowsocks UDP"},
+		Email: "test_user1@example.com",
+		Inbounds: []string{
+			"VMESS TCP NOTLS",
+			"VLESS TCP REALITY",
+			"TROJAN TCP NOTLS",
+			"Shadowsocks TCP",
+			"Shadowsocks UDP",
+		},
 		Proxies: &common.Proxy{
 			Vmess: &common.VmessSetting{
 				Id: uuid.New().String(),
@@ -244,8 +250,14 @@ func TestRESTConnection(t *testing.T) {
 	defer addUserResp.Body.Close()
 
 	user = &common.User{
-		Email:    "test_user2@example.com",
-		Inbounds: []string{"VMESS TCP NOTLS", "VLESS TCP REALITY", "TROJAN TCP NOTLS", "Shadowsocks TCP", "Shadowsocks UDP"},
+		Email: "test_user2@example.com",
+		Inbounds: []string{
+			"VMESS TCP NOTLS",
+			"VLESS TCP REALITY",
+			"TROJAN TCP NOTLS",
+			"Shadowsocks TCP",
+			"Shadowsocks UDP",
+		},
 		Proxies: &common.Proxy{
 			Vmess: &common.VmessSetting{
 				Id: uuid.New().String(),

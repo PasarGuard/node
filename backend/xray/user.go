@@ -88,23 +88,41 @@ func IsActiveInbound(inbound *Inbound, user *common.User, settings api.ProxySett
 		case Vless:
 			account := *settings.Vless
 			if api.XTLSFlows(user.GetProxies().GetVless().GetFlow()) == api.VISION {
-				network, networkOk := inbound.StreamSettings["network"].(string)
-				tls, tlsOk := inbound.StreamSettings["security"].(string)
+				networkType := inbound.StreamSettings["network"]
 
-				headerMap, headerMapOk := inbound.StreamSettings["header"].(map[string]interface{})
-				headerType, headerTypeOk := "", false
-				if headerMapOk {
-					headerType, headerTypeOk = headerMap["Type"].(string)
+				if !(networkType == "tcp" || networkType == "mkcp") {
+					account.Flow = api.NONE
+					return &account, true
 				}
 
-				if networkOk && (network == "tcp" || network == "kcp") {
-					if !(tlsOk && (tls == "tls" || tls == "reality")) || (headerTypeOk && headerType == "http") {
-						account.Flow = api.NONE
+				securityType := inbound.StreamSettings["security"]
+
+				if !(securityType == "tls" || securityType == "reality") {
+					account.Flow = api.NONE
+					return &account, true
+				}
+
+				rawMap, ok := inbound.StreamSettings["rawSettings"].(map[string]interface{})
+				if !ok {
+					rawMap, ok = inbound.StreamSettings["tcpSettings"].(map[string]interface{})
+					if !ok {
+						return &account, true
 					}
-				} else if headerTypeOk && headerType == "http" {
+				}
+
+				headerMap, ok := rawMap["header"].(map[string]interface{})
+				if !ok {
+					return &account, true
+				}
+
+				headerType, ok := headerMap["Type"].(string)
+				if !ok {
+					return &account, true
+				}
+
+				if headerType == "http" {
 					account.Flow = api.NONE
-				} else {
-					account.Flow = api.NONE
+					return &account, true
 				}
 			}
 			return &account, true
@@ -133,7 +151,7 @@ func (x *Xray) AddUser(ctx context.Context, user *common.User) error {
 	}
 
 	handler := x.getHandler()
-	inbounds := x.getConfig().Inbounds
+	inbounds := x.getConfig().InboundConfigs
 
 	var errMessage string
 	for _, inbound := range inbounds {
@@ -159,7 +177,7 @@ func (x *Xray) UpdateUser(ctx context.Context, user *common.User) error {
 	}
 
 	handler := x.getHandler()
-	inbounds := x.getConfig().Inbounds
+	inbounds := x.getConfig().InboundConfigs
 
 	var errMessage string
 	var activeInbounds []string
@@ -191,7 +209,7 @@ func (x *Xray) UpdateUser(ctx context.Context, user *common.User) error {
 func (x *Xray) RemoveUser(ctx context.Context, email string) {
 	handler := x.getHandler()
 
-	for _, inbound := range x.getConfig().Inbounds {
+	for _, inbound := range x.getConfig().InboundConfigs {
 		_ = handler.RemoveInboundUser(ctx, inbound.Tag, email)
 	}
 }

@@ -51,7 +51,7 @@
         {
             "tag": "VMESS TCP NOTLS",
             "listen": "0.0.0.0",
-            "port": 4433,
+            "port": "4433",
             "protocol": "vmess",
             "settings": {
                 "clients": []
@@ -71,7 +71,7 @@
         {
             "tag": "TROJAN TCP NOTLS",
             "listen": "0.0.0.0",
-            "port": 4434,
+            "port": "4434",
             "protocol": "trojan",
             "settings": {
                 "clients": []

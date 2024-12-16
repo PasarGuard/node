@@ -87,9 +87,9 @@ func (c *Core) Start(config *Config) error {
 		return errors.New("xray is started already")
 	}
 
-	logLevel := config.Log.LogLevel
+	logLevel := config.LogConfig.LogLevel
 	if logLevel == "none" || logLevel == "error" {
-		config.Log.LogLevel = "warning"
+		config.LogConfig.LogLevel = "warning"
 	}
 
 	accessFile, errorFile := config.RemoveLogFiles()

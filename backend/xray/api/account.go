@@ -17,8 +17,8 @@ type Account interface {
 }
 
 type BaseAccount struct {
-	Email string
-	Level uint32
+	Email string `json:"email"`
+	Level uint32 `json:"level"`
 }
 
 func (ba *BaseAccount) GetEmail() string {
@@ -31,7 +31,7 @@ func (ba *BaseAccount) GetLevel() uint32 {
 
 type VMessAccount struct {
 	BaseAccount
-	ID uuid.UUID
+	ID uuid.UUID `json:"id"`
 }
 
 func (va *VMessAccount) Message() (*serial.TypedMessage, error) {
@@ -47,8 +47,8 @@ const (
 
 type VLESSAccount struct {
 	BaseAccount
-	ID   uuid.UUID
-	Flow XTLSFlows
+	ID   uuid.UUID `json:"id"`
+	Flow XTLSFlows `json:"flow"`
 }
 
 func (va *VLESSAccount) Message() (*serial.TypedMessage, error) {
@@ -57,7 +57,7 @@ func (va *VLESSAccount) Message() (*serial.TypedMessage, error) {
 
 type TrojanAccount struct {
 	BaseAccount
-	Password string
+	Password string `json:"password"`
 }
 
 func (ta *TrojanAccount) Message() (*serial.TypedMessage, error) {
@@ -66,8 +66,8 @@ func (ta *TrojanAccount) Message() (*serial.TypedMessage, error) {
 
 type ShadowsocksAccount struct {
 	BaseAccount
-	Password string
-	Method   shadowsocks.CipherType
+	Password string                 `json:"password"`
+	Method   shadowsocks.CipherType `json:"method"`
 }
 
 func (sa *ShadowsocksAccount) CipherType() string {
@@ -80,7 +80,7 @@ func (sa *ShadowsocksAccount) Message() (*serial.TypedMessage, error) {
 
 type Shadowsocks2022Account struct {
 	BaseAccount
-	Key string
+	Key string `json:"password"`
 }
 
 func (sa *Shadowsocks2022Account) Message() (*serial.TypedMessage, error) {

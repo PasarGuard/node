@@ -3,7 +3,7 @@ package xray
 import (
 	"encoding/json"
 
-	"github.com/m03ed/marzban-node-go/backend/xray/api"
+	"github.com/xtls/xray-core/infra/conf"
 )
 
 type Protocol string
@@ -16,115 +16,33 @@ const (
 )
 
 type Config struct {
-	Log              Log           `json:"log,omitempty"`
-	Inbounds         []*Inbound    `json:"Inbounds"`
-	Outbounds        []interface{} `json:"outbounds,omitempty"`
-	Routing          Routing       `json:"routing,omitempty"`
-	API              API           `json:"api"`
-	Stats            Stats         `json:"stats"`
-	Policy           Policy        `json:"policy"`
-	DNS              interface{}   `json:"dns,omitempty"`
-	Reverse          interface{}   `json:"reverse,omitempty"`
-	FakeDNS          interface{}   `json:"fakedns,omitempty"`
-	Metrics          interface{}   `json:"metrics,omitempty"`
-	Observatory      interface{}   `json:"observatory,omitempty"`
-	BurstObservatory interface{}   `json:"burstObservatory,omitempty"`
-}
-
-type Log struct {
-	Access   string `json:"access,omitempty"`
-	Error    string `json:"error,omitempty"`
-	LogLevel string `json:"loglevel,omitempty"`
-	DnsLog   string `json:"dnsLog,omitempty"`
+	LogConfig        *conf.LogConfig        `json:"log"`
+	RouterConfig     map[string]interface{} `json:"routing"`
+	DNSConfig        map[string]interface{} `json:"dns"`
+	InboundConfigs   []*Inbound             `json:"inbounds"`
+	OutboundConfigs  interface{}            `json:"outbounds"`
+	Policy           *conf.PolicyConfig     `json:"policy"`
+	API              *conf.APIConfig        `json:"api"`
+	Metrics          map[string]interface{} `json:"metrics,omitempty"`
+	Stats            Stats                  `json:"stats"`
+	Reverse          map[string]interface{} `json:"reverse,omitempty"`
+	FakeDNS          map[string]interface{} `json:"fakeDns,omitempty"`
+	Observatory      map[string]interface{} `json:"observatory,omitempty"`
+	BurstObservatory map[string]interface{} `json:"burstObservatory,omitempty"`
 }
 
 type Inbound struct {
+	Tag            string                 `json:"tag"`
 	Listen         string                 `json:"listen,omitempty"`
-	Port           int                    `json:"port,omitempty"`
+	Port           interface{}            `json:"port,omitempty"`
 	Protocol       string                 `json:"protocol"`
 	Settings       map[string]interface{} `json:"settings"`
 	StreamSettings map[string]interface{} `json:"streamSettings,omitempty"`
-	Tag            string                 `json:"tag"`
 	Sniffing       interface{}            `json:"sniffing,omitempty"`
-}
-
-type InboundSettings struct {
-	Clients   []*api.Account `json:"clients,omitempty"`
-	Fallbacks interface{}    `json:"fallbacks,omitempty"`
-}
-
-type API struct {
-	Services []string `json:"services"`
-	Tag      string   `json:"tag"`
+	Allocation     map[string]interface{} `json:"allocate,omitempty"`
 }
 
 type Stats struct{}
-
-type Policy struct {
-	Levels Levels `json:"levels"`
-	System System `json:"system"`
-}
-
-type Levels struct {
-	Zero Level `json:"0"`
-}
-
-type Level struct {
-	Handshake         int  `json:"handshake,omitempty"`
-	ConnIdle          int  `json:"connIdle,omitempty"`
-	UplinkOnly        int  `json:"uplinkOnly,omitempty"`
-	DownlinkOnly      int  `json:"downlinkOnly,omitempty"`
-	StatsUserUplink   bool `json:"statsUserUplink"`
-	StatsUserDownlink bool `json:"statsUserDownlink"`
-	StatsUserOnline   bool `json:"statsUserOnline"`
-	BufferSize        int  `json:"bufferSize,omitempty"`
-}
-
-type System struct {
-	StatsInboundDownlink  bool `json:"statsInboundDownlink"`
-	StatsInboundUplink    bool `json:"statsInboundUplink"`
-	StatsOutboundDownlink bool `json:"statsOutboundDownlink"`
-	StatsOutboundUplink   bool `json:"statsOutboundUplink"`
-}
-
-type Routing struct {
-	Rules []Rule `json:"rules"`
-}
-
-type Rule struct {
-	DomainMatcher string            `json:"domainMatcher,omitempty"`
-	Type          string            `json:"type,omitempty"`
-	Domain        []string          `json:"domain,omitempty"`
-	IP            []string          `json:"ip,omitempty"`
-	Port          string            `json:"port,omitempty"`
-	SourcePort    string            `json:"sourcePort,omitempty"`
-	Network       string            `json:"network,omitempty"`
-	Source        []string          `json:"source,omitempty"`
-	User          []string          `json:"user,omitempty"`
-	InboundTag    []string          `json:"inboundTag,omitempty"`
-	Protocol      []string          `json:"protocol,omitempty"`
-	Attrs         map[string]string `json:"attrs,omitempty"`
-	OutboundTag   string            `json:"outboundTag,omitempty"`
-	BalancerTag   string            `json:"balancerTag,omitempty"`
-}
-
-type Settings struct {
-	Address string `json:"address"`
-}
-
-type StreamSettings struct {
-	Security    string      `json:"security"`
-	TLSSettings TLSSettings `json:"tlsSettings"`
-}
-
-type TLSSettings struct {
-	Certificates []Certificate `json:"certificates"`
-}
-
-type Certificate struct {
-	CertificateFile string `json:"certificateFile"`
-	KeyFile         string `json:"keyFile"`
-}
 
 func (c *Config) ToJSON() (string, error) {
 	b, err := json.Marshal(c)
@@ -132,6 +50,95 @@ func (c *Config) ToJSON() (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func (c *Config) ApplyAPI(apiPort int) error {
+	// Remove the existing inbound with the API_INBOUND tag
+	for i, inbound := range c.InboundConfigs {
+		if inbound.Tag == "API_INBOUND" {
+			c.InboundConfigs = append(c.InboundConfigs[:i], c.InboundConfigs[i+1:]...)
+		}
+	}
+
+	if c.API == nil {
+		c.API = &conf.APIConfig{
+			Services: []string{"HandlerService", "LoggerService", "StatsService"},
+			Tag:      "API",
+		}
+	}
+
+	rules, ok := c.RouterConfig["rules"].([]map[string]interface{})
+	if c.API.Tag != "" {
+		apiTag := c.API.Tag
+		if ok {
+			for i, rule := range rules {
+				if outboundTag, ok := rule["outboundTag"].(string); ok && outboundTag == apiTag {
+					rules = append(rules[:i], rules[i+1:]...)
+				}
+			}
+		} else {
+			// Initialize RouterConfig if it's nil
+			if c.RouterConfig == nil {
+				c.RouterConfig = make(map[string]interface{})
+			}
+			// Set a default empty slice of rules
+			c.RouterConfig["rules"] = []map[string]interface{}{}
+		}
+	}
+
+	c.checkPolicy()
+
+	inbound := &Inbound{
+		Listen:   "127.0.0.1",
+		Port:     apiPort,
+		Protocol: "dokodemo-door",
+		Settings: map[string]interface{}{"address": "127.0.0.1"},
+		Tag:      "API_INBOUND",
+	}
+
+	c.InboundConfigs = append([]*Inbound{inbound}, c.InboundConfigs...)
+
+	rule := map[string]interface{}{
+		"inboundTag":  []string{"API_INBOUND"},
+		"source":      []string{"127.0.0.1"},
+		"outboundTag": "API",
+		"type":        "field",
+	}
+
+	c.RouterConfig["rules"] = append([]map[string]interface{}{rule}, rules...)
+
+	return nil
+}
+
+func (c *Config) checkPolicy() {
+	if c.Policy != nil {
+		zero, ok := c.Policy.Levels[0]
+		if !ok {
+			c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
+		} else {
+			zero.StatsUserDownlink = true
+			zero.StatsUserUplink = true
+		}
+	} else {
+		c.Policy = &conf.PolicyConfig{Levels: make(map[uint32]*conf.Policy)}
+		c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
+	}
+
+	c.Policy.System = &conf.SystemPolicy{
+		StatsInboundDownlink:  false,
+		StatsInboundUplink:    false,
+		StatsOutboundDownlink: true,
+		StatsOutboundUplink:   true,
+	}
+}
+
+func (c *Config) RemoveLogFiles() (accessFile, errorFile string) {
+	accessFile = c.LogConfig.AccessLog
+	c.LogConfig.AccessLog = ""
+	errorFile = c.LogConfig.ErrorLog
+	c.LogConfig.ErrorLog = ""
+
+	return accessFile, errorFile
 }
 
 func NewXRayConfig(config string) (*Config, error) {
@@ -142,69 +149,4 @@ func NewXRayConfig(config string) (*Config, error) {
 	}
 
 	return &xrayConfig, nil
-}
-
-func (c *Config) ApplyAPI(apiPort int) error {
-	// Remove the existing inbound with the API_INBOUND tag
-	for i := len(c.Inbounds) - 1; i >= 0; i-- {
-		if c.Inbounds[i].Tag == "API_INBOUND" {
-			c.Inbounds = append(c.Inbounds[:i], c.Inbounds[i+1:]...)
-		}
-	}
-
-	if c.API.Tag != "" {
-		apiTag := c.API.Tag
-		for i, rule := range c.Routing.Rules {
-			if apiTag != "" && rule.OutboundTag == apiTag {
-				c.Routing.Rules = append(c.Routing.Rules[:i], c.Routing.Rules[i+1:]...)
-			}
-		}
-	}
-
-	c.API.Services = []string{"HandlerService", "LoggerService", "StatsService"}
-	c.API.Tag = "API"
-
-	c.checkPolicy()
-
-	inbound := &Inbound{
-		Listen:   "127.0.0.1",
-		Port:     apiPort,
-		Protocol: "dokodemo-door",
-		Settings: map[string]interface{}{
-			"address": "127.0.0.1",
-		},
-		Tag: "API_INBOUND",
-	}
-	c.Inbounds = append([]*Inbound{inbound}, c.Inbounds...)
-
-	rule := Rule{
-		InboundTag:  []string{"API_INBOUND"},
-		Source:      []string{"127.0.0.1"},
-		OutboundTag: "API",
-		Type:        "field",
-	}
-
-	c.Routing.Rules = append([]Rule{rule}, c.Routing.Rules...)
-	return nil
-}
-
-func (c *Config) checkPolicy() {
-	c.Policy.Levels.Zero.StatsUserDownlink = true
-	c.Policy.Levels.Zero.StatsUserUplink = true
-
-	c.Policy.System = System{
-		StatsInboundDownlink:  false,
-		StatsInboundUplink:    false,
-		StatsOutboundDownlink: true,
-		StatsOutboundUplink:   true,
-	}
-}
-
-func (c *Config) RemoveLogFiles() (accessFile, errorFile string) {
-	accessFile = c.Log.Access
-	c.Log.Access = ""
-	errorFile = c.Log.Error
-	c.Log.Error = ""
-
-	return accessFile, errorFile
 }
