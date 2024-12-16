@@ -114,7 +114,7 @@ func TestXrayBackend(t *testing.T) {
 		},
 	}
 
-	if err = back.UpdateUser(ctx, user); err != nil {
+	if err = back.RemoveUser(ctx, user); err != nil {
 		t.Fatal(err)
 	}
 
