@@ -2,8 +2,12 @@ package xray
 
 import (
 	"encoding/json"
+	"strings"
+	"sync"
 
 	"github.com/xtls/xray-core/infra/conf"
+
+	"github.com/m03ed/marzban-node-go/backend/xray/api"
 )
 
 type Protocol string
@@ -40,6 +44,236 @@ type Inbound struct {
 	StreamSettings map[string]interface{} `json:"streamSettings,omitempty"`
 	Sniffing       interface{}            `json:"sniffing,omitempty"`
 	Allocation     map[string]interface{} `json:"allocate,omitempty"`
+	mu             sync.RWMutex
+}
+
+func (i *Inbound) AddUser(account api.ProxySettings) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	switch Protocol(i.Protocol) {
+	case Vmess:
+		var clients []*api.VMessAccount
+		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
+		if !ok {
+			clients = []*api.VMessAccount{}
+		}
+		i.Settings["clients"] = append(clients, account.Vmess)
+
+	case Vless:
+		var clients []*api.VLESSAccount
+		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
+		if !ok {
+			clients = []*api.VLESSAccount{}
+		}
+		i.Settings["clients"] = append(clients, account.Vless)
+
+	case Trojan:
+		var clients []*api.TrojanAccount
+		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
+		if !ok {
+			clients = []*api.TrojanAccount{}
+		}
+		i.Settings["clients"] = append(clients, account.Trojan)
+
+	case Shadowsocks:
+		method, methodOk := i.Settings["method"].(string)
+		if methodOk && strings.HasPrefix("2022-blake3", method) {
+			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+			if !ok {
+				clients = []*api.Shadowsocks2022Account{}
+			}
+			i.Settings["clients"] = append(clients, account.Shadowsocks2022)
+		} else {
+			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+			if !ok {
+				clients = []*api.ShadowsocksAccount{}
+			}
+			i.Settings["clients"] = append(clients, account.Shadowsocks)
+		}
+	default:
+		return
+	}
+}
+
+func (i *Inbound) UpdateUser(account api.ProxySettings) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	switch Protocol(i.Protocol) {
+	case Vmess:
+		var clients []*api.VMessAccount
+		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
+		if !ok {
+			clients = []*api.VMessAccount{}
+		}
+
+		email := account.Vmess.GetEmail()
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.Vmess)
+
+	case Vless:
+		var clients []*api.VLESSAccount
+		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
+		if !ok {
+			clients = []*api.VLESSAccount{}
+		}
+
+		email := account.Vless.GetEmail()
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.Vless)
+
+	case Trojan:
+		var clients []*api.TrojanAccount
+		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
+		if !ok {
+			clients = []*api.TrojanAccount{}
+		}
+
+		email := account.Trojan.GetEmail()
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.Trojan)
+
+	case Shadowsocks:
+		method, methodOk := i.Settings["method"].(string)
+		if methodOk && strings.HasPrefix("2022-blake3", method) {
+			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+			if !ok {
+				clients = []*api.Shadowsocks2022Account{}
+			}
+
+			email := account.Shadowsocks2022.GetEmail()
+			for x, client := range clients {
+				if client.Email == email {
+					clients = append(clients[:x], clients[x+1:]...)
+					break
+				}
+			}
+
+			i.Settings["clients"] = append(clients, account.Shadowsocks2022)
+
+		} else {
+			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+			if !ok {
+				clients = []*api.ShadowsocksAccount{}
+			}
+
+			email := account.Shadowsocks.GetEmail()
+			for x, client := range clients {
+				if client.Email == email {
+					clients = append(clients[:x], clients[x+1:]...)
+					break
+				}
+			}
+
+			i.Settings["clients"] = append(clients, account.Shadowsocks)
+		}
+	default:
+		return
+	}
+}
+
+func (i *Inbound) RemoveUser(email string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	switch Protocol(i.Protocol) {
+	case Vmess:
+		var clients []*api.VMessAccount
+		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
+		if !ok {
+			clients = []*api.VMessAccount{}
+		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Vless:
+		var clients []*api.VLESSAccount
+		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
+		if !ok {
+			clients = []*api.VLESSAccount{}
+		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Trojan:
+		var clients []*api.TrojanAccount
+		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
+		if !ok {
+			clients = []*api.TrojanAccount{}
+		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Shadowsocks:
+		method, methodOk := i.Settings["method"].(string)
+		if methodOk && strings.HasPrefix("2022-blake3", method) {
+			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+			if !ok {
+				clients = []*api.Shadowsocks2022Account{}
+			}
+
+			for x, client := range clients {
+				if client.Email == email {
+					clients = append(clients[:x], clients[x+1:]...)
+					break
+				}
+			}
+			i.Settings["clients"] = clients
+
+		} else {
+			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+			if !ok {
+				clients = []*api.ShadowsocksAccount{}
+			}
+
+			for x, client := range clients {
+				if client.Email == email {
+					clients = append(clients[:x], clients[x+1:]...)
+					break
+				}
+			}
+			i.Settings["clients"] = clients
+		}
+	default:
+		return
+	}
 }
 
 type Stats struct{}
