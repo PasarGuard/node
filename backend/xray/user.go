@@ -157,7 +157,7 @@ func (x *Xray) AddUser(ctx context.Context, user *common.User) error {
 	for _, inbound := range inbounds {
 		account, isActive := IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			inbound.AddUser(proxySetting)
+			inbound.AddUser(account)
 			if err = handler.AddInboundUser(ctx, inbound.Tag, account); err != nil {
 				log.Println(err)
 				errMessage += "\n" + err.Error()
@@ -185,25 +185,19 @@ func (x *Xray) UpdateUser(ctx context.Context, user *common.User) error {
 	inbounds := x.getConfig().InboundConfigs
 
 	var errMessage string
-	var activeInbounds []string
 
 	for _, inbound := range inbounds {
+		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
 		account, isActive := IsActiveInbound(inbound, user, proxySetting)
 		if isActive {
-			inbound.UpdateUser(proxySetting)
-			activeInbounds = append(activeInbounds, inbound.Tag)
+			inbound.UpdateUser(account)
 			err = handler.AddInboundUser(ctx, inbound.Tag, account)
 			if err != nil {
 				log.Println(err)
 				errMessage += "\n" + err.Error()
 			}
-		}
-	}
-
-	for _, inbound := range inbounds {
-		if !slices.Contains(activeInbounds, inbound.Tag) {
-			inbound.RemoveUser(user.Email)
-			_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
+		} else {
+			inbound.RemoveUser(user.GetEmail())
 		}
 	}
 

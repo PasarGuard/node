@@ -47,68 +47,64 @@ type Inbound struct {
 	mu             sync.RWMutex
 }
 
-func (i *Inbound) AddUser(account api.ProxySettings) {
+func (i *Inbound) AddUser(account api.Account) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	switch Protocol(i.Protocol) {
-	case Vmess:
-		var clients []*api.VMessAccount
+	switch account.(type) {
+	case *api.VMessAccount:
 		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
 		if !ok {
 			clients = []*api.VMessAccount{}
 		}
-		i.Settings["clients"] = append(clients, account.Vmess)
+		i.Settings["clients"] = append(clients, account.(*api.VMessAccount))
 
-	case Vless:
-		var clients []*api.VLESSAccount
+	case *api.VLESSAccount:
 		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
 		if !ok {
 			clients = []*api.VLESSAccount{}
 		}
-		i.Settings["clients"] = append(clients, account.Vless)
+		i.Settings["clients"] = append(clients, account.(*api.VLESSAccount))
 
-	case Trojan:
-		var clients []*api.TrojanAccount
+	case *api.TrojanAccount:
 		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
 		if !ok {
 			clients = []*api.TrojanAccount{}
 		}
-		i.Settings["clients"] = append(clients, account.Trojan)
+		i.Settings["clients"] = append(clients, account.(*api.TrojanAccount))
 
-	case Shadowsocks:
-		method, methodOk := i.Settings["method"].(string)
-		if methodOk && strings.HasPrefix("2022-blake3", method) {
-			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
-			if !ok {
-				clients = []*api.Shadowsocks2022Account{}
-			}
-			i.Settings["clients"] = append(clients, account.Shadowsocks2022)
-		} else {
-			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
-			if !ok {
-				clients = []*api.ShadowsocksAccount{}
-			}
-			i.Settings["clients"] = append(clients, account.Shadowsocks)
+	case *api.ShadowsocksAccount:
+		clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+		if !ok {
+			clients = []*api.ShadowsocksAccount{}
 		}
+
+		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksAccount))
+
+	case *api.Shadowsocks2022Account:
+		clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+		if !ok {
+			clients = []*api.Shadowsocks2022Account{}
+		}
+
+		i.Settings["clients"] = append(clients, account.(*api.Shadowsocks2022Account))
 	default:
 		return
 	}
 }
 
-func (i *Inbound) UpdateUser(account api.ProxySettings) {
+func (i *Inbound) UpdateUser(account api.Account) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	switch Protocol(i.Protocol) {
-	case Vmess:
-		var clients []*api.VMessAccount
+	email := account.GetEmail()
+	switch account.(type) {
+	case *api.VMessAccount:
 		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
 		if !ok {
 			clients = []*api.VMessAccount{}
 		}
 
-		email := account.Vmess.GetEmail()
 		for x, client := range clients {
 			if client.Email == email {
 				clients = append(clients[:x], clients[x+1:]...)
@@ -116,16 +112,14 @@ func (i *Inbound) UpdateUser(account api.ProxySettings) {
 			}
 		}
 
-		i.Settings["clients"] = append(clients, account.Vmess)
+		i.Settings["clients"] = append(clients, account.(*api.VMessAccount))
 
-	case Vless:
-		var clients []*api.VLESSAccount
+	case *api.VLESSAccount:
 		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
 		if !ok {
 			clients = []*api.VLESSAccount{}
 		}
 
-		email := account.Vless.GetEmail()
 		for x, client := range clients {
 			if client.Email == email {
 				clients = append(clients[:x], clients[x+1:]...)
@@ -133,16 +127,14 @@ func (i *Inbound) UpdateUser(account api.ProxySettings) {
 			}
 		}
 
-		i.Settings["clients"] = append(clients, account.Vless)
+		i.Settings["clients"] = append(clients, account.(*api.VLESSAccount))
 
-	case Trojan:
-		var clients []*api.TrojanAccount
+	case *api.TrojanAccount:
 		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
 		if !ok {
 			clients = []*api.TrojanAccount{}
 		}
 
-		email := account.Trojan.GetEmail()
 		for x, client := range clients {
 			if client.Email == email {
 				clients = append(clients[:x], clients[x+1:]...)
@@ -150,42 +142,38 @@ func (i *Inbound) UpdateUser(account api.ProxySettings) {
 			}
 		}
 
-		i.Settings["clients"] = append(clients, account.Trojan)
+		i.Settings["clients"] = append(clients, account.(*api.TrojanAccount))
 
-	case Shadowsocks:
-		method, methodOk := i.Settings["method"].(string)
-		if methodOk && strings.HasPrefix("2022-blake3", method) {
-			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
-			if !ok {
-				clients = []*api.Shadowsocks2022Account{}
-			}
-
-			email := account.Shadowsocks2022.GetEmail()
-			for x, client := range clients {
-				if client.Email == email {
-					clients = append(clients[:x], clients[x+1:]...)
-					break
-				}
-			}
-
-			i.Settings["clients"] = append(clients, account.Shadowsocks2022)
-
-		} else {
-			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
-			if !ok {
-				clients = []*api.ShadowsocksAccount{}
-			}
-
-			email := account.Shadowsocks.GetEmail()
-			for x, client := range clients {
-				if client.Email == email {
-					clients = append(clients[:x], clients[x+1:]...)
-					break
-				}
-			}
-
-			i.Settings["clients"] = append(clients, account.Shadowsocks)
+	case *api.ShadowsocksAccount:
+		clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+		if !ok {
+			clients = []*api.ShadowsocksAccount{}
 		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksAccount))
+
+	case *api.Shadowsocks2022Account:
+		clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+		if !ok {
+			clients = []*api.Shadowsocks2022Account{}
+		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.(*api.Shadowsocks2022Account))
+
 	default:
 		return
 	}
@@ -197,7 +185,6 @@ func (i *Inbound) RemoveUser(email string) {
 
 	switch Protocol(i.Protocol) {
 	case Vmess:
-		var clients []*api.VMessAccount
 		clients, ok := i.Settings["clients"].([]*api.VMessAccount)
 		if !ok {
 			clients = []*api.VMessAccount{}
@@ -212,7 +199,6 @@ func (i *Inbound) RemoveUser(email string) {
 		i.Settings["clients"] = clients
 
 	case Vless:
-		var clients []*api.VLESSAccount
 		clients, ok := i.Settings["clients"].([]*api.VLESSAccount)
 		if !ok {
 			clients = []*api.VLESSAccount{}
@@ -227,7 +213,6 @@ func (i *Inbound) RemoveUser(email string) {
 		i.Settings["clients"] = clients
 
 	case Trojan:
-		var clients []*api.TrojanAccount
 		clients, ok := i.Settings["clients"].([]*api.TrojanAccount)
 		if !ok {
 			clients = []*api.TrojanAccount{}

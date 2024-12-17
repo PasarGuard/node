@@ -90,7 +90,33 @@ func TestXrayBackend(t *testing.T) {
 
 	log.Println("user added")
 
-	back.RemoveUser(ctx, user.GetEmail())
+	user = &common.User{
+		Email: "test_user@example.com",
+		Inbounds: []string{
+			"VLESS TCP REALITY",
+			"Shadowsocks TCP",
+			"Shadowsocks UDP",
+		},
+		Proxies: &common.Proxy{
+			Vmess: &common.VmessSetting{
+				Id: uuid.New().String(),
+			},
+			Vless: &common.VlessSetting{
+				Id: uuid.New().String(),
+			},
+			Trojan: &common.TrojanSetting{
+				Password: "try a random string",
+			},
+			Shadowsocks: &common.ShadowsocksSetting{
+				Password: "try a random string",
+				Method:   "AES_256_GCM",
+			},
+		},
+	}
+
+	if err = back.UpdateUser(ctx, user); err != nil {
+		t.Fatal(err)
+	}
 
 	log.Println("user updated")
 
