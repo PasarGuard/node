@@ -63,7 +63,7 @@
         {
             "tag": "VLESS TCP NOTLS",
             "listen": "0.0.0.0",
-            "port": 443,
+            "port": 4435,
             "protocol": "vless",
             "settings": {
                 "clients": [],
@@ -86,7 +86,7 @@
         {
             "tag": "VLESS TCP Header NoTLS",
             "listen": "0.0.0.0",
-            "port": 443,
+            "port": 4436,
             "protocol": "vless",
             "settings": {
                 "clients": [],
