@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -141,8 +142,7 @@ func (x *Xray) GenerateConfigFile() error {
 	}
 
 	// Ensure the directory exists
-	err = os.MkdirAll(x.configPath, 0755)
-	if err != nil {
+	if err = os.MkdirAll(x.configPath, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
 
@@ -186,26 +186,58 @@ Loop:
 }
 
 func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPath string) (*Xray, error) {
-	xray := &Xray{configPath: configPath}
+	executableAbsolutePath, err := filepath.Abs(executablePath)
+	if err != nil {
+		return nil, err
+	}
+
+	assetsAbsolutePath, err := filepath.Abs(assetsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	configAbsolutePath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	xray := &Xray{configPath: configAbsolutePath}
+
+	start := time.Now()
+
 	config, ok := ctx.Value(backend.ConfigKey{}).(*Config)
 	if !ok {
 		return nil, errors.New("xray config has not been initialized")
 	}
-	if err := config.ApplyAPI(port); err != nil {
+
+	if err = config.ApplyAPI(port); err != nil {
 		return nil, err
 	}
+
+	users := ctx.Value(backend.UsersKey{}).([]*common.User)
+	config.syncUsers(users)
+
 	xray.setConfig(config)
 
-	core, err := NewXRayCore(executablePath, assetsPath)
+	if err = xray.GenerateConfigFile(); err != nil {
+		return nil, err
+	}
+
+	log.Println("config generated in", time.Since(start).Seconds(), "second.")
+
+	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath)
 	if err != nil {
 		return nil, err
 	}
+
 	if err = core.Start(config); err != nil {
 		return nil, err
 	}
+
 	xray.setCore(core)
 
 	if err = xray.checkXrayStatus(); err != nil {
+		xray.Shutdown()
 		return nil, err
 	}
 
@@ -215,11 +247,6 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 		return nil, err
 	}
 	xray.setHandler(handler)
-
-	if err = xray.GenerateConfigFile(); err != nil {
-		xray.Shutdown()
-		return nil, err
-	}
 
 	return xray, nil
 }

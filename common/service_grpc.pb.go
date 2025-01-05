@@ -23,7 +23,7 @@ const (
 	NodeService_Stop_FullMethodName              = "/service.NodeService/Stop"
 	NodeService_GetBaseInfo_FullMethodName       = "/service.NodeService/GetBaseInfo"
 	NodeService_GetLogs_FullMethodName           = "/service.NodeService/GetLogs"
-	NodeService_GetNodeStats_FullMethodName      = "/service.NodeService/GetNodeStats"
+	NodeService_GetSystemStats_FullMethodName    = "/service.NodeService/GetSystemStats"
 	NodeService_GetBackendStats_FullMethodName   = "/service.NodeService/GetBackendStats"
 	NodeService_GetOutboundsStats_FullMethodName = "/service.NodeService/GetOutboundsStats"
 	NodeService_GetInboundsStats_FullMethodName  = "/service.NodeService/GetInboundsStats"
@@ -32,6 +32,7 @@ const (
 	NodeService_AddUser_FullMethodName           = "/service.NodeService/AddUser"
 	NodeService_UpdateUser_FullMethodName        = "/service.NodeService/UpdateUser"
 	NodeService_RemoveUser_FullMethodName        = "/service.NodeService/RemoveUser"
+	NodeService_SyncUsers_FullMethodName         = "/service.NodeService/SyncUsers"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -44,7 +45,7 @@ type NodeServiceClient interface {
 	Stop(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	GetBaseInfo(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BaseInfoResponse, error)
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
-	GetNodeStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
+	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
 	GetBackendStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BackendStatsResponse, error)
 	GetOutboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error)
 	GetInboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error)
@@ -53,6 +54,7 @@ type NodeServiceClient interface {
 	AddUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*Empty, error)
 	UpdateUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*Empty, error)
 	RemoveUser(ctx context.Context, in *User, opts ...grpc.CallOption) (*Empty, error)
+	SyncUsers(ctx context.Context, in *Users, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type nodeServiceClient struct {
@@ -112,10 +114,10 @@ func (c *nodeServiceClient) GetLogs(ctx context.Context, in *Empty, opts ...grpc
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetLogsClient = grpc.ServerStreamingClient[Log]
 
-func (c *nodeServiceClient) GetNodeStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error) {
+func (c *nodeServiceClient) GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SystemStatsResponse)
-	err := c.cc.Invoke(ctx, NodeService_GetNodeStats_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, NodeService_GetSystemStats_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +204,16 @@ func (c *nodeServiceClient) RemoveUser(ctx context.Context, in *User, opts ...gr
 	return out, nil
 }
 
+func (c *nodeServiceClient) SyncUsers(ctx context.Context, in *Users, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_SyncUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
@@ -212,7 +224,7 @@ type NodeServiceServer interface {
 	Stop(context.Context, *Empty) (*Empty, error)
 	GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error)
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
-	GetNodeStats(context.Context, *Empty) (*SystemStatsResponse, error)
+	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
 	GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error)
 	GetOutboundsStats(context.Context, *Empty) (*StatResponse, error)
 	GetInboundsStats(context.Context, *Empty) (*StatResponse, error)
@@ -221,6 +233,7 @@ type NodeServiceServer interface {
 	AddUser(context.Context, *User) (*Empty, error)
 	UpdateUser(context.Context, *User) (*Empty, error)
 	RemoveUser(context.Context, *User) (*Empty, error)
+	SyncUsers(context.Context, *Users) (*Empty, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -243,8 +256,8 @@ func (UnimplementedNodeServiceServer) GetBaseInfo(context.Context, *Empty) (*Bas
 func (UnimplementedNodeServiceServer) GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error {
 	return status.Errorf(codes.Unimplemented, "method GetLogs not implemented")
 }
-func (UnimplementedNodeServiceServer) GetNodeStats(context.Context, *Empty) (*SystemStatsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetNodeStats not implemented")
+func (UnimplementedNodeServiceServer) GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSystemStats not implemented")
 }
 func (UnimplementedNodeServiceServer) GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackendStats not implemented")
@@ -269,6 +282,9 @@ func (UnimplementedNodeServiceServer) UpdateUser(context.Context, *User) (*Empty
 }
 func (UnimplementedNodeServiceServer) RemoveUser(context.Context, *User) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveUser not implemented")
+}
+func (UnimplementedNodeServiceServer) SyncUsers(context.Context, *Users) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncUsers not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -356,20 +372,20 @@ func _NodeService_GetLogs_Handler(srv interface{}, stream grpc.ServerStream) err
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetLogsServer = grpc.ServerStreamingServer[Log]
 
-func _NodeService_GetNodeStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _NodeService_GetSystemStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServiceServer).GetNodeStats(ctx, in)
+		return srv.(NodeServiceServer).GetSystemStats(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NodeService_GetNodeStats_FullMethodName,
+		FullMethod: NodeService_GetSystemStats_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetNodeStats(ctx, req.(*Empty))
+		return srv.(NodeServiceServer).GetSystemStats(ctx, req.(*Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -518,6 +534,24 @@ func _NodeService_RemoveUser_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_SyncUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Users)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).SyncUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_SyncUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).SyncUsers(ctx, req.(*Users))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -538,8 +572,8 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeService_GetBaseInfo_Handler,
 		},
 		{
-			MethodName: "GetNodeStats",
-			Handler:    _NodeService_GetNodeStats_Handler,
+			MethodName: "GetSystemStats",
+			Handler:    _NodeService_GetSystemStats_Handler,
 		},
 		{
 			MethodName: "GetBackendStats",
@@ -572,6 +606,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveUser",
 			Handler:    _NodeService_RemoveUser_Handler,
+		},
+		{
+			MethodName: "SyncUsers",
+			Handler:    _NodeService_SyncUsers_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

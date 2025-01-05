@@ -39,6 +39,9 @@ func (s *Service) detectBackend(ctx context.Context, detail *common.Backend) (co
 	} else {
 		return nil, errors.New("unknown backend type")
 	}
+
+	ctx = context.WithValue(ctx, backend.UsersKey{}, detail.GetUsers())
+
 	return ctx, nil
 }
 

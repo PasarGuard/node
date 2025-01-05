@@ -187,13 +187,14 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/AddUser":           true,
 	"/service.NodeService/UpdateUser":        true,
 	"/service.NodeService/RemoveUser":        true,
+	"/service.NodeService/SyncUsers":         true,
 }
 
 var sessionIDMethods = map[string]bool{
 	"/service.NodeService/Stop":              true,
 	"/service.NodeService/GetBaseInfo":       true,
 	"/service.NodeService/GetLogs":           true,
-	"/service.NodeService/GetNodeStats":      true,
+	"/service.NodeService/GetSystemStats":    true,
 	"/service.NodeService/GetOutboundsStats": true,
 	"/service.NodeService/GetInboundsStats":  true,
 	"/service.NodeService/GetUsersStats":     true,
@@ -201,6 +202,7 @@ var sessionIDMethods = map[string]bool{
 	"/service.NodeService/AddUser":           true,
 	"/service.NodeService/UpdateUser":        true,
 	"/service.NodeService/RemoveUser":        true,
+	"/service.NodeService/SyncUsers":         true,
 }
 
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {

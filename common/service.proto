@@ -22,6 +22,7 @@ enum BackendType {
 message Backend {
   BackendType type = 1;
   string config = 2;
+  repeated User users = 3;
 }
 
 // log
@@ -73,35 +74,39 @@ message SystemStatsResponse {
 }
 
 // User
-message VmessSetting {
+message Vmess {
     string id = 1;
 }
 
-message VlessSetting {
+message Vless {
     string id = 1;
     string flow = 2;
 }
 
-message TrojanSetting {
+message Trojan {
     string password = 1;
 }
 
-message ShadowsocksSetting {
+message Shadowsocks {
     string password = 1;
     string method = 2;
 }
 
 message Proxy {
-    VmessSetting vmess = 1;
-    VlessSetting vless = 2;
-    TrojanSetting trojan = 3;
-    ShadowsocksSetting shadowsocks = 4;
+    Vmess vmess = 1;
+    Vless vless = 2;
+    Trojan trojan = 3;
+    Shadowsocks shadowsocks = 4;
 }
 
 message User {
     string email = 1;
     Proxy proxies = 2;
     repeated string inbounds = 3;
+}
+
+message Users {
+  repeated User users = 1;
 }
 
 // Service for node management and connection
@@ -112,7 +117,7 @@ service NodeService {
 
   rpc GetLogs (Empty) returns (stream Log) {}
 
-  rpc GetNodeStats (Empty) returns (SystemStatsResponse) {}
+  rpc GetSystemStats (Empty) returns (SystemStatsResponse) {}
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
   rpc GetOutboundsStats (Empty) returns (StatResponse) {}
   rpc GetInboundsStats (Empty) returns (StatResponse) {}
@@ -122,4 +127,5 @@ service NodeService {
   rpc AddUser (User) returns (Empty) {}
   rpc UpdateUser (User) returns (Empty) {}
   rpc RemoveUser (User) returns (Empty) {}
+  rpc SyncUsers (Users) returns (Empty) {}
 }

@@ -33,3 +33,12 @@ func LoadTLSCredentials(cert, key, poolCert string, isClient bool) (*tls.Config,
 	}
 	return config, nil
 }
+
+func LoadCertPool(certFile string) *x509.CertPool {
+	certPool := x509.NewCertPool()
+	certData, err := os.ReadFile(certFile)
+	if err == nil {
+		certPool.AppendCertsFromPEM(certData)
+	}
+	return certPool
+}

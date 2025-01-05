@@ -1,9 +1,8 @@
 package api
 
 import (
-	"google.golang.org/protobuf/proto"
-
 	"github.com/xtls/xray-core/common/serial"
+	"google.golang.org/protobuf/proto"
 )
 
 func ToTypedMessage(account proto.Message) (*serial.TypedMessage, error) {

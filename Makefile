@@ -86,10 +86,10 @@ install_xray: update_os
 	sudo bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
 
 test-integration:
-	TEST_INTEGRATION=true go test ./... -v
+	TEST_INTEGRATION=true go test ./... -v -p 1
 
 test:
-	 TEST_INTEGRATION=false go test ./... -v
+	TEST_INTEGRATION=false go test ./... -v -p 1
 
 serve:
 	go run main.go serve

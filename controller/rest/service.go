@@ -33,13 +33,12 @@ func (s *Service) setRouter() {
 	router.Group(func(protected chi.Router) {
 		// check session and need to return data as context
 		protected.Use(s.checkSessionIDMiddleware)
-		protected.Get("/", s.Base)
 
-		protected.Get("/ping", s.Ping)
+		protected.Get("/info", s.Base)
 		protected.Put("/stop", s.Stop)
 		protected.Get("/logs", s.GetLogs)
 
-		protected.Get("/stats/node", s.GetNodeStats)
+		protected.Get("/stats/system", s.GetSystemStats)
 
 		protected.Group(func(private chi.Router) {
 			private.Use(s.checkBackendMiddleware)
@@ -50,14 +49,14 @@ func (s *Service) setRouter() {
 				statsGroup.Get("/outbounds", s.GetOutboundsStats)
 				statsGroup.Get("/user/{email}", s.GetUserOnlineStat)
 				statsGroup.Get("/users", s.GetUsersStats)
-				statsGroup.Get("/system", s.GetBackendStats)
+				statsGroup.Get("/backend", s.GetBackendStats)
 			})
 
 			// users api
 			private.Route("/user", func(userGroup chi.Router) {
 				userGroup.Post("/add", s.AddUser)
 				userGroup.Put("/update", s.UpdateUser)
-				userGroup.Post("/remove", s.RemoveUser)
+				userGroup.Delete("/remove", s.RemoveUser)
 			})
 		})
 	})

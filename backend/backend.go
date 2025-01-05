@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+
 	"github.com/m03ed/marzban-node-go/common"
 )
 
@@ -15,6 +16,7 @@ type Backend interface {
 	AddUser(context.Context, *common.User) error
 	UpdateUser(context.Context, *common.User) error
 	RemoveUser(context.Context, string)
+	SyncUsers(context.Context, []*common.User) error
 	GetSysStats(context.Context) (*common.BackendStatsResponse, error)
 	GetUsersStats(context.Context, bool) (*common.StatResponse, error)
 	GetStatOnline(context.Context, string) (*common.OnlineStatResponse, error)

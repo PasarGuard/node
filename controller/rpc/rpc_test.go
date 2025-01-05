@@ -3,8 +3,6 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"log"
 	"os"
@@ -13,8 +11,10 @@ import (
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/m03ed/marzban-node-go/common"
 	"github.com/m03ed/marzban-node-go/config"
@@ -183,23 +183,23 @@ func TestGRPCConnection(t *testing.T) {
 			"Shadowsocks UDP",
 		},
 		Proxies: &common.Proxy{
-			Vmess: &common.VmessSetting{
+			Vmess: &common.Vmess{
 				Id: uuid.New().String(),
 			},
-			Vless: &common.VlessSetting{
+			Vless: &common.Vless{
 				Id: uuid.New().String(),
 			},
-			Trojan: &common.TrojanSetting{
+			Trojan: &common.Trojan{
 				Password: "try a random string",
 			},
-			Shadowsocks: &common.ShadowsocksSetting{
+			Shadowsocks: &common.Shadowsocks{
 				Password: "try a random string",
-				Method:   "AES_256_GCM",
+				Method:   "aes-256-gcm",
 			},
 		},
 	}
 
-	// test AddUser
+	// test addUser
 	if _, err = client.AddUser(ctx, user); err != nil {
 		t.Fatalf("Failed to add user: %v", err)
 	}
@@ -217,23 +217,23 @@ func TestGRPCConnection(t *testing.T) {
 			"Shadowsocks UDP",
 		},
 		Proxies: &common.Proxy{
-			Vmess: &common.VmessSetting{
+			Vmess: &common.Vmess{
 				Id: uuid.New().String(),
 			},
-			Vless: &common.VlessSetting{
+			Vless: &common.Vless{
 				Id: uuid.New().String(),
 			},
-			Trojan: &common.TrojanSetting{
+			Trojan: &common.Trojan{
 				Password: "try a random string",
 			},
-			Shadowsocks: &common.ShadowsocksSetting{
+			Shadowsocks: &common.Shadowsocks{
 				Password: "try a random string",
-				Method:   "AES_128_GCM",
+				Method:   "aes-256-gcm",
 			},
 		},
 	}
 
-	// test UpdateUser
+	// test updateUser
 	if _, err = client.UpdateUser(ctx, user); err != nil {
 		t.Fatalf("Failed to update user: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestGRPCConnection(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test RemoveUser
+	// test removeUser
 	if _, err = client.RemoveUser(ctx, user); err != nil {
 		t.Fatalf("Failed to remove user: %v", err)
 	}
@@ -282,7 +282,7 @@ loop:
 	defer cancel()
 
 	// test GetNodeStats
-	nodeStats, err := client.GetNodeStats(ctx, &common.Empty{})
+	nodeStats, err := client.GetSystemStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get node stats: %v", err)
 	}

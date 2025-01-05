@@ -87,9 +87,62 @@ func TestRESTConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	user := &common.User{
+		Email: "test_user1@example.com",
+		Inbounds: []string{
+			"VMESS TCP NOTLS",
+			"VLESS TCP REALITY",
+			"TROJAN TCP NOTLS",
+			"Shadowsocks TCP",
+			"Shadowsocks UDP",
+		},
+		Proxies: &common.Proxy{
+			Vmess: &common.Vmess{
+				Id: uuid.New().String(),
+			},
+			Vless: &common.Vless{
+				Id: uuid.New().String(),
+			},
+			Trojan: &common.Trojan{
+				Password: "try a random string",
+			},
+			Shadowsocks: &common.Shadowsocks{
+				Password: "try a random string",
+				Method:   "aes-256-gcm",
+			},
+		},
+	}
+
+	user2 := &common.User{
+		Email: "test_user2@example.com",
+		Inbounds: []string{
+			"VMESS TCP NOTLS",
+			"VLESS TCP REALITY",
+			"TROJAN TCP NOTLS",
+			"Shadowsocks TCP",
+			"Shadowsocks UDP",
+		},
+		Proxies: &common.Proxy{
+			Vmess: &common.Vmess{
+				Id: uuid.New().String(),
+			},
+			Vless: &common.Vless{
+				Id: uuid.New().String(),
+			},
+			Trojan: &common.Trojan{
+				Password: "try a random string",
+			},
+			Shadowsocks: &common.Shadowsocks{
+				Password: "try a random string",
+				Method:   "aes-256-gcm",
+			},
+		},
+	}
+
 	backendStartReq := &common.Backend{
 		Type:   common.BackendType_XRAY,
 		Config: string(configFile),
+		Users:  []*common.User{user, user2},
 	}
 
 	jsonBody, _ := json.Marshal(backendStartReq)
@@ -194,7 +247,7 @@ func TestRESTConnection(t *testing.T) {
 	}
 
 	// Try To Get Backend Stats
-	backendStatsReq, _ := createAuthenticatedRequest("GET", "/stats/system", nil)
+	backendStatsReq, _ := createAuthenticatedRequest("GET", "/stats/backend", nil)
 	backendStatsResp, err := client.Do(backendStatsReq)
 	if err != nil {
 		t.Fatalf("Backend stats request failed: %v", err)
@@ -213,32 +266,6 @@ func TestRESTConnection(t *testing.T) {
 			stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 
-	user := &common.User{
-		Email: "test_user1@example.com",
-		Inbounds: []string{
-			"VMESS TCP NOTLS",
-			"VLESS TCP REALITY",
-			"TROJAN TCP NOTLS",
-			"Shadowsocks TCP",
-			"Shadowsocks UDP",
-		},
-		Proxies: &common.Proxy{
-			Vmess: &common.VmessSetting{
-				Id: uuid.New().String(),
-			},
-			Vless: &common.VlessSetting{
-				Id: uuid.New().String(),
-			},
-			Trojan: &common.TrojanSetting{
-				Password: "try a random string",
-			},
-			Shadowsocks: &common.ShadowsocksSetting{
-				Password: "try a random string",
-				Method:   "AES_256_GCM",
-			},
-		},
-	}
-
 	jsonBody, _ = json.Marshal(user)
 
 	// Try To Add User
@@ -249,33 +276,7 @@ func TestRESTConnection(t *testing.T) {
 	}
 	defer addUserResp.Body.Close()
 
-	user = &common.User{
-		Email: "test_user2@example.com",
-		Inbounds: []string{
-			"VMESS TCP NOTLS",
-			"VLESS TCP REALITY",
-			"TROJAN TCP NOTLS",
-			"Shadowsocks TCP",
-			"Shadowsocks UDP",
-		},
-		Proxies: &common.Proxy{
-			Vmess: &common.VmessSetting{
-				Id: uuid.New().String(),
-			},
-			Vless: &common.VlessSetting{
-				Id: uuid.New().String(),
-			},
-			Trojan: &common.TrojanSetting{
-				Password: "try a random string",
-			},
-			Shadowsocks: &common.ShadowsocksSetting{
-				Password: "try a random string",
-				Method:   "AES_128_GCM",
-			},
-		},
-	}
-
-	jsonBody, _ = json.Marshal(user)
+	jsonBody, _ = json.Marshal(user2)
 
 	// Try To Update User
 	updateUserReq, _ := createAuthenticatedRequest("PUT", "/user/update", bytes.NewBuffer(jsonBody))
@@ -314,7 +315,7 @@ func TestRESTConnection(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Try To Get Node Stats
-	nodeStatsReq, _ := createAuthenticatedRequest("GET", "/stats/node", nil)
+	nodeStatsReq, _ := createAuthenticatedRequest("GET", "/stats/system", nil)
 	nodeStatsResp, err := client.Do(nodeStatsReq)
 	if err != nil {
 		t.Fatalf("Node stats request failed: %v", err)

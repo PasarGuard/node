@@ -26,6 +26,6 @@ func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common
 	return s.controller.GetBackend().GetSysStats(ctx)
 }
 
-func (s *Service) GetNodeStats(_ context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
+func (s *Service) GetSystemStats(_ context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
 	return s.controller.GetStats(), nil
 }

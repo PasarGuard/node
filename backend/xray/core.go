@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sync"
 
@@ -16,6 +17,7 @@ import (
 type Core struct {
 	executablePath string
 	assetsPath     string
+	configPath     string
 	version        string
 	process        *exec.Cmd
 	restarting     bool
@@ -24,10 +26,11 @@ type Core struct {
 	mu             sync.Mutex
 }
 
-func NewXRayCore(executablePath, assetsPath string) (*Core, error) {
+func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
 	core := &Core{
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
+		configPath:     configPath,
 		logsChan:       make(chan string),
 	}
 
@@ -94,7 +97,7 @@ func (c *Core) Start(config *Config) error {
 
 	accessFile, errorFile := config.RemoveLogFiles()
 
-	cmd := exec.Command(c.executablePath, "run", "-config", "stdin:")
+	cmd := exec.Command(c.executablePath, "-c", filepath.Join(c.configPath, "xray.json"))
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
 
 	xrayJson, err := config.ToJSON()

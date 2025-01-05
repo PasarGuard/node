@@ -2,12 +2,14 @@ package xray
 
 import (
 	"encoding/json"
+	"log"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/xtls/xray-core/infra/conf"
-
 	"github.com/m03ed/marzban-node-go/backend/xray/api"
+	"github.com/m03ed/marzban-node-go/common"
+	"github.com/xtls/xray-core/infra/conf"
 )
 
 type Protocol string
@@ -47,7 +49,76 @@ type Inbound struct {
 	mu             sync.RWMutex
 }
 
-func (i *Inbound) AddUser(account api.Account) {
+func (c *Config) syncUsers(users []*common.User) {
+	for _, i := range c.InboundConfigs {
+		i.syncUsers(users)
+	}
+}
+
+func (i *Inbound) syncUsers(users []*common.User) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	switch i.Protocol {
+	case Vmess:
+		clients := []*api.VMessAccount{}
+		for _, user := range users {
+			account, err := api.NewVMessAccount(user)
+			if err != nil {
+				log.Println("error for user", user.GetEmail(), ":", err)
+			}
+			if slices.Contains(user.Inbounds, i.Tag) {
+				clients = append(clients, account)
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Vless:
+		clients := []*api.VLESSAccount{}
+		for _, user := range users {
+			account, err := api.NewVlessAccount(user)
+			if err != nil {
+				log.Println("error for user", user.GetEmail(), ":", err)
+			}
+			if newAccount, active := isActiveInbound(i, user.GetInbounds(), api.ProxySettings{Vless: account}); active {
+				clients = append(clients, newAccount.(*api.VLESSAccount))
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Trojan:
+		clients := []*api.TrojanAccount{}
+		for _, user := range users {
+			if slices.Contains(user.Inbounds, i.Tag) {
+				clients = append(clients, api.NewTrojanAccount(user))
+			}
+		}
+		i.Settings["clients"] = clients
+
+	case Shadowsocks:
+		method, methodOk := i.Settings["method"].(string)
+		if methodOk && strings.HasPrefix("2022-blake3", method) {
+			clients := []*api.ShadowsocksAccount{}
+			for _, user := range users {
+				if slices.Contains(user.Inbounds, i.Tag) {
+					clients = append(clients, api.NewShadowsocksAccount(user))
+				}
+			}
+			i.Settings["clients"] = clients
+
+		} else {
+			clients := []*api.ShadowsocksTcpAccount{}
+			for _, user := range users {
+				if slices.Contains(user.Inbounds, i.Tag) {
+					clients = append(clients, api.NewShadowsocksTcpAccount(user))
+				}
+			}
+			i.Settings["clients"] = clients
+		}
+	}
+}
+
+func (i *Inbound) addUser(account api.Account) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -73,6 +144,14 @@ func (i *Inbound) AddUser(account api.Account) {
 		}
 		i.Settings["clients"] = append(clients, account.(*api.TrojanAccount))
 
+	case *api.ShadowsocksTcpAccount:
+		clients, ok := i.Settings["clients"].([]*api.ShadowsocksTcpAccount)
+		if !ok {
+			clients = []*api.ShadowsocksTcpAccount{}
+		}
+
+		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksTcpAccount))
+
 	case *api.ShadowsocksAccount:
 		clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
 		if !ok {
@@ -80,20 +159,12 @@ func (i *Inbound) AddUser(account api.Account) {
 		}
 
 		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksAccount))
-
-	case *api.Shadowsocks2022Account:
-		clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
-		if !ok {
-			clients = []*api.Shadowsocks2022Account{}
-		}
-
-		i.Settings["clients"] = append(clients, account.(*api.Shadowsocks2022Account))
 	default:
 		return
 	}
 }
 
-func (i *Inbound) UpdateUser(account api.Account) {
+func (i *Inbound) updateUser(account api.Account) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -144,6 +215,21 @@ func (i *Inbound) UpdateUser(account api.Account) {
 
 		i.Settings["clients"] = append(clients, account.(*api.TrojanAccount))
 
+	case *api.ShadowsocksTcpAccount:
+		clients, ok := i.Settings["clients"].([]*api.ShadowsocksTcpAccount)
+		if !ok {
+			clients = []*api.ShadowsocksTcpAccount{}
+		}
+
+		for x, client := range clients {
+			if client.Email == email {
+				clients = append(clients[:x], clients[x+1:]...)
+				break
+			}
+		}
+
+		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksTcpAccount))
+
 	case *api.ShadowsocksAccount:
 		clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
 		if !ok {
@@ -159,27 +245,12 @@ func (i *Inbound) UpdateUser(account api.Account) {
 
 		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksAccount))
 
-	case *api.Shadowsocks2022Account:
-		clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
-		if !ok {
-			clients = []*api.Shadowsocks2022Account{}
-		}
-
-		for x, client := range clients {
-			if client.Email == email {
-				clients = append(clients[:x], clients[x+1:]...)
-				break
-			}
-		}
-
-		i.Settings["clients"] = append(clients, account.(*api.Shadowsocks2022Account))
-
 	default:
 		return
 	}
 }
 
-func (i *Inbound) RemoveUser(email string) {
+func (i *Inbound) removeUser(email string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -229,9 +300,9 @@ func (i *Inbound) RemoveUser(email string) {
 	case Shadowsocks:
 		method, methodOk := i.Settings["method"].(string)
 		if methodOk && strings.HasPrefix("2022-blake3", method) {
-			clients, ok := i.Settings["clients"].([]*api.Shadowsocks2022Account)
+			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
 			if !ok {
-				clients = []*api.Shadowsocks2022Account{}
+				clients = []*api.ShadowsocksAccount{}
 			}
 
 			for x, client := range clients {
@@ -243,9 +314,9 @@ func (i *Inbound) RemoveUser(email string) {
 			i.Settings["clients"] = clients
 
 		} else {
-			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
+			clients, ok := i.Settings["clients"].([]*api.ShadowsocksTcpAccount)
 			if !ok {
-				clients = []*api.ShadowsocksAccount{}
+				clients = []*api.ShadowsocksTcpAccount{}
 			}
 
 			for x, client := range clients {

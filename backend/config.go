@@ -7,3 +7,5 @@ type Config interface {
 }
 
 type ConfigKey struct{}
+
+type UsersKey struct{}

@@ -68,18 +68,20 @@ func (s *Service) detectBackend(r *http.Request) (context.Context, common.Backen
 
 	// Decode into a map
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return nil, 0, errors.New("invalid JSON")
+		return nil, 0, err
 	}
 
 	if body.Type == common.BackendType_XRAY {
 		config, err := xray.NewXRayConfig(body.Config)
 		if err != nil {
-			return nil, 0, errors.New("invalid Config")
+			return nil, 0, err
 		}
 		ctx = context.WithValue(r.Context(), backend.ConfigKey{}, config)
 	} else {
 		return ctx, body.Type, errors.New("invalid backend type")
 	}
+
+	ctx = context.WithValue(ctx, backend.UsersKey{}, body.GetUsers())
 
 	return ctx, body.Type, nil
 }
