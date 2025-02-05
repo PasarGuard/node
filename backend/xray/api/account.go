@@ -31,21 +31,21 @@ func (ba *BaseAccount) GetLevel() uint32 {
 	return ba.Level
 }
 
-type VMessAccount struct {
+type VmessAccount struct {
 	BaseAccount
 	ID uuid.UUID `json:"id"`
 }
 
-func (va *VMessAccount) Message() (*serial.TypedMessage, error) {
+func (va *VmessAccount) Message() (*serial.TypedMessage, error) {
 	return ToTypedMessage(&vmess.Account{Id: va.ID.String()})
 }
 
-func NewVMessAccount(user *common.User) (*VMessAccount, error) {
+func NewVmessAccount(user *common.User) (*VmessAccount, error) {
 	id, err := uuid.Parse(user.GetProxies().GetVmess().GetId())
 	if err != nil {
 		return nil, err
 	}
-	return &VMessAccount{
+	return &VmessAccount{
 		BaseAccount: BaseAccount{
 			Email: user.GetEmail(),
 			Level: 0,
@@ -54,22 +54,22 @@ func NewVMessAccount(user *common.User) (*VMessAccount, error) {
 	}, nil
 }
 
-type VLESSAccount struct {
+type VlessAccount struct {
 	BaseAccount
 	ID   uuid.UUID `json:"id"`
 	Flow string    `json:"flow"`
 }
 
-func (va *VLESSAccount) Message() (*serial.TypedMessage, error) {
+func (va *VlessAccount) Message() (*serial.TypedMessage, error) {
 	return ToTypedMessage(&vless.Account{Id: va.ID.String(), Flow: va.Flow})
 }
 
-func NewVlessAccount(user *common.User) (*VLESSAccount, error) {
+func NewVlessAccount(user *common.User) (*VlessAccount, error) {
 	id, err := uuid.Parse(user.GetProxies().GetVless().GetId())
 	if err != nil {
 		return nil, err
 	}
-	return &VLESSAccount{
+	return &VlessAccount{
 		BaseAccount: BaseAccount{
 			Email: user.GetEmail(),
 			Level: 0,
@@ -177,8 +177,8 @@ func NewShadowsocksTcpAccount(user *common.User) *ShadowsocksTcpAccount {
 }
 
 type ProxySettings struct {
-	Vmess           *VMessAccount
-	Vless           *VLESSAccount
+	Vmess           *VmessAccount
+	Vless           *VlessAccount
 	Trojan          *TrojanAccount
 	Shadowsocks     *ShadowsocksTcpAccount
 	Shadowsocks2022 *ShadowsocksAccount

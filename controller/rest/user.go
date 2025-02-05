@@ -1,16 +1,25 @@
 package rest
 
 import (
-	"encoding/json"
+	"io"
 	"net/http"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/m03ed/marzban-node-go/common"
 )
 
-func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
+func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
 	user := &common.User{}
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err = proto.Unmarshal(body, user); err != nil {
+		http.Error(w, "Failed to decode user", http.StatusBadRequest)
 		return
 	}
 
@@ -19,50 +28,44 @@ func (s *Service) AddUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.controller.GetBackend().AddUser(r.Context(), user); err != nil {
+	if err = s.controller.GetBackend().SyncUser(r.Context(), user); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+	response, _ := proto.Marshal(&common.Empty{})
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	if _, err = w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
 
-func (s *Service) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	user := &common.User{}
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	users := &common.Users{}
+	if err = proto.Unmarshal(body, users); err != nil {
+		http.Error(w, "Failed to decode user", http.StatusBadRequest)
 		return
 	}
 
-	if user == nil {
-		http.Error(w, "no user received", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.controller.GetBackend().UpdateUser(r.Context(), user); err != nil {
+	if err = s.controller.GetBackend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
-}
+	response, _ := proto.Marshal(&common.Empty{})
 
-func (s *Service) RemoveUser(w http.ResponseWriter, r *http.Request) {
-	user := &common.User{}
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	if _, err = w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
 		return
 	}
-
-	if user == nil {
-		http.Error(w, "no user received", http.StatusBadRequest)
-		return
-	}
-
-	s.controller.GetBackend().RemoveUser(r.Context(), user.Email)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
 }

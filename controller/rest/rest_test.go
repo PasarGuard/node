@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
 	"io"
 	"log"
 	"net/http"
@@ -15,9 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/m03ed/marzban-node-go/common"
 	"github.com/m03ed/marzban-node-go/config"
+	nodeLogger "github.com/m03ed/marzban-node-go/logger"
 	"github.com/m03ed/marzban-node-go/tools"
 )
 
@@ -145,7 +145,7 @@ func TestRESTConnection(t *testing.T) {
 		Users:  []*common.User{user, user2},
 	}
 
-	jsonBody, _ := json.Marshal(backendStartReq)
+	jsonBody, _ := proto.Marshal(backendStartReq)
 
 	url := fmt.Sprintf("https://%s", addr)
 
@@ -157,7 +157,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var baseInfoResp common.BaseInfoResponse
 	body, _ := io.ReadAll(resp.Body)
-	err = json.Unmarshal(body, &baseInfoResp)
+	err = proto.Unmarshal(body, &baseInfoResp)
 	if err != nil {
 		t.Fatalf("Failed to parse start response: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var outboundsStats common.StatResponse
 	outboundsStatsBody, _ := io.ReadAll(outboundsStatsResp.Body)
-	err = json.Unmarshal(outboundsStatsBody, &outboundsStats)
+	err = proto.Unmarshal(outboundsStatsBody, &outboundsStats)
 	if err != nil {
 		t.Fatalf("Failed to parse outbounds stats: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var inboundsStats common.StatResponse
 	inboundsStatsBody, _ := io.ReadAll(inboundsStatsResp.Body)
-	err = json.Unmarshal(inboundsStatsBody, &inboundsStats)
+	err = proto.Unmarshal(inboundsStatsBody, &inboundsStats)
 	if err != nil {
 		t.Fatalf("Failed to parse inbounds stats: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var usersStats common.StatResponse
 	usersStatsBody, _ := io.ReadAll(usersStatsResp.Body)
-	err = json.Unmarshal(usersStatsBody, &usersStats)
+	err = proto.Unmarshal(usersStatsBody, &usersStats)
 	if err != nil {
 		t.Fatalf("Failed to parse Users stats: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var backendStats common.BackendStatsResponse
 	backendStatsBody, _ := io.ReadAll(backendStatsResp.Body)
-	err = json.Unmarshal(backendStatsBody, &backendStats)
+	err = proto.Unmarshal(backendStatsBody, &backendStats)
 	if err != nil {
 		t.Fatalf("Failed to parse backend stats: %v", err)
 	}
@@ -266,33 +266,15 @@ func TestRESTConnection(t *testing.T) {
 			stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 
-	jsonBody, _ = json.Marshal(user)
+	jsonBody, _ = proto.Marshal(user)
 
 	// Try To Add User
-	addUserReq, _ := createAuthenticatedRequest("POST", "/user/add", bytes.NewBuffer(jsonBody))
+	addUserReq, _ := createAuthenticatedRequest("PUT", "/user/sync", bytes.NewBuffer(jsonBody))
 	addUserResp, err := client.Do(addUserReq)
 	if err != nil {
 		t.Fatalf("Add user request failed: %v", err)
 	}
 	defer addUserResp.Body.Close()
-
-	jsonBody, _ = json.Marshal(user2)
-
-	// Try To Update User
-	updateUserReq, _ := createAuthenticatedRequest("PUT", "/user/update", bytes.NewBuffer(jsonBody))
-	updateUserResp, err := client.Do(updateUserReq)
-	if err != nil {
-		t.Fatalf("Update user request failed: %v", err)
-	}
-	defer updateUserResp.Body.Close()
-
-	// Try To remove User
-	removeUserReq, _ := createAuthenticatedRequest("POST", "/user/remove", bytes.NewBuffer(jsonBody))
-	removeUserResp, err := client.Do(removeUserReq)
-	if err != nil {
-		t.Fatalf("Remove user request failed: %v", err)
-	}
-	defer removeUserResp.Body.Close()
 
 	logsReq, _ := createAuthenticatedRequest("GET", "/logs", nil)
 	logsResp, err := client.Do(logsReq)
@@ -302,13 +284,13 @@ func TestRESTConnection(t *testing.T) {
 	defer logsResp.Body.Close()
 
 	logsBody, _ := io.ReadAll(logsResp.Body)
-	var logs logResponse
-	err = json.Unmarshal(logsBody, &logs)
+	var logs common.LogList
+	err = proto.Unmarshal(logsBody, &logs)
 	if err != nil {
 		t.Fatalf("Failed to parse logs: %v", err)
 	}
 
-	for _, newLog := range logs.Logs {
+	for _, newLog := range logs.GetLogs() {
 		fmt.Println("Log detail:", newLog)
 	}
 
@@ -324,7 +306,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var systemStats common.SystemStatsResponse
 	nodeStatsBody, _ := io.ReadAll(nodeStatsResp.Body)
-	err = json.Unmarshal(nodeStatsBody, &systemStats)
+	err = proto.Unmarshal(nodeStatsBody, &systemStats)
 	if err != nil {
 		t.Fatalf("Failed to parse node stats: %v", err)
 	}

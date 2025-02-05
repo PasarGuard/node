@@ -12,29 +12,6 @@ import (
 	"github.com/m03ed/marzban-node-go/common"
 )
 
-type LinkType string
-
-const (
-	Downlink LinkType = "downlink"
-	Uplink   LinkType = "uplink"
-)
-
-func (l LinkType) String() string {
-	return string(l)
-}
-
-type UserStatsResponse struct {
-	Email    string `json:"email"`
-	Uplink   int64  `json:"uplink"`
-	Downlink int64  `json:"downlink"`
-}
-
-type StatsResponse struct {
-	Tag      string `json:"tag"`
-	Uplink   int64  `json:"uplink"`
-	Downlink int64  `json:"downlink"`
-}
-
 func (x *XrayHandler) GetSysStats(ctx context.Context) (*common.BackendStatsResponse, error) {
 	client := *x.StatsServiceClient
 	resp, err := client.GetSysStats(ctx, &command.SysStatsRequest{})
@@ -159,83 +136,83 @@ func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*commo
 	return stats, nil
 }
 
-func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool) (*UserStatsResponse, error) {
+func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool) (*common.StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("user>>>%s>>>", email), reset)
 	if err != nil {
 		return nil, err
 	}
 
-	var stats UserStatsResponse
-
+	stats := &common.StatResponse{}
 	for _, stat := range resp.GetStat() {
 		data := stat.GetName()
 		value := stat.GetValue()
 
-		// Extract the type from the name (e.g., "traffic")
 		parts := strings.Split(data, ">>>")
-		link := parts[len(parts)]
+		name := parts[1]
+		statType := parts[2]
+		link := parts[3]
 
-		if link == Downlink.String() {
-			stats.Downlink = value
-		} else if link == Uplink.String() {
-			stats.Uplink = value
-		}
+		stats.Stats = append(stats.Stats, &common.Stat{
+			Name:  name,
+			Type:  statType,
+			Link:  link,
+			Value: value,
+		})
 	}
-	stats.Email = email
 
-	return &stats, nil
+	return stats, nil
 }
 
-func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset bool) (*StatsResponse, error) {
+func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("inbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err
 	}
 
-	var stats StatsResponse
-
+	stats := &common.StatResponse{}
 	for _, stat := range resp.GetStat() {
 		data := stat.GetName()
 		value := stat.GetValue()
 
-		// Extract the type from the name (e.g., "traffic")
 		parts := strings.Split(data, ">>>")
-		link := parts[len(parts)]
+		name := parts[1]
+		statType := parts[2]
+		link := parts[3]
 
-		if link == Downlink.String() {
-			stats.Downlink = value
-		} else if link == Uplink.String() {
-			stats.Uplink = value
-		}
+		stats.Stats = append(stats.Stats, &common.Stat{
+			Name:  name,
+			Type:  statType,
+			Link:  link,
+			Value: value,
+		})
 	}
-	stats.Tag = tag
 
-	return &stats, nil
+	return stats, nil
 }
 
-func (x *XrayHandler) GetOutboundStats(ctx context.Context, tag string, reset bool) (*StatsResponse, error) {
+func (x *XrayHandler) GetOutboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("outbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err
 	}
 
-	var stats StatsResponse
-
+	stats := &common.StatResponse{}
 	for _, stat := range resp.GetStat() {
 		data := stat.GetName()
 		value := stat.GetValue()
 
-		// Extract the type from the name (e.g., "traffic")
 		parts := strings.Split(data, ">>>")
-		link := parts[len(parts)]
+		name := parts[1]
+		statType := parts[2]
+		link := parts[3]
 
-		if link == Downlink.String() {
-			stats.Downlink = value
-		} else if link == Uplink.String() {
-			stats.Uplink = value
-		}
+		stats.Stats = append(stats.Stats, &common.Stat{
+			Name:  name,
+			Type:  statType,
+			Link:  link,
+			Value: value,
+		})
 	}
-	stats.Tag = tag
 
-	return &stats, nil
+	return stats, nil
 }

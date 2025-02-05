@@ -135,12 +135,12 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetOutboundsStats
-	outboundStats, err := client.GetOutboundsStats(ctx, &common.Empty{})
+	stats, err := client.GetOutboundsStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get outbounds stats: %v", err)
 	}
 
-	for _, stat := range outboundStats.Stats {
+	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
@@ -148,12 +148,12 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetInboundsStats
-	inboundStats, err := client.GetInboundsStats(ctx, &common.Empty{})
+	stats, err = client.GetInboundsStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
 
-	for _, stat := range inboundStats.Stats {
+	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
@@ -161,17 +161,19 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetUsersStats
-	usersStats, err := client.GetUsersStats(ctx, &common.Empty{})
+	stats, err = client.GetUsersStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get users stats: %v", err)
 	}
 
-	for _, stat := range usersStats.Stats {
+	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	ctx, cancel = context.WithTimeout(ctxWithSession, 10*time.Second)
 	defer cancel()
+
+	syncUser, _ := client.SyncUser(ctx)
 
 	user := &common.User{
 		Email: "test_user1@example.com",
@@ -199,13 +201,9 @@ func TestGRPCConnection(t *testing.T) {
 		},
 	}
 
-	// test addUser
-	if _, err = client.AddUser(ctx, user); err != nil {
-		t.Fatalf("Failed to add user: %v", err)
+	if err = syncUser.Send(user); err != nil {
+		t.Fatalf("Failed to sync user: %v", err)
 	}
-
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
-	defer cancel()
 
 	user = &common.User{
 		Email: "test_user2@example.com",
@@ -233,17 +231,41 @@ func TestGRPCConnection(t *testing.T) {
 		},
 	}
 
-	// test updateUser
-	if _, err = client.UpdateUser(ctx, user); err != nil {
-		t.Fatalf("Failed to update user: %v", err)
+	if err = syncUser.Send(user); err != nil {
+		t.Fatalf("Failed to sync user: %v", err)
 	}
 
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test removeUser
-	if _, err = client.RemoveUser(ctx, user); err != nil {
-		t.Fatalf("Failed to remove user: %v", err)
+	stats, err = client.GetUserStats(ctx, &common.StatRequest{Name: user.GetEmail()})
+	if err != nil {
+		t.Fatalf("Failed to get user stats: %v", err)
+	}
+	for _, stat := range stats.GetStats() {
+		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+	}
+
+	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	defer cancel()
+
+	stats, err = client.GetOutboundStats(ctx, &common.StatRequest{Name: "direct"})
+	if err != nil {
+		t.Fatalf("Failed to get outbound stats: %v", err)
+	}
+	for _, stat := range stats.GetStats() {
+		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+	}
+
+	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	defer cancel()
+
+	stats, err = client.GetInboundStats(ctx, &common.StatRequest{Name: "Shadowsocks TCP"})
+	if err != nil {
+		t.Fatalf("Failed to get inbound stats: %v", err)
+	}
+	for _, stat := range stats.GetStats() {
+		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)

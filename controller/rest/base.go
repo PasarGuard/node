@@ -2,11 +2,13 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/m03ed/marzban-node-go/backend"
 	"github.com/m03ed/marzban-node-go/backend/xray"
@@ -14,13 +16,13 @@ import (
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.controller.BaseInfoResponse(false, ""))
-}
+	response, _ := proto.Marshal(s.controller.BaseInfoResponse(false, ""))
 
-func (s *Service) Ping(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	if _, err := w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
@@ -50,38 +52,54 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.controller.BaseInfoResponse(true, ""))
+	response, _ := proto.Marshal(s.controller.BaseInfoResponse(true, ""))
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	if _, err = w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 	log.Println(s.GetIP(), " disconnected, Session ID = ", s.controller.GetSessionID())
 	s.disconnect()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+	response, _ := proto.Marshal(&common.Empty{})
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	if _, err := w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Service) detectBackend(r *http.Request) (context.Context, common.BackendType, error) {
-	var body common.Backend
+	var data common.Backend
 	var ctx context.Context
 
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer r.Body.Close()
+
 	// Decode into a map
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err = proto.Unmarshal(body, &data); err != nil {
 		return nil, 0, err
 	}
 
-	if body.Type == common.BackendType_XRAY {
-		config, err := xray.NewXRayConfig(body.Config)
+	if data.Type == common.BackendType_XRAY {
+		config, err := xray.NewXRayConfig(data.Config)
 		if err != nil {
 			return nil, 0, err
 		}
 		ctx = context.WithValue(r.Context(), backend.ConfigKey{}, config)
 	} else {
-		return ctx, body.Type, errors.New("invalid backend type")
+		return ctx, data.Type, errors.New("invalid backend type")
 	}
 
-	ctx = context.WithValue(ctx, backend.UsersKey{}, body.GetUsers())
+	ctx = context.WithValue(ctx, backend.UsersKey{}, data.GetUsers())
 
-	return ctx, body.Type, nil
+	return ctx, data.Type, nil
 }

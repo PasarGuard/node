@@ -30,6 +30,10 @@ message Log {
     string detail = 1;
 }
 
+message LogList {
+    repeated string logs = 1;
+}
+
 // stats
 message Stat {
   string name = 1;
@@ -42,8 +46,8 @@ message StatResponse {
   repeated Stat stats = 1;
 }
 
-message OnlineStatRequest {
-  string email = 1;
+message StatRequest {
+  string name = 1;
 }
 
 message OnlineStatResponse {
@@ -120,12 +124,13 @@ service NodeService {
   rpc GetSystemStats (Empty) returns (SystemStatsResponse) {}
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
   rpc GetOutboundsStats (Empty) returns (StatResponse) {}
+  rpc GetOutboundStats (StatRequest) returns (StatResponse) {}
   rpc GetInboundsStats (Empty) returns (StatResponse) {}
+  rpc GetInboundStats (StatRequest) returns (StatResponse) {}
   rpc GetUsersStats (Empty) returns (StatResponse) {}
-  rpc GetUserOnlineStat (OnlineStatRequest) returns (OnlineStatResponse) {}
-
-  rpc AddUser (User) returns (Empty) {}
-  rpc UpdateUser (User) returns (Empty) {}
-  rpc RemoveUser (User) returns (Empty) {}
+  rpc GetUserStats (StatRequest) returns (StatResponse) {}
+  rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
+  
+  rpc SyncUser (stream User) returns (Empty) {}
   rpc SyncUsers (Users) returns (Empty) {}
 }

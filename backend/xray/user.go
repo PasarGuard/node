@@ -13,24 +13,30 @@ import (
 
 func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	settings := api.ProxySettings{}
-
-	vmessAccount, err := api.NewVMessAccount(user)
-	if err != nil {
-		return settings, err
+	if user.GetProxies().GetVmess() != nil {
+		vmessAccount, err := api.NewVmessAccount(user)
+		if err != nil {
+			return settings, err
+		}
+		settings.Vmess = vmessAccount
 	}
-	settings.Vmess = vmessAccount
 
-	vlessAccount, err := api.NewVlessAccount(user)
-	if err != nil {
-		return settings, err
+	if user.GetProxies().GetVless() != nil {
+		vlessAccount, err := api.NewVlessAccount(user)
+		if err != nil {
+			return settings, err
+		}
+		settings.Vless = vlessAccount
 	}
-	settings.Vless = vlessAccount
 
-	settings.Trojan = api.NewTrojanAccount(user)
+	if user.GetProxies().GetTrojan() != nil {
+		settings.Trojan = api.NewTrojanAccount(user)
+	}
 
-	settings.Shadowsocks = api.NewShadowsocksTcpAccount(user)
-
-	settings.Shadowsocks2022 = api.NewShadowsocksAccount(user)
+	if user.GetProxies().GetTrojan() != nil {
+		settings.Shadowsocks = api.NewShadowsocksTcpAccount(user)
+		settings.Shadowsocks2022 = api.NewShadowsocksAccount(user)
+	}
 
 	return settings, nil
 }
@@ -39,6 +45,10 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 	if slices.Contains(inbounds, inbound.Tag) {
 		switch inbound.Protocol {
 		case Vless:
+			if settings.Vless == nil {
+				return nil, false
+			}
+
 			account := *settings.Vless
 			if settings.Vless.Flow != "" {
 				networkType := inbound.StreamSettings["network"]
@@ -81,15 +91,27 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			return &account, true
 
 		case Vmess:
+			if settings.Vmess == nil {
+				return nil, false
+			}
 			return settings.Vmess, true
 
 		case Trojan:
+			if settings.Trojan == nil {
+				return nil, false
+			}
 			return settings.Trojan, true
 
 		case Shadowsocks:
 			method, methodOk := inbound.Settings["method"].(string)
 			if methodOk && strings.HasPrefix("2022-blake3", method) {
+				if settings.Shadowsocks2022 == nil {
+					return nil, false
+				}
 				return settings.Shadowsocks2022, true
+			}
+			if settings.Shadowsocks == nil {
+				return nil, false
 			}
 			return settings.Shadowsocks, true
 		}
@@ -97,38 +119,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 	return nil, false
 }
 
-func (x *Xray) AddUser(ctx context.Context, user *common.User) error {
-	proxySetting, err := setupUserAccount(user)
-	if err != nil {
-		return err
-	}
-
-	handler := x.getHandler()
-	inbounds := x.getConfig().InboundConfigs
-
-	var errMessage string
-	for _, inbound := range inbounds {
-		account, isActive := isActiveInbound(inbound, user.GetInbounds(), proxySetting)
-		if isActive {
-			inbound.addUser(account)
-			if err = handler.AddInboundUser(ctx, inbound.Tag, account); err != nil {
-				log.Println(err)
-				errMessage += "\n" + err.Error()
-			}
-		}
-	}
-
-	if err = x.GenerateConfigFile(); err != nil {
-		log.Println(err)
-	}
-
-	if errMessage != "" {
-		return errors.New("failed to add user:" + errMessage)
-	}
-	return nil
-}
-
-func (x *Xray) UpdateUser(ctx context.Context, user *common.User) error {
+func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	proxySetting, err := setupUserAccount(user)
 	if err != nil {
 		return err
@@ -162,19 +153,6 @@ func (x *Xray) UpdateUser(ctx context.Context, user *common.User) error {
 		return errors.New("failed to add user:" + errMessage)
 	}
 	return nil
-}
-
-func (x *Xray) RemoveUser(ctx context.Context, email string) {
-	handler := x.getHandler()
-
-	for _, inbound := range x.getConfig().InboundConfigs {
-		inbound.removeUser(email)
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, email)
-	}
-
-	if err := x.GenerateConfigFile(); err != nil {
-		log.Println(err)
-	}
 }
 
 func (x *Xray) SyncUsers(_ context.Context, _ []*common.User) error {

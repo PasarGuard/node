@@ -6,13 +6,12 @@ import (
 	"log"
 	"strings"
 
-	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	"google.golang.org/grpc/peer"
-
 	"github.com/google/uuid"
+	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -180,29 +179,33 @@ func LoggingStreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 var backendMethods = map[string]bool{
-	"/service.NodeService/GetOutboundsStats": true,
-	"/service.NodeService/GetInboundsStats":  true,
-	"/service.NodeService/GetUsersStats":     true,
-	"/service.NodeService/GetBackendStats":   true,
-	"/service.NodeService/AddUser":           true,
-	"/service.NodeService/UpdateUser":        true,
-	"/service.NodeService/RemoveUser":        true,
-	"/service.NodeService/SyncUsers":         true,
+	"/service.NodeService/GetOutboundsStats":  true,
+	"/service.NodeService/GetOutboundStats":   true,
+	"/service.NodeService/GetInboundsStats":   true,
+	"/service.NodeService/GetInboundStats":    true,
+	"/service.NodeService/GetUsersStats":      true,
+	"/service.NodeService/GetUserStats":       true,
+	"/service.NodeService/GetUserOnlineStats": true,
+	"/service.NodeService/GetBackendStats":    true,
+	"/service.NodeService/SyncUser":           true,
+	"/service.NodeService/SyncUsers":          true,
 }
 
 var sessionIDMethods = map[string]bool{
-	"/service.NodeService/Stop":              true,
-	"/service.NodeService/GetBaseInfo":       true,
-	"/service.NodeService/GetLogs":           true,
-	"/service.NodeService/GetSystemStats":    true,
-	"/service.NodeService/GetOutboundsStats": true,
-	"/service.NodeService/GetInboundsStats":  true,
-	"/service.NodeService/GetUsersStats":     true,
-	"/service.NodeService/GetBackendStats":   true,
-	"/service.NodeService/AddUser":           true,
-	"/service.NodeService/UpdateUser":        true,
-	"/service.NodeService/RemoveUser":        true,
-	"/service.NodeService/SyncUsers":         true,
+	"/service.NodeService/Stop":               true,
+	"/service.NodeService/GetBaseInfo":        true,
+	"/service.NodeService/GetLogs":            true,
+	"/service.NodeService/GetSystemStats":     true,
+	"/service.NodeService/GetOutboundsStats":  true,
+	"/service.NodeService/GetOutboundStats":   true,
+	"/service.NodeService/GetInboundsStats":   true,
+	"/service.NodeService/GetInboundStats":    true,
+	"/service.NodeService/GetUsersStats":      true,
+	"/service.NodeService/GetUserStats":       true,
+	"/service.NodeService/GetUserOnlineStats": true,
+	"/service.NodeService/GetBackendStats":    true,
+	"/service.NodeService/SyncUser":           true,
+	"/service.NodeService/SyncUsers":          true,
 }
 
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {

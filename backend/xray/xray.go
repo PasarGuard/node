@@ -114,6 +114,10 @@ func (x *Xray) GetUsersStats(ctx context.Context, reset bool) (*common.StatRespo
 	return x.handler.GetUsersStats(ctx, reset)
 }
 
+func (x *Xray) GetUserStats(ctx context.Context, email string, reset bool) (*common.StatResponse, error) {
+	return x.handler.GetUserStats(ctx, email, reset)
+}
+
 func (x *Xray) GetStatOnline(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
 	return x.handler.GetStatOnline(ctx, email)
 }
@@ -122,8 +126,16 @@ func (x *Xray) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatR
 	return x.handler.GetOutboundsStats(ctx, reset)
 }
 
+func (x *Xray) GetOutboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
+	return x.handler.GetOutboundStats(ctx, tag, reset)
+}
+
 func (x *Xray) GetInboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
 	return x.handler.GetInboundsStats(ctx, reset)
+}
+
+func (x *Xray) GetInboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
+	return x.handler.GetInboundStats(ctx, tag, reset)
 }
 
 func (x *Xray) GenerateConfigFile() error {

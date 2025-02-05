@@ -113,17 +113,11 @@ func TestXrayBackend(t *testing.T) {
 		log.Printf(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
 
-	if err = back.UpdateUser(ctx1, user); err != nil {
+	if err = back.SyncUser(ctx1, user2); err != nil {
 		t.Fatal(err)
 	}
 
-	log.Println("user added")
-
-	if err = back.UpdateUser(ctx1, user2); err != nil {
-		t.Fatal(err)
-	}
-
-	log.Println("user updated")
+	log.Println("user synced")
 
 	ctx1, cancel = context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()

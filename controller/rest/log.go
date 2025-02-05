@@ -1,23 +1,26 @@
 package rest
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	"github.com/m03ed/marzban-node-go/common"
 	"github.com/m03ed/marzban-node-go/config"
 )
 
-type logResponse struct {
-	Logs []string `json:"logs,omitempty"`
-}
-
 func sendLogs(w http.ResponseWriter, logs []string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(logResponse{
+	response, _ := proto.Marshal(&common.LogList{
 		Logs: logs,
 	})
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(status)
+	if _, err := w.Write(response); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
