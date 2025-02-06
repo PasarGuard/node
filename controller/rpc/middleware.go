@@ -168,6 +168,12 @@ func LoggingStreamInterceptor() grpc.StreamServerInterceptor {
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
+		clientIP := "unknown"
+		if p, ok := peer.FromContext(ss.Context()); ok {
+			clientIP = p.Addr.String()
+		}
+		log.Printf("Trying To Open Stream Connection, IP: %s, Method: %s,", clientIP, strings.TrimPrefix(info.FullMethod, "/service.NodeService/"))
+
 		// Handle the request
 		err := handler(srv, ss)
 

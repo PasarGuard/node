@@ -17,6 +17,7 @@ import (
 	"github.com/m03ed/marzban-node-go/backend"
 	"github.com/m03ed/marzban-node-go/backend/xray/api"
 	"github.com/m03ed/marzban-node-go/common"
+	nodeLogger "github.com/m03ed/marzban-node-go/logger"
 )
 
 type Xray struct {
@@ -24,7 +25,78 @@ type Xray struct {
 	core       *Core
 	handler    *api.XrayHandler
 	configPath string
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 	mu         sync.Mutex
+}
+
+func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPath string) (*Xray, error) {
+	executableAbsolutePath, err := filepath.Abs(executablePath)
+	if err != nil {
+		return nil, err
+	}
+
+	assetsAbsolutePath, err := filepath.Abs(assetsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	configAbsolutePath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	xCtx, xCancel := context.WithCancel(context.Background())
+
+	xray := &Xray{configPath: configAbsolutePath, ctx: xCtx, cancelFunc: xCancel}
+
+	start := time.Now()
+
+	config, ok := ctx.Value(backend.ConfigKey{}).(*Config)
+	if !ok {
+		return nil, errors.New("xray config has not been initialized")
+	}
+
+	if err = config.ApplyAPI(port); err != nil {
+		return nil, err
+	}
+
+	users := ctx.Value(backend.UsersKey{}).([]*common.User)
+	config.syncUsers(users)
+
+	xray.setConfig(config)
+
+	if err = xray.GenerateConfigFile(); err != nil {
+		return nil, err
+	}
+
+	log.Println("config generated in", time.Since(start).Seconds(), "second.")
+
+	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = core.Start(config); err != nil {
+		return nil, err
+	}
+
+	xray.setCore(core)
+
+	if err = xray.checkXrayStatus(); err != nil {
+		xray.Shutdown()
+		return nil, err
+	}
+
+	handler, err := api.NewXrayAPI(port)
+	if err != nil {
+		xray.Shutdown()
+		return nil, err
+	}
+	go xray.checkXrayHealth()
+	xray.setHandler(handler)
+
+	return xray, nil
 }
 
 func (x *Xray) setConfig(config *Config) {
@@ -88,8 +160,7 @@ func (x *Xray) Started() bool {
 func (x *Xray) Restart() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	err := x.core.Restart(x.config)
-	if err != nil {
+	if err := x.core.Restart(x.config); err != nil {
 		return err
 	}
 	return nil
@@ -98,6 +169,9 @@ func (x *Xray) Restart() error {
 func (x *Xray) Shutdown() {
 	x.mu.Lock()
 	defer x.mu.Unlock()
+
+	x.cancelFunc()
+
 	if x.core != nil {
 		x.core.Stop()
 	}
@@ -197,68 +271,23 @@ Loop:
 	return nil
 }
 
-func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPath string) (*Xray, error) {
-	executableAbsolutePath, err := filepath.Abs(executablePath)
-	if err != nil {
-		return nil, err
+func (x *Xray) checkXrayHealth() {
+	for {
+		select {
+		case <-x.ctx.Done():
+			return
+		default:
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+
+			if _, err := x.GetSysStats(ctx); err != nil {
+				if err = x.Restart(); err != nil {
+					nodeLogger.Log(nodeLogger.LogError, err.Error())
+				} else {
+					nodeLogger.Log(nodeLogger.LogInfo, "xray restarted")
+				}
+			}
+			cancel()
+		}
+		time.Sleep(time.Second * 2)
 	}
-
-	assetsAbsolutePath, err := filepath.Abs(assetsPath)
-	if err != nil {
-		return nil, err
-	}
-
-	configAbsolutePath, err := filepath.Abs(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	xray := &Xray{configPath: configAbsolutePath}
-
-	start := time.Now()
-
-	config, ok := ctx.Value(backend.ConfigKey{}).(*Config)
-	if !ok {
-		return nil, errors.New("xray config has not been initialized")
-	}
-
-	if err = config.ApplyAPI(port); err != nil {
-		return nil, err
-	}
-
-	users := ctx.Value(backend.UsersKey{}).([]*common.User)
-	config.syncUsers(users)
-
-	xray.setConfig(config)
-
-	if err = xray.GenerateConfigFile(); err != nil {
-		return nil, err
-	}
-
-	log.Println("config generated in", time.Since(start).Seconds(), "second.")
-
-	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = core.Start(config); err != nil {
-		return nil, err
-	}
-
-	xray.setCore(core)
-
-	if err = xray.checkXrayStatus(); err != nil {
-		xray.Shutdown()
-		return nil, err
-	}
-
-	handler, err := api.NewXrayAPI(port)
-	if err != nil {
-		xray.Shutdown()
-		return nil, err
-	}
-	xray.setHandler(handler)
-
-	return xray, nil
 }

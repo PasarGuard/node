@@ -2,7 +2,6 @@ package tools
 
 import (
 	"bufio"
-	"github.com/m03ed/marzban-node-go/common"
 	"os"
 	"strconv"
 	"strings"
@@ -10,6 +9,8 @@ import (
 
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
+
+	"github.com/m03ed/marzban-node-go/common"
 )
 
 func GetSystemStats() (*common.SystemStatsResponse, error) {

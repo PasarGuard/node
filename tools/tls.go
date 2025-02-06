@@ -25,20 +25,13 @@ func LoadTLSCredentials(cert, key, poolCert string, isClient bool) (*tls.Config,
 
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    certPool,
 	}
 	if isClient {
+		config.RootCAs = certPool
 		config.InsecureSkipVerify = true
+	} else {
+		config.ClientAuth = tls.RequireAndVerifyClientCert
+		config.ClientCAs = certPool
 	}
 	return config, nil
-}
-
-func LoadCertPool(certFile string) *x509.CertPool {
-	certPool := x509.NewCertPool()
-	certData, err := os.ReadFile(certFile)
-	if err == nil {
-		certPool.AppendCertsFromPEM(certData)
-	}
-	return certPool
 }

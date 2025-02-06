@@ -150,19 +150,23 @@ func (c *Core) Stop() {
 }
 
 func (c *Core) Restart(config *Config) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.restarting {
 		return errors.New("xray is already restarted")
 	}
 
+	c.mu.Lock()
 	c.restarting = true
-	defer func() { c.restarting = false }()
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		c.restarting = false
+		c.mu.Unlock()
+	}()
 
 	log.Println("restarting Xray core...")
 	c.Stop()
-	err := c.Start(config)
-	if err != nil {
+	if err := c.Start(config); err != nil {
 		return err
 	}
 	return nil
