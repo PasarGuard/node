@@ -82,7 +82,7 @@ The node uses the `common/service.proto` file messages for both protocols.
 
 - Add `address:port` at the beginning of the **REST API** URL.
 - Use `Authorization Bearer <session_id>` in the header for authentication with the **REST API**.
-- Use `Authorization Bearer <session_id>` in metadata for authentication with **gRPC**.
+- Use `authorization Bearer <session_id>` in metadata for authentication with **gRPC**.
 
 | Method             | gRPC                   | REST                         | Input         | Output                                         | Description                                                                                                                                                                |
 |:-------------------|:-----------------------|:-----------------------------|---------------|------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -116,3 +116,24 @@ go get github.com/m03ed/gozargah_node_bridge
 ```
 Not released yet
 ```
+
+# Donation
+You can help gozargah team with your donations, [Click Here](https://donate.gozargah.pro)
+
+# Contributors
+
+We ❤️‍🔥 contributors! If you'd like to contribute, please check out our [Contributing Guidelines](CONTRIBUTING.md) and feel free to submit a pull request or open an issue. We also welcome you to join our [Telegram](https://t.me/gozargah_marzban) group for either support or contributing guidance.
+
+Check [open issues](https://github.com/m03ed/gozargah_node_go/issues) to help the progress of this project.
+
+<p align="center">
+Thanks to the all contributors who have helped improve Gozargah Node:
+</p>
+<p align="center">
+<a href="https://github.com/m03ed/gozargah_node_go/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=m03ed/gozargah_node_go" />
+</a>
+</p>
+<p align="center">
+  Made with <a rel="noopener noreferrer" target="_blank" href="https://contrib.rocks">contrib.rocks</a>
+</p>
