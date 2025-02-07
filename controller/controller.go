@@ -56,15 +56,15 @@ func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	apiPort := tools.FindFreePort()
-	c.apiPort = apiPort
-
-	c.sessionID = uuid.Nil
-
 	if c.backend != nil {
 		c.backend.Shutdown()
 	}
 	c.backend = nil
+
+	apiPort := tools.FindFreePort()
+	c.apiPort = apiPort
+
+	c.sessionID = uuid.Nil
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backendType common.BackendType) error {
@@ -147,9 +147,10 @@ func (c *Controller) startJobs() {
 }
 
 func (c *Controller) StopJobs() {
+	c.mu.Lock()
+	c.cancelFunc()
+	c.mu.Unlock()
+
 	c.Disconnect()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cancelFunc()
 }

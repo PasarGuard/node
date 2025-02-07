@@ -93,8 +93,8 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 		xray.Shutdown()
 		return nil, err
 	}
-	go xray.checkXrayHealth()
 	xray.setHandler(handler)
+	go xray.checkXrayHealth()
 
 	return xray, nil
 }
@@ -278,7 +278,6 @@ func (x *Xray) checkXrayHealth() {
 			return
 		default:
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-
 			if _, err := x.GetSysStats(ctx); err != nil {
 				if err = x.Restart(); err != nil {
 					nodeLogger.Log(nodeLogger.LogError, err.Error())

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"google.golang.org/grpc"
@@ -19,6 +20,10 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 		}
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to receive user: %v", err)
+		}
+
+		if user.GetEmail() == "" {
+			return errors.New("email is required")
 		}
 
 		if err = s.controller.GetBackend().SyncUser(stream.Context(), user); err != nil {

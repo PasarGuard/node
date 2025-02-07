@@ -117,7 +117,7 @@ func TestGRPCConnection(t *testing.T) {
 	log.Println("Session ID:", sessionID)
 
 	// Add SessionId to the metadata
-	md := metadata.Pairs("authorization", "Bearer "+sessionID)
+	md := metadata.Pairs("Authorization", "Bearer "+sessionID)
 	ctxWithSession := metadata.NewOutgoingContext(context.Background(), md)
 
 	// test all methods

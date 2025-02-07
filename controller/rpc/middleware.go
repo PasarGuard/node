@@ -29,7 +29,7 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	}
 
 	// Extract Authorization header
-	authHeader, ok := md["authorization"]
+	authHeader, ok := md["Authorization"]
 	if !ok || len(authHeader) == 0 {
 		return status.Errorf(codes.Unauthenticated, "missing authorization header")
 	}
