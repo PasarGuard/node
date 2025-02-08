@@ -1,10 +1,10 @@
 # Gozargah-Node-Go
 <p align="center">
     <a href="#">
-        <img src="https://img.shields.io/github/license/m03ed/gozargah_node_go?style=flat-square" />
+        <img src="https://img.shields.io/github/license/m03ed/gozargah-node?style=flat-square" />
     </a>
     <a href="#">
-        <img src="https://img.shields.io/github/stars/m03ed/gozargah_node_go?style=social" />
+        <img src="https://img.shields.io/github/stars/m03ed/gozargah-node?style=social" />
     </a>
 </p>
 
@@ -140,14 +140,14 @@ You can help gozargah team with your donations, [Click Here](https://donate.goza
 
 We ❤️‍🔥 contributors! If you'd like to contribute, please check out our [Contributing Guidelines](CONTRIBUTING.md) and feel free to submit a pull request or open an issue. We also welcome you to join our [Telegram](https://t.me/gozargah_marzban) group for either support or contributing guidance.
 
-Check [open issues](https://github.com/m03ed/gozargah_node_go/issues) to help the progress of this project.
+Check [open issues](https://github.com/m03ed/gozargah-node/issues) to help the progress of this project.
 
 <p align="center">
 Thanks to the all contributors who have helped improve Gozargah Node:
 </p>
 <p align="center">
-<a href="https://github.com/m03ed/gozargah_node_go/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=m03ed/gozargah_node_go" />
+<a href="https://github.com/m03ed/gozargah-node/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=m03ed/gozargah-node" />
 </a>
 </p>
 <p align="center">
