@@ -38,8 +38,13 @@ func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		tokenString := strings.Split(authHeader, " ")[1]
-		// check session id
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 {
+			http.Error(w, "invalid Authorization header format", http.StatusUnauthorized)
+			return
+		}
+
+		tokenString := parts[1]
 		sessionID, err := uuid.Parse(tokenString)
 		switch {
 		case err != nil:
