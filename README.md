@@ -39,7 +39,7 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 |:-------------------------------------------------:|---------|
 |  [xray-core](https://github.com/XTLS/Xray-core)   | ✅       |
 | [sing-box](https://github.com/SagerNet/sing-box)  | ❌       |
-| [x2ray-core](https://github.com/v2fly/v2ray-core) | ❌       |
+| [v2ray-core](https://github.com/v2fly/v2ray-core) | ❌       |
 
 # Documentation
 
