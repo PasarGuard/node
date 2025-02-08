@@ -8,6 +8,22 @@
     </a>
 </p>
 
+## Table of Contents
+
+- [Overview](#overview)
+  - [Why Use Gozargah Node?](#why-use-gozargah-node)
+  - [Supported Cores](#supported-cores)
+- [Documentation](#documentation)
+  - [Configuration](#configuration)
+  - [API](#api)
+    - [Data Structure](#data-structure)
+    - [Methods](#methods)
+- [Official library](#official-library)
+  - [Go](#go)
+  - [Python](#python)
+- [Donation](#donation)
+- [Contributors](#contributors)
+
 # Overview
 
 Gozargah Node is developed by the Gozargah team to replace [Marzban-node](https://github.com/Gozargah/Marzban-node). It aims to be more stable, scalable, and efficient.
@@ -102,9 +118,9 @@ The node uses the `common/service.proto` file messages for both protocols.
 | SyncUser           | `SyncUser()`           | `/user/sync`                 | `User`        | `Empty`                                        | Adds/updates/removes a user in the core. To remove a user, ensure you send empty inbounds. Provides a stream in `gRPC` but must be called for each user in the `REST API`. |
 | SyncUsers          | `SyncUsers()`          | `/users/sync`                | `Users`       | `Empty`                                        | Removes all old users and replaces them with the provided users.                                                                                                           |
 
-## official library's
+# Official library
 We create some library's for you so make your job easier 
-### Go
+## Go
 ```
 https://github.com/m03ed/gozargah_node_bridge
 ```
@@ -112,7 +128,7 @@ To add it to your project use:
 ```shell
 go get github.com/m03ed/gozargah_node_bridge
 ```
-### Python
+## Python
 ```
 Not released yet
 ```
