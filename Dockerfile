@@ -13,6 +13,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o main -ldflags="-
 
 FROM alpine:latest
 
+RUN apk update && apk add --no-cache curl bash make
+
 RUN mkdir /app
 WORKDIR /app
 COPY --from=builder /app/main .
