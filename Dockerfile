@@ -1,4 +1,4 @@
-FROM golang:1.23.2 as builder
+FROM golang:1.23.4 as builder
 
 WORKDIR /app
 COPY go.mod .
@@ -16,9 +16,8 @@ FROM alpine:latest
 RUN mkdir /app
 WORKDIR /app
 COPY --from=builder /app/main .
+COPY Makefile .
 
-RUN apk update \
-    && apk add --no-cache curl bash \
-    && bash -c "$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"
+RUN make install_xray
 
 ENTRYPOINT ["./main", "serve"]
