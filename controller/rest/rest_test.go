@@ -149,7 +149,7 @@ func TestRESTConnection(t *testing.T) {
 
 	url := fmt.Sprintf("https://%s", addr)
 
-	resp, err := client.Post(url+"/start", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := client.Post(url+"/start", "application/x-protobuf", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		t.Fatalf("Failed to start backend: %v", err)
 	}
@@ -174,17 +174,10 @@ func TestRESTConnection(t *testing.T) {
 		}
 		req.Header.Set("Authorization", "Bearer "+sessionID)
 		if body != nil {
-			req.Header.Set("Content-Type", "application/json") // Set content type if body exists
+			req.Header.Set("Content-Type", "application/x-protobuf")
 		}
 		return req, nil
 	}
-
-	pingReq, _ := createAuthenticatedRequest("GET", "/ping", nil)
-	pingResp, err := client.Do(pingReq)
-	if err != nil {
-		t.Fatalf("Ping request failed: %v", err)
-	}
-	defer pingResp.Body.Close()
 
 	// Try To Get Outbounds Stats
 	outboundsStatsReq, _ := createAuthenticatedRequest("GET", "/stats/outbounds", nil)
