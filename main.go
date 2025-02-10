@@ -44,10 +44,10 @@ func main() {
 	var shutdownFunc func(ctx context.Context) error
 	var service controller.Service
 
-	if config.ServiceProtocol == "grpc" {
-		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr)
-	} else {
+	if config.ServiceProtocol == "rest" {
 		shutdownFunc, service, err = rest.StartHttpListener(tlsConfig, addr)
+	} else {
+		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr)
 	}
 
 	defer service.StopService()
