@@ -135,7 +135,7 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetOutboundsStats
-	stats, err := client.GetOutboundsStats(ctx, &common.Empty{})
+	stats, err := client.GetOutboundsStats(ctx, &common.StatRequest{Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get outbounds stats: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetInboundsStats
-	stats, err = client.GetInboundsStats(ctx, &common.Empty{})
+	stats, err = client.GetInboundsStats(ctx, &common.StatRequest{Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestGRPCConnection(t *testing.T) {
 	defer cancel()
 
 	// test GetUsersStats
-	stats, err = client.GetUsersStats(ctx, &common.Empty{})
+	stats, err = client.GetUsersStats(ctx, &common.StatRequest{Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get users stats: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestGRPCConnection(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetUserStats(ctx, &common.StatRequest{Name: user.GetEmail()})
+	stats, err = client.GetUserStats(ctx, &common.StatRequest{Name: user.GetEmail(), Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get user stats: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestGRPCConnection(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetOutboundStats(ctx, &common.StatRequest{Name: "direct"})
+	stats, err = client.GetOutboundStats(ctx, &common.StatRequest{Name: "direct", Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestGRPCConnection(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetInboundStats(ctx, &common.StatRequest{Name: "Shadowsocks TCP"})
+	stats, err = client.GetInboundStats(ctx, &common.StatRequest{Name: "Shadowsocks TCP", Reset_: true})
 	if err != nil {
 		t.Fatalf("Failed to get inbound stats: %v", err)
 	}

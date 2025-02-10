@@ -3,12 +3,9 @@ package rest
 import (
 	"context"
 	"errors"
-	"io"
 	"log"
 	"net"
 	"net/http"
-
-	"google.golang.org/protobuf/proto"
 
 	"github.com/m03ed/marzban-node-go/backend"
 	"github.com/m03ed/marzban-node-go/backend/xray"
@@ -16,13 +13,7 @@ import (
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
-	response, _ := proto.Marshal(s.controller.BaseInfoResponse(false, ""))
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	if _, err := w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
+	common.SendProtoResponse(w, s.controller.BaseInfoResponse(false, ""))
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
@@ -52,40 +43,21 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, _ := proto.Marshal(s.controller.BaseInfoResponse(true, ""))
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	if _, err = w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
+	common.SendProtoResponse(w, s.controller.BaseInfoResponse(true, ""))
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 	log.Println(s.GetIP(), " disconnected, Session ID = ", s.controller.GetSessionID())
 	s.disconnect()
 
-	response, _ := proto.Marshal(&common.Empty{})
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	if _, err := w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
+	common.SendProtoResponse(w, &common.Empty{})
 }
 
 func (s *Service) detectBackend(r *http.Request) (context.Context, common.BackendType, error) {
 	var data common.Backend
 	var ctx context.Context
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer r.Body.Close()
-
-	// Decode into a map
-	if err = proto.Unmarshal(body, &data); err != nil {
+	if err := common.ReadProtoBody(r.Body, &data); err != nil {
 		return nil, 0, err
 	}
 

@@ -80,7 +80,38 @@ func TestRESTConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	url := fmt.Sprintf("https://%s", addr)
+
 	client := createHTTPClient(creds)
+	sessionId := ""
+
+	createAuthenticatedRequest := func(method, endpoint string, data proto.Message, response proto.Message) error {
+		body, err := proto.Marshal(data)
+		if err != nil {
+			return err
+		}
+
+		req, err := http.NewRequest(method, url+endpoint, bytes.NewBuffer(body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+sessionId)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/x-protobuf")
+		}
+
+		do, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer do.Body.Close()
+
+		responseBody, _ := io.ReadAll(do.Body)
+		if err = proto.Unmarshal(responseBody, response); err != nil {
+			return err
+		}
+		return nil
+	}
 
 	configFile, err := os.ReadFile(configPath)
 	if err != nil {
@@ -145,173 +176,77 @@ func TestRESTConnection(t *testing.T) {
 		Users:  []*common.User{user, user2},
 	}
 
-	jsonBody, _ := proto.Marshal(backendStartReq)
-
-	url := fmt.Sprintf("https://%s", addr)
-
-	resp, err := client.Post(url+"/start", "application/x-protobuf", bytes.NewBuffer(jsonBody))
-	if err != nil {
+	var baseInfoResp common.BaseInfoResponse
+	if err = createAuthenticatedRequest("POST", "/start", backendStartReq, &baseInfoResp); err != nil {
 		t.Fatalf("Failed to start backend: %v", err)
 	}
-	defer resp.Body.Close()
 
-	var baseInfoResp common.BaseInfoResponse
-	body, _ := io.ReadAll(resp.Body)
-	err = proto.Unmarshal(body, &baseInfoResp)
-	if err != nil {
-		t.Fatalf("Failed to parse start response: %v", err)
-	}
-
-	sessionID := baseInfoResp.SessionId
-	if sessionID == "" {
+	sessionId = baseInfoResp.GetSessionId()
+	if sessionId == "" {
 		t.Fatal("No session ID received")
 	}
 
-	createAuthenticatedRequest := func(method, endpoint string, body io.Reader) (*http.Request, error) {
-		req, err := http.NewRequest(method, url+endpoint, body)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+sessionID)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/x-protobuf")
-		}
-		return req, nil
-	}
-
+	var stats common.StatResponse
 	// Try To Get Outbounds Stats
-	outboundsStatsReq, _ := createAuthenticatedRequest("GET", "/stats/outbounds", nil)
-	outboundsStatsResp, err := client.Do(outboundsStatsReq)
-	if err != nil {
-		t.Fatalf("Outbounds stats request failed: %v", err)
-	}
-	defer outboundsStatsResp.Body.Close()
-
-	var outboundsStats common.StatResponse
-	outboundsStatsBody, _ := io.ReadAll(outboundsStatsResp.Body)
-	err = proto.Unmarshal(outboundsStatsBody, &outboundsStats)
-	if err != nil {
-		t.Fatalf("Failed to parse outbounds stats: %v", err)
+	if err = createAuthenticatedRequest("GET", "/stats/outbounds", &common.StatRequest{Reset_: true}, &stats); err != nil {
+		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
 
-	for _, stat := range outboundsStats.Stats {
+	for _, stat := range stats.GetStats() {
 		log.Printf("Outbound Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
-			stat.Name, stat.Value, stat.Type, stat.Link)
+			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
 
-	// Try To Get Inbounds Stats
-	inboundsStatsReq, _ := createAuthenticatedRequest("GET", "/stats/inbounds", nil)
-	inboundsStatsResp, err := client.Do(inboundsStatsReq)
-	if err != nil {
-		t.Fatalf("Inbounds stats request failed: %v", err)
-	}
-	defer inboundsStatsResp.Body.Close()
-
-	var inboundsStats common.StatResponse
-	inboundsStatsBody, _ := io.ReadAll(inboundsStatsResp.Body)
-	err = proto.Unmarshal(inboundsStatsBody, &inboundsStats)
-	if err != nil {
-		t.Fatalf("Failed to parse inbounds stats: %v", err)
+	if err = createAuthenticatedRequest("GET", "/stats/inbounds", &common.StatRequest{Reset_: true}, &stats); err != nil {
+		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
 
-	for _, stat := range inboundsStats.Stats {
+	for _, stat := range stats.GetStats() {
 		log.Printf("Inbound Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
-			stat.Name, stat.Value, stat.Type, stat.Link)
+			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
 
-	// Try To Get Users Stats
-	usersStatsReq, _ := createAuthenticatedRequest("GET", "/stats/users", nil)
-	usersStatsResp, err := client.Do(usersStatsReq)
-	if err != nil {
-		t.Fatalf("Users stats request failed: %v", err)
-	}
-	defer usersStatsResp.Body.Close()
-
-	var usersStats common.StatResponse
-	usersStatsBody, _ := io.ReadAll(usersStatsResp.Body)
-	err = proto.Unmarshal(usersStatsBody, &usersStats)
-	if err != nil {
-		t.Fatalf("Failed to parse Users stats: %v", err)
+	if err = createAuthenticatedRequest("GET", "/stats/users", &common.StatRequest{Reset_: true}, &stats); err != nil {
+		t.Fatalf("Failed to get users stats: %v", err)
 	}
 
-	for _, stat := range inboundsStats.Stats {
-		log.Printf("User Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
-			stat.Name, stat.Value, stat.Type, stat.Link)
+	for _, stat := range stats.GetStats() {
+		log.Printf("Users Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
+			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
-
-	// Try To Get Backend Stats
-	backendStatsReq, _ := createAuthenticatedRequest("GET", "/stats/backend", nil)
-	backendStatsResp, err := client.Do(backendStatsReq)
-	if err != nil {
-		t.Fatalf("Backend stats request failed: %v", err)
-	}
-	defer backendStatsResp.Body.Close()
 
 	var backendStats common.BackendStatsResponse
-	backendStatsBody, _ := io.ReadAll(backendStatsResp.Body)
-	err = proto.Unmarshal(backendStatsBody, &backendStats)
-	if err != nil {
-		t.Fatalf("Failed to parse backend stats: %v", err)
+	if err = createAuthenticatedRequest("GET", "/stats/backend", &common.Empty{}, &backendStats); err != nil {
+		t.Fatalf("Failed to get backend stats: %v", err)
 	}
 
-	for _, stat := range inboundsStats.Stats {
-		log.Printf("Users Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
-			stat.Name, stat.Value, stat.Type, stat.Link)
+	fmt.Println(backendStats)
+
+	if err = createAuthenticatedRequest("PUT", "/user/sync", user, &common.Empty{}); err != nil {
+		t.Fatalf("Sync user request failed: %v", err)
 	}
 
-	jsonBody, _ = proto.Marshal(user)
-
-	// Try To Add User
-	addUserReq, _ := createAuthenticatedRequest("PUT", "/user/sync", bytes.NewBuffer(jsonBody))
-	addUserResp, err := client.Do(addUserReq)
-	if err != nil {
-		t.Fatalf("Add user request failed: %v", err)
-	}
-	defer addUserResp.Body.Close()
-
-	logsReq, _ := createAuthenticatedRequest("GET", "/logs", nil)
-	logsResp, err := client.Do(logsReq)
-	if err != nil {
-		t.Fatalf("Logs request failed: %v", err)
-	}
-	defer logsResp.Body.Close()
-
-	logsBody, _ := io.ReadAll(logsResp.Body)
 	var logs common.LogList
-	err = proto.Unmarshal(logsBody, &logs)
-	if err != nil {
-		t.Fatalf("Failed to parse logs: %v", err)
+	if err = createAuthenticatedRequest("GET", "/logs", &common.Empty{}, &logs); err != nil {
+		t.Fatalf("Sync user request failed: %v", err)
 	}
 
 	for _, newLog := range logs.GetLogs() {
 		fmt.Println("Log detail:", newLog)
 	}
 
-	time.Sleep(2 * time.Second)
-
 	// Try To Get Node Stats
-	nodeStatsReq, _ := createAuthenticatedRequest("GET", "/stats/system", nil)
-	nodeStatsResp, err := client.Do(nodeStatsReq)
-	if err != nil {
+	var systemStats common.SystemStatsResponse
+	if err = createAuthenticatedRequest("GET", "/stats/system", &common.Empty{}, &systemStats); err != nil {
 		t.Fatalf("Node stats request failed: %v", err)
 	}
-	defer nodeStatsResp.Body.Close()
 
-	var systemStats common.SystemStatsResponse
-	nodeStatsBody, _ := io.ReadAll(nodeStatsResp.Body)
-	err = proto.Unmarshal(nodeStatsBody, &systemStats)
-	if err != nil {
-		t.Fatalf("Failed to parse node stats: %v", err)
-	}
 	fmt.Printf("System Stats: \nMem Total: %d \nMem Used: %d \nCpu Number: %d \nCpu Usage: %f \nIncoming: %d \nOutgoing: %d \n",
 		systemStats.MemTotal, systemStats.MemUsed, systemStats.CpuCores, systemStats.CpuUsage, systemStats.IncomingBandwidthSpeed, systemStats.OutgoingBandwidthSpeed)
 
-	stopReq, _ := createAuthenticatedRequest("PUT", "/stop", nil)
-	stopResp, err := client.Do(stopReq)
-	if err != nil {
-		t.Fatalf("Stop request failed: %v", err)
+	if err = createAuthenticatedRequest("PUT", "/stop", user, &common.Empty{}); err != nil {
+		t.Fatalf("Sync user request failed: %v", err)
 	}
-	defer stopResp.Body.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

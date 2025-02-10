@@ -48,6 +48,7 @@ message StatResponse {
 
 message StatRequest {
   string name = 1;
+  bool reset = 2;
 }
 
 message OnlineStatResponse {
@@ -123,11 +124,11 @@ service NodeService {
 
   rpc GetSystemStats (Empty) returns (SystemStatsResponse) {}
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
-  rpc GetOutboundsStats (Empty) returns (StatResponse) {}
+  rpc GetOutboundsStats (StatRequest) returns (StatResponse) {}
   rpc GetOutboundStats (StatRequest) returns (StatResponse) {}
-  rpc GetInboundsStats (Empty) returns (StatResponse) {}
+  rpc GetInboundsStats (StatRequest) returns (StatResponse) {}
   rpc GetInboundStats (StatRequest) returns (StatResponse) {}
-  rpc GetUsersStats (Empty) returns (StatResponse) {}
+  rpc GetUsersStats (StatRequest) returns (StatResponse) {}
   rpc GetUserStats (StatRequest) returns (StatResponse) {}
   rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
   

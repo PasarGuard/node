@@ -12,7 +12,7 @@ import (
 func init() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Printf("Failed to load env file, node will use default values, Error: %v", err)
+		log.Printf("[Warning] Failed to load env file, if you're using 'Docker' and you set 'environment' or 'env_file' variable, don't worry, everything is fine. Error: %v", err)
 	}
 
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)

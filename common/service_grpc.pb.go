@@ -48,11 +48,11 @@ type NodeServiceClient interface {
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
 	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
 	GetBackendStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BackendStatsResponse, error)
-	GetOutboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error)
+	GetOutboundsStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetOutboundStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
-	GetInboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error)
+	GetInboundsStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetInboundStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
-	GetUsersStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error)
+	GetUsersStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetUserStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetUserOnlineStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*OnlineStatResponse, error)
 	SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error)
@@ -136,7 +136,7 @@ func (c *nodeServiceClient) GetBackendStats(ctx context.Context, in *Empty, opts
 	return out, nil
 }
 
-func (c *nodeServiceClient) GetOutboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error) {
+func (c *nodeServiceClient) GetOutboundsStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatResponse)
 	err := c.cc.Invoke(ctx, NodeService_GetOutboundsStats_FullMethodName, in, out, cOpts...)
@@ -156,7 +156,7 @@ func (c *nodeServiceClient) GetOutboundStats(ctx context.Context, in *StatReques
 	return out, nil
 }
 
-func (c *nodeServiceClient) GetInboundsStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error) {
+func (c *nodeServiceClient) GetInboundsStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatResponse)
 	err := c.cc.Invoke(ctx, NodeService_GetInboundsStats_FullMethodName, in, out, cOpts...)
@@ -176,7 +176,7 @@ func (c *nodeServiceClient) GetInboundStats(ctx context.Context, in *StatRequest
 	return out, nil
 }
 
-func (c *nodeServiceClient) GetUsersStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatResponse, error) {
+func (c *nodeServiceClient) GetUsersStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StatResponse)
 	err := c.cc.Invoke(ctx, NodeService_GetUsersStats_FullMethodName, in, out, cOpts...)
@@ -241,11 +241,11 @@ type NodeServiceServer interface {
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
 	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
 	GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error)
-	GetOutboundsStats(context.Context, *Empty) (*StatResponse, error)
+	GetOutboundsStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetOutboundStats(context.Context, *StatRequest) (*StatResponse, error)
-	GetInboundsStats(context.Context, *Empty) (*StatResponse, error)
+	GetInboundsStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetInboundStats(context.Context, *StatRequest) (*StatResponse, error)
-	GetUsersStats(context.Context, *Empty) (*StatResponse, error)
+	GetUsersStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetUserStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error)
 	SyncUser(grpc.ClientStreamingServer[User, Empty]) error
@@ -278,19 +278,19 @@ func (UnimplementedNodeServiceServer) GetSystemStats(context.Context, *Empty) (*
 func (UnimplementedNodeServiceServer) GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackendStats not implemented")
 }
-func (UnimplementedNodeServiceServer) GetOutboundsStats(context.Context, *Empty) (*StatResponse, error) {
+func (UnimplementedNodeServiceServer) GetOutboundsStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOutboundsStats not implemented")
 }
 func (UnimplementedNodeServiceServer) GetOutboundStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOutboundStats not implemented")
 }
-func (UnimplementedNodeServiceServer) GetInboundsStats(context.Context, *Empty) (*StatResponse, error) {
+func (UnimplementedNodeServiceServer) GetInboundsStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInboundsStats not implemented")
 }
 func (UnimplementedNodeServiceServer) GetInboundStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInboundStats not implemented")
 }
-func (UnimplementedNodeServiceServer) GetUsersStats(context.Context, *Empty) (*StatResponse, error) {
+func (UnimplementedNodeServiceServer) GetUsersStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersStats not implemented")
 }
 func (UnimplementedNodeServiceServer) GetUserStats(context.Context, *StatRequest) (*StatResponse, error) {
@@ -428,7 +428,7 @@ func _NodeService_GetBackendStats_Handler(srv interface{}, ctx context.Context, 
 }
 
 func _NodeService_GetOutboundsStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(StatRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ func _NodeService_GetOutboundsStats_Handler(srv interface{}, ctx context.Context
 		FullMethod: NodeService_GetOutboundsStats_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetOutboundsStats(ctx, req.(*Empty))
+		return srv.(NodeServiceServer).GetOutboundsStats(ctx, req.(*StatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -464,7 +464,7 @@ func _NodeService_GetOutboundStats_Handler(srv interface{}, ctx context.Context,
 }
 
 func _NodeService_GetInboundsStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(StatRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -476,7 +476,7 @@ func _NodeService_GetInboundsStats_Handler(srv interface{}, ctx context.Context,
 		FullMethod: NodeService_GetInboundsStats_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetInboundsStats(ctx, req.(*Empty))
+		return srv.(NodeServiceServer).GetInboundsStats(ctx, req.(*StatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -500,7 +500,7 @@ func _NodeService_GetInboundStats_Handler(srv interface{}, ctx context.Context, 
 }
 
 func _NodeService_GetUsersStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(StatRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -512,7 +512,7 @@ func _NodeService_GetUsersStats_Handler(srv interface{}, ctx context.Context, de
 		FullMethod: NodeService_GetUsersStats_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServiceServer).GetUsersStats(ctx, req.(*Empty))
+		return srv.(NodeServiceServer).GetUsersStats(ctx, req.(*StatRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

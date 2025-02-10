@@ -4,23 +4,15 @@ import (
 	"net/http"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/m03ed/marzban-node-go/common"
 	"github.com/m03ed/marzban-node-go/config"
 )
 
-func sendLogs(w http.ResponseWriter, logs []string, status int) {
-	response, _ := proto.Marshal(&common.LogList{
+func (s *Service) sendLogs(w http.ResponseWriter, logs []string, status int) {
+	w.WriteHeader(status)
+	common.SendProtoResponse(w, &common.LogList{
 		Logs: logs,
 	})
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.WriteHeader(status)
-	if _, err := w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
 }
 
 func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +28,7 @@ func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
 		select {
 		case log, ok := <-logChan:
 			if !ok { // If the channel is closed, break the loop
-				sendLogs(w, logs, http.StatusInternalServerError)
+				s.sendLogs(w, logs, http.StatusInternalServerError)
 			}
 
 			// Add the log to the logs slice using the counter
@@ -48,7 +40,7 @@ func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
 
 			if counter >= config.MaxLogPerRequest {
 				// Send the collected logs immediately
-				sendLogs(w, logs, http.StatusOK)
+				s.sendLogs(w, logs, http.StatusOK)
 				return
 			}
 			continue
@@ -56,20 +48,20 @@ func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
 		case <-ticker.C:
 			if len(logs) > 0 && len(logChan) == 0 {
 				// If the cache is not empty and the channel is empty, send the logs
-				sendLogs(w, logs, http.StatusOK)
+				s.sendLogs(w, logs, http.StatusOK)
 				return
 			}
 
 		case <-timeout:
 			if len(logs) > 0 {
-				sendLogs(w, logs, http.StatusOK)
+				s.sendLogs(w, logs, http.StatusOK)
 			} else {
-				sendLogs(w, logs, http.StatusNoContent)
+				s.sendLogs(w, logs, http.StatusNoContent)
 			}
 			return
 
 		case <-r.Context().Done(): // If the client disconnects or the request is canceled
-			sendLogs(w, logs, http.StatusRequestTimeout)
+			s.sendLogs(w, logs, http.StatusRequestTimeout)
 			return
 		}
 	}
