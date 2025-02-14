@@ -30,10 +30,6 @@ message Log {
     string detail = 1;
 }
 
-message LogList {
-    repeated string logs = 1;
-}
-
 // stats
 message Stat {
   string name = 1;

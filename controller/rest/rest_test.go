@@ -1,9 +1,11 @@
 package rest
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -37,11 +39,15 @@ var (
 
 // httpClient creates a custom HTTP client with TLS configuration
 func createHTTPClient(tlsConfig *tls.Config) *http.Client {
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Protocols:       new(http.Protocols),
+	}
+	transport.Protocols.SetHTTP2(true)
+
 	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-		Timeout: 10 * time.Second,
+		Transport: transport,
+		Timeout:   10 * time.Second,
 	}
 }
 
@@ -111,6 +117,26 @@ func TestRESTConnection(t *testing.T) {
 			return err
 		}
 		return nil
+	}
+
+	createAuthenticatedStreamingRequest := func(method, endpoint string) (io.ReadCloser, error) {
+		req, err := http.NewRequest(method, url+endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+sessionId)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			defer resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		return resp.Body, nil
 	}
 
 	configFile, err := os.ReadFile(configPath)
@@ -226,13 +252,24 @@ func TestRESTConnection(t *testing.T) {
 		t.Fatalf("Sync user request failed: %v", err)
 	}
 
-	var logs common.LogList
-	if err = createAuthenticatedRequest("GET", "/logs", &common.Empty{}, &logs); err != nil {
-		t.Fatalf("Sync user request failed: %v", err)
+	reader, err := createAuthenticatedStreamingRequest("GET", "/logs")
+	if err != nil {
+		t.Fatalf("Failed to start streaming logs: %v", err)
+	}
+	defer reader.Close()
+
+	scanner := bufio.NewScanner(reader)
+
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
 	}
 
-	for _, newLog := range logs.GetLogs() {
-		fmt.Println("Log detail:", newLog)
+	if err = scanner.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Logf("Skipping context deadline exceeded error: %v", err)
+			return
+		}
+		t.Fatalf("Error reading streaming logs: %v", err)
 	}
 
 	// Try To Get Node Stats

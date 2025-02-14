@@ -109,8 +109,9 @@ func TestXrayBackend(t *testing.T) {
 		t.Error(err)
 	}
 
-	for _, stat := range stats.Stats {
-		log.Printf(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+	for _, stat := range stats.GetStats() {
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s",
+			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
 
 	if err = back.SyncUser(ctx1, user2); err != nil {

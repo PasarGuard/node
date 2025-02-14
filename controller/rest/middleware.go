@@ -78,6 +78,9 @@ func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {
 func LogRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		log.Println(fmt.Sprintf("[API] New requesrt from %s, %s, %s", r.RemoteAddr, r.Method, r.URL.Path))
+
 		next.ServeHTTP(ww, r)
 
 		log.Println(fmt.Sprintf("[API] %s, %s, %s, %d", r.RemoteAddr, r.Method, r.URL.Path, ww.Status()))

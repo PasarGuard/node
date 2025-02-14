@@ -53,7 +53,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			if settings.Vless.Flow != "" {
 				networkType := inbound.StreamSettings["network"]
 
-				if !(networkType == "tcp" || networkType == "mkcp") {
+				if !(networkType == "tcp" || networkType == "raw" || networkType == "mkcp") {
 					account.Flow = ""
 					return &account, true
 				}
@@ -155,6 +155,13 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	return nil
 }
 
-func (x *Xray) SyncUsers(_ context.Context, _ []*common.User) error {
-	return errors.New("not implemented method")
+func (x *Xray) SyncUsers(_ context.Context, users []*common.User) error {
+	x.config.syncUsers(users)
+	if err := x.GenerateConfigFile(); err != nil {
+		return err
+	}
+	if err := x.Restart(); err != nil {
+		return err
+	}
+	return nil
 }
