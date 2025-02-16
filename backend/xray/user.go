@@ -51,16 +51,15 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 
 			account := *settings.Vless
 			if settings.Vless.Flow != "" {
-				networkType := inbound.StreamSettings["network"]
 
-				if !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
+				networkType, ok := inbound.StreamSettings["network"]
+				if !ok || !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
 					account.Flow = ""
 					return &account, true
 				}
 
-				securityType := inbound.StreamSettings["security"]
-
-				if !(securityType == "tls" || securityType == "reality") {
+				securityType, ok := inbound.StreamSettings["security"]
+				if !ok || !(securityType == "tls" || securityType == "reality") {
 					account.Flow = ""
 					return &account, true
 				}
@@ -103,8 +102,8 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			return settings.Trojan, true
 
 		case Shadowsocks:
-			method, methodOk := inbound.Settings["method"].(string)
-			if methodOk && strings.HasPrefix("2022-blake3", method) {
+			method, ok := inbound.Settings["method"].(string)
+			if ok && strings.HasPrefix("2022-blake3", method) {
 				if settings.Shadowsocks2022 == nil {
 					return nil, false
 				}
