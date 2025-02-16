@@ -131,8 +131,9 @@ To add bridge to your project use:
 go get github.com/m03ed/gozargah_node_bridge
 ```
 ## Python
-```
-Not released yet
+[gozargah-node-bridge-py](https://github.com/m03ed/gozargah_node_bridge_py)
+```shell
+pip install gozargah-node-bridge
 ```
 
 # Donation
