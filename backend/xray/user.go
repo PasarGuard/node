@@ -53,7 +53,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			if settings.Vless.Flow != "" {
 				networkType := inbound.StreamSettings["network"]
 
-				if !(networkType == "tcp" || networkType == "raw" || networkType == "mkcp") {
+				if !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
 					account.Flow = ""
 					return &account, true
 				}
