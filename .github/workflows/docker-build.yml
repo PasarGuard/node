@@ -1,9 +1,8 @@
-name: Build and Push Docker Image (All Branches)
+name: Build and Push Docker Image (On Release)
 
 on:
-  push:
-    branches:
-      - '*'
+  release:
+    types: [created]
 
 env:
   REGISTRY: ghcr.io
@@ -42,16 +41,24 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/m03ed/gozargah-node
 
+      - name: Set Docker tags
+        id: tags
+        run: |
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            # Pre-release: only version tags
+            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}" >> $GITHUB_ENV
+          else
+            # Regular release: version tags + latest tags
+            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},m03ed/gozargah-node:latest,ghcr.io/m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:latest" >> $GITHUB_ENV
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            m03ed/gozargah-node:${{ github.ref_name }}
-            ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}
-
+          tags: ${{ env.DOCKER_TAGS }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
