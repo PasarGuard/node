@@ -126,7 +126,6 @@ jobs:
 
       - name: Build binary and zip
         run: |
-          mkdir -p dist
           make
           find . -type f -name "gozargah-node*" -exec mv {} "./gozargah-node-${{ env.ASSET_NAME }}" \;
           # Create zip file with max compression and include README & LICENSE

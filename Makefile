@@ -1,4 +1,4 @@
-NAME = marzban_node-$(GOOS)-$(GOARCH)
+NAME = gozargah-node-$(GOOS)-$(GOARCH)
 
 LDFLAGS = -s -w -buildid=
 PARAMS = -trimpath -ldflags "$(LDFLAGS)" -v
