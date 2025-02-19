@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"sync"
 
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
 )
 
 type Core struct {

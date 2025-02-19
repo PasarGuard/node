@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/m03ed/marzban-node-go/backend/xray/api"
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/backend/xray/api"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func setupUserAccount(user *common.User) (api.ProxySettings, error) {

@@ -7,9 +7,9 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/m03ed/marzban-node-go/backend"
-	"github.com/m03ed/marzban-node-go/backend/xray"
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/backend"
+	"github.com/m03ed/gozargah-node/backend/xray"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {

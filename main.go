@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/m03ed/marzban-node-go/config"
-	"github.com/m03ed/marzban-node-go/controller"
-	"github.com/m03ed/marzban-node-go/controller/rest"
-	"github.com/m03ed/marzban-node-go/controller/rpc"
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
-	"github.com/m03ed/marzban-node-go/tools"
+	"github.com/m03ed/gozargah-node/config"
+	"github.com/m03ed/gozargah-node/controller"
+	"github.com/m03ed/gozargah-node/controller/rest"
+	"github.com/m03ed/gozargah-node/controller/rpc"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
+	"github.com/m03ed/gozargah-node/tools"
 )
 
 func main() {

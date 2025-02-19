@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/m03ed/marzban-node-go/common"
-	"github.com/m03ed/marzban-node-go/config"
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
-	"github.com/m03ed/marzban-node-go/tools"
+	"github.com/m03ed/gozargah-node/common"
+	"github.com/m03ed/gozargah-node/config"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
+	"github.com/m03ed/gozargah-node/tools"
 )
 
 var (

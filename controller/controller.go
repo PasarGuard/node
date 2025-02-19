@@ -9,11 +9,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/m03ed/marzban-node-go/backend"
-	"github.com/m03ed/marzban-node-go/backend/xray"
-	"github.com/m03ed/marzban-node-go/common"
-	"github.com/m03ed/marzban-node-go/config"
-	"github.com/m03ed/marzban-node-go/tools"
+	"github.com/m03ed/gozargah-node/backend"
+	"github.com/m03ed/gozargah-node/backend/xray"
+	"github.com/m03ed/gozargah-node/common"
+	"github.com/m03ed/gozargah-node/config"
+	"github.com/m03ed/gozargah-node/tools"
 )
 
 const NodeVersion = "0.1.2"

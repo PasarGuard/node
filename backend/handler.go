@@ -2,7 +2,7 @@ package backend
 
 import (
 	"context"
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 type Handler interface {

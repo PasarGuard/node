@@ -3,7 +3,7 @@ package rest
 import (
 	"net/http"
 
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func (s *Service) GetOutboundsStats(w http.ResponseWriter, r *http.Request) {

@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/m03ed/marzban-node-go/backend"
-	"github.com/m03ed/marzban-node-go/backend/xray/api"
-	"github.com/m03ed/marzban-node-go/common"
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
+	"github.com/m03ed/gozargah-node/backend"
+	"github.com/m03ed/gozargah-node/backend/xray/api"
+	"github.com/m03ed/gozargah-node/common"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
 )
 
 type Xray struct {

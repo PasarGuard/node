@@ -113,7 +113,7 @@ jobs:
             _NAME="${GOOS}-${GOARCH}"
           fi
           echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
-          echo "BINARY_NAME=gozargah_node-${_NAME}" >> $GITHUB_ENV
+          echo "BINARY_NAME=gozargah-node-${_NAME}" >> $GITHUB_ENV
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -122,21 +122,15 @@ jobs:
           check-latest: true
 
       - name: Get project dependencies
-        run: go mod download
+        run: make deps
 
-      - name: Build binary
+      - name: Build binary and zip
         run: |
           mkdir -p dist
           make
-          find . -type f -name "gozargah_node*" -exec mv {} "./gozargah_node-${{ env.ASSET_NAME }}" \;
-          # Create zip file
-          zip "./gozargah_node-${{ env.ASSET_NAME }}.zip" "./gozargah_node-${{ env.ASSET_NAME }}"
-
-      - name: Upload binaries to Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: gozargah_node-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm || '' }}
-          path: gozargah_node-${{ env.ASSET_NAME }}*
+          find . -type f -name "gozargah-node*" -exec mv {} "./gozargah-node-${{ env.ASSET_NAME }}" \;
+          # Create zip file with max compression and include README & LICENSE
+          zip -9 "./gozargah-node-${{ env.ASSET_NAME }}.zip" "./gozargah-node-${{ env.ASSET_NAME }}" README.md LICENSE
 
       - name: Upload Release Asset
         id: upload-release-asset
@@ -145,6 +139,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./gozargah_node-${{ env.ASSET_NAME }}.zip
-          asset_name: gozargah_node-${{ env.ASSET_NAME }}.zip
+          asset_path: ./gozargah-node-${{ env.ASSET_NAME }}.zip
+          asset_name: gozargah-node-${{ env.ASSET_NAME }}.zip
           asset_content_type: application/zip

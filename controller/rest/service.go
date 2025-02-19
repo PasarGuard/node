@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/m03ed/marzban-node-go/common"
-	"github.com/m03ed/marzban-node-go/controller"
+	"github.com/m03ed/gozargah-node/common"
+	"github.com/m03ed/gozargah-node/controller"
 )
 
 func NewService() *Service {

@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {

@@ -10,7 +10,7 @@ import (
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func GetSystemStats() (*common.SystemStatsResponse, error) {

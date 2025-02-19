@@ -1,4 +1,4 @@
-module github.com/m03ed/marzban-node-go
+module github.com/m03ed/gozargah-node
 
 go 1.24.0
 

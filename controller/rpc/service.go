@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/m03ed/marzban-node-go/common"
-	"github.com/m03ed/marzban-node-go/controller"
+	"github.com/m03ed/gozargah-node/common"
+	"github.com/m03ed/gozargah-node/controller"
 )
 
 type Service struct {

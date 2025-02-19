@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	nodeLogger "github.com/m03ed/marzban-node-go/logger"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
 )
 
 var (

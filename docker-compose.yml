@@ -1,6 +1,8 @@
 services:
   gozargah-node:
-    image: ghcr.io/m03ed/gozargah-node:dev
+    image: m03ed/gozargah-node:dev
+    # for situations, you don't have access to docker hub use 👇
+    # image: ghcr.io/m03ed/gozargah-node:dev
     restart: always
     network_mode: host
 

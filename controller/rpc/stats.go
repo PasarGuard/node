@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/m03ed/marzban-node-go/common"
+	"github.com/m03ed/gozargah-node/common"
 )
 
 func (s *Service) GetOutboundsStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
