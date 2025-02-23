@@ -16,7 +16,7 @@ import (
 	"github.com/m03ed/gozargah-node/tools"
 )
 
-const NodeVersion = "0.1.2"
+const NodeVersion = "1.0.0"
 
 type Service interface {
 	StopService()

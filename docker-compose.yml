@@ -1,6 +1,6 @@
 services:
   gozargah-node:
-    image: m03ed/gozargah-node:dev
+    image: m03ed/gozargah-node:latest
     # for situations, you don't have access to docker hub use 👇
     # image: ghcr.io/m03ed/gozargah-node:dev
     restart: always

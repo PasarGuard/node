@@ -20,19 +20,6 @@ import (
 func main() {
 	nodeLogger.SetOutputMode(config.Debug)
 
-	certFileExists := tools.FileExists(config.SslCertFile)
-	keyFileExists := tools.FileExists(config.SslKeyFile)
-	if !certFileExists || !keyFileExists {
-		if err := tools.RewriteSslFile(config.SslCertFile, config.SslKeyFile); err != nil {
-			log.Fatal(err)
-		}
-	}
-	sslClientCertFile := tools.FileExists(config.SslClientCertFile)
-
-	if !sslClientCertFile {
-		log.Fatal("SSL_CLIENT_CERT_FILE is required.")
-	}
-
 	addr := fmt.Sprintf("%s:%d", config.NodeHost, config.ServicePort)
 
 	tlsConfig, err := tools.LoadTLSCredentials(config.SslCertFile, config.SslKeyFile,
@@ -40,6 +27,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	log.Printf("Starting Node Version: %s", controller.NodeVersion)
 
 	var shutdownFunc func(ctx context.Context) error
 	var service controller.Service
