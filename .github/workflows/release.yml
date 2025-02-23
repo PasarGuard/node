@@ -88,9 +88,9 @@ jobs:
           # BEGIN OPENBSD ARM
           - goos: openbsd
             goarch: arm64
-          - goos: openbsd
-            goarch: arm
-            goarm: 7
+          # - goos: openbsd
+          #   goarch: arm
+          #   goarm: 7
           # END OPENBSD ARM
       fail-fast: false
 
