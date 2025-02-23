@@ -2,99 +2,59 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
-	"marzban-node/tools"
-	"net/http"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"marzban-node/config"
-	log "marzban-node/logger"
-	"marzban-node/service"
+	"github.com/m03ed/gozargah-node/config"
+	"github.com/m03ed/gozargah-node/controller"
+	"github.com/m03ed/gozargah-node/controller/rest"
+	"github.com/m03ed/gozargah-node/controller/rpc"
+	nodeLogger "github.com/m03ed/gozargah-node/logger"
+	"github.com/m03ed/gozargah-node/tools"
 )
 
-func createServer(addr string, r chi.Router) (server *http.Server) {
-
-	serverCert, err := tls.LoadX509KeyPair(config.SslCertFile, config.SslKeyFile)
-	if err != nil {
-		log.Error("Failed to load server certificate and key: ", err)
-	}
-
-	clientCertPool := x509.NewCertPool()
-	clientCert, err := os.ReadFile(config.SslClientCertFile)
-	if err != nil {
-		log.Error("Failed to read client certificate: ", err)
-	}
-	clientCertPool.AppendCertsFromPEM(clientCert)
-
-	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		ClientCAs:    clientCertPool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-	}
-
-	server = &http.Server{
-		Addr:      addr,
-		TLSConfig: tlsConfig,
-		Handler:   r,
-	}
-	return server
-}
-
 func main() {
-	certFileExists := tools.FileExists(config.SslCertFile)
-	keyFileExists := tools.FileExists(config.SslKeyFile)
-	if !certFileExists || !keyFileExists {
-		tools.RewriteSslFile()
-	}
-	sslClientCertFile := tools.FileExists(config.SslClientCertFile)
-
-	if !sslClientCertFile {
-		panic("SSL_CLIENT_CERT_FILE is required for rest service.")
-	}
+	nodeLogger.SetOutputMode(config.Debug)
 
 	addr := fmt.Sprintf("%s:%d", config.NodeHost, config.ServicePort)
-	s, err := service.NewService()
+
+	tlsConfig, err := tools.LoadTLSCredentials(config.SslCertFile, config.SslKeyFile,
+		config.SslClientCertFile, false)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	server := createServer(addr, s.Router)
+	log.Printf("Starting Node Version: %s", controller.NodeVersion)
 
-	// Create a channel to listen for interrupt signals
+	var shutdownFunc func(ctx context.Context) error
+	var service controller.Service
+
+	if config.ServiceProtocol == "rest" {
+		shutdownFunc, service, err = rest.StartHttpListener(tlsConfig, addr)
+	} else {
+		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr)
+	}
+
+	defer service.StopService()
+
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 
-	// Start server with TLS
-	go func() {
-		log.Info("Server is listening on", addr)
-		log.Info("Press Ctrl+C to stop")
-		if err = server.ListenAndServeTLS("", ""); err != nil && !errors.Is(http.ErrServerClosed, err) {
-			log.Error("Failed to start server: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
+	// Wait for interrupt
 	<-stopChan
-	log.Info("Shutting down server...")
+	log.Println("Shutting down server...")
 
-	log.Info("Performing cleanup job...")
-	s.StopJobs()
-
-	// Create a context with timeout for the shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Shutdown the server gracefully
-	if err = server.Shutdown(ctx); err != nil {
-		log.Error("Server forced to shutdown: ", err)
+	if err = shutdownFunc(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
 	}
 
-	log.Info("Server gracefully stopped")
+	log.Println("Server gracefully stopped")
 }

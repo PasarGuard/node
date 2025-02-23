@@ -1,0 +1,38 @@
+name: Test Modules
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.gotoolchain || '1.24.0' }}
+          check-latest: true
+
+      - name: Get project dependencies
+        run: make deps
+
+      - name: Install xray-core
+        run: make install_xray
+
+      - name: Create certificate
+        run: |
+          mkdir certs
+          make generate_server_cert
+          make generate_client_cert
+
+      - name: Run tests
+        run: make test

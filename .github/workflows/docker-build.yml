@@ -1,0 +1,64 @@
+name: Build and Push Docker Image (On Release)
+
+on:
+  release:
+    types: [created]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/m03ed/gozargah-node
+
+      - name: Set Docker tags
+        id: tags
+        run: |
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            # Pre-release: only version tags
+            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}" >> $GITHUB_ENV
+          else
+            # Regular release: version tags + latest tags
+            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},m03ed/gozargah-node:latest,ghcr.io/m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:latest" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.DOCKER_TAGS }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

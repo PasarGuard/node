@@ -1,0 +1,143 @@
+name: Create Release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        # Include amd64 on all platforms.
+        goos:
+          # - windows
+          - freebsd
+          - openbsd
+          - linux
+          # - darwin
+
+        goarch: [ amd64, 386 ]
+        gotoolchain: [ "" ]
+        patch-assetname: [ "" ]
+
+        # exclude:
+
+        include:
+          # BEGIN MacOS ARM64
+          # - goos: darwin
+          #   goarch: arm64
+          # END MacOS ARM64
+          # BEGIN Linux ARM 5 6 7
+          - goos: linux
+            goarch: arm
+            goarm: 7
+          - goos: linux
+            goarch: arm
+            goarm: 6
+          - goos: linux
+            goarch: arm
+            goarm: 5
+          # END Linux ARM 5 6 7
+          # Windows ARM
+          # - goos: windows
+          #   goarch: arm64
+          # - goos: windows
+          #   goarch: arm
+          #   goarm: 7
+          # BEGIN Other architectures
+          # BEGIN ARM64
+          - goos: linux
+            goarch: arm64
+          # END ARM64
+          #BEGIN riscv64 & LOONG64
+          # - goos: linux
+          #   goarch: riscv64
+          # - goos: linux
+          #   goarch: loong64
+          # END riscv64 &  LOONG64
+          # BEGIN MIPS
+          # - goos: linux
+          #   goarch: mips64
+          # - goos: linux
+          #   goarch: mips64le
+          # - goos: linux
+          #   goarch: mipsle
+          # - goos: linux
+          #   goarch: mips
+          # END MIPS
+          # BEGIN PPC
+          # - goos: linux
+          #   goarch: ppc64
+          # - goos: linux
+          #   goarch: ppc64le
+          # END PPC
+          # BEGIN FreeBSD ARM
+          - goos: freebsd
+            goarch: arm64
+          - goos: freebsd
+            goarch: arm
+            goarm: 7
+          # END FreeBSD ARM
+          # BEGIN S390X
+          - goos: linux
+            goarch: s390x
+          # END S390X
+          # END Other architectures
+          # BEGIN OPENBSD ARM
+          - goos: openbsd
+            goarch: arm64
+          - goos: openbsd
+            goarch: arm
+            goarm: 7
+          # END OPENBSD ARM
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      GOARM: ${{ matrix.goarm }}
+      CGO_ENABLED: 0
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
+
+      - name: Show workflow information
+        run: |
+          _GOARM="${GOARM:-""}"
+          if [ -n "$_GOARM" ]; then
+            _NAME="${GOOS}-${GOARCH}-${_GOARM}"
+          else
+            _NAME="${GOOS}-${GOARCH}"
+          fi
+          echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
+          echo "BINARY_NAME=gozargah-node-${_NAME}" >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.gotoolchain || '1.24.0' }}
+          check-latest: true
+
+      - name: Get project dependencies
+        run: make deps
+
+      - name: Build binary and zip
+        run: |
+          make
+          find . -type f -name "gozargah-node*" -exec mv {} "./gozargah-node-${{ env.ASSET_NAME }}" \;
+          # Create zip file with max compression and include README & LICENSE
+          zip -9 "./gozargah-node-${{ env.ASSET_NAME }}.zip" "./gozargah-node-${{ env.ASSET_NAME }}" README.md LICENSE
+
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./gozargah-node-${{ env.ASSET_NAME }}.zip
+          asset_name: gozargah-node-${{ env.ASSET_NAME }}.zip
+          asset_content_type: application/zip

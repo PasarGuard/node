@@ -1,0 +1,178 @@
+{
+    "log": {
+        "loglevel": "warning"
+    },
+    "inbounds": [
+        {
+            "tag": "Shadowsocks TCP",
+            "listen": "0.0.0.0",
+            "port": 4080,
+            "protocol": "shadowsocks",
+            "settings": {
+                "password": "password",
+                "clients": [],
+                "network": "tcp,udp"
+            }
+        },
+        {
+            "tag": "Shadowsocks 2024",
+            "port": 1234,
+            "protocol": "shadowsocks",
+            "settings": {
+                "method": "2022-blake3-aes-128-gcm",
+                "password": "sMLi2fSOqrmrYArJZbLhfH8LcaE5s0kHf4CdebqVLdg=",
+                "clients": [],
+                "network": "tcp,udp"
+            }
+        },
+        {
+            "tag": "VLESS TCP REALITY",
+            "listen": "0.0.0.0",
+            "port": 7878,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "tcpSettings": {},
+                "security": "reality",
+                "realitySettings": {
+                    "show": false,
+                    "dest": 22654,
+                    "xver": 1,
+                    "serverNames": [
+                        "speedtest.net"
+                    ],
+                    "privateKey": "eLYejRceHJVL6aGGLXRIEB5GDDdWwztq0Nu0Dxp0zlM",
+                    "shortIds": [
+                        "074e71788d28fd03"
+                    ]
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },
+        {
+            "tag": "VLESS TCP NOTLS",
+            "listen": "0.0.0.0",
+            "port": 4435,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "tcpSettings": {},
+                "security": "none"
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },
+        {
+            "tag": "VLESS TCP Header NoTLS",
+            "listen": "0.0.0.0",
+            "port": 4436,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "tcpSettings": {
+                    "header": {
+                        "type": "http",
+                        "request": {
+                            "method": "GET",
+                            "path": [
+                                "/"
+                            ],
+                            "headers": {
+                                "Host": [
+                                    "cloudflare.com"
+                                ]
+                            }
+                        },
+                        "response": {}
+                    }
+                },
+                "security": "none"
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },
+        {
+            "tag": "VMESS TCP NOTLS",
+            "listen": "0.0.0.0",
+            "port": "4433",
+            "protocol": "vmess",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "tcp"
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },
+        {
+            "tag": "TROJAN TCP NOTLS",
+            "listen": "0.0.0.0",
+            "port": "4434",
+            "protocol": "trojan",
+            "settings": {
+                "clients": []
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "tcpSettings": {},
+                "security": "none"
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "tag": "direct"
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "BLOCK"
+        }
+    ]
+}

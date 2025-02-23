@@ -2,25 +2,19 @@ package tools
 
 import (
 	"bufio"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/mem"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/mem"
+
+	"github.com/m03ed/gozargah-node/common"
 )
 
-type SystemStats struct {
-	MemTotal               uint64  `json:"mem_total"`
-	MemUsed                uint64  `json:"mem_used"`
-	CpuCores               int     `json:"cpu_cores"`
-	CpuUsage               float64 `json:"cpu_usage"`
-	IncomingBandwidthSpeed int     `json:"incoming_bandwidth_speed"`
-	OutgoingBandwidthSpeed int     `json:"outgoing_bandwidth_speed"`
-}
-
-func GetSystemStats() (SystemStats, error) {
-	stats := SystemStats{}
+func GetSystemStats() (*common.SystemStatsResponse, error) {
+	stats := &common.SystemStatsResponse{}
 
 	vm, err := mem.VirtualMemory()
 	if err != nil {
@@ -33,7 +27,7 @@ func GetSystemStats() (SystemStats, error) {
 	if err != nil {
 		return stats, err
 	}
-	stats.CpuCores = cores
+	stats.CpuCores = uint64(cores)
 
 	percentages, err := cpu.Percent(time.Second, false)
 	if err != nil {
@@ -47,8 +41,8 @@ func GetSystemStats() (SystemStats, error) {
 	if err != nil {
 		return stats, err
 	}
-	stats.IncomingBandwidthSpeed = incomingSpeed
-	stats.OutgoingBandwidthSpeed = outgoingSpeed
+	stats.IncomingBandwidthSpeed = uint64(incomingSpeed)
+	stats.OutgoingBandwidthSpeed = uint64(outgoingSpeed)
 
 	return stats, nil
 }
