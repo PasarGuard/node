@@ -10,15 +10,52 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          check-latest: true
+
+      - name: Build binary for ${{ matrix.arch }}
+        run: |
+          GOOS=linux GOARCH=${{ matrix.arch }} make build
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: gozargah-node-linux-${{ matrix.arch }}
+          path: gozargah-node-linux-${{ matrix.arch }}
+          retention-days: 1
+
+  build-and-push-docker:
+    needs: build-binaries
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Move binaries to correct location
+        run: |
+          ls -la
+          chmod +x */gozargah-node-linux-*
+          mkdir -p binaries
+          find . -name "gozargah-node-linux-*" -type f -exec cp {} binaries/ \;
+          ls -la binaries/
 
       - name: Login to Docker Hub
         uses: docker/login-action@v2
@@ -49,12 +86,12 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./Dockerfile.multi
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             m03ed/gozargah-node:${{ github.ref_name }}
             ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}
-
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
