@@ -33,7 +33,7 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 		settings.Trojan = api.NewTrojanAccount(user)
 	}
 
-	if user.GetProxies().GetTrojan() != nil {
+	if user.GetProxies().GetShadowsocks() != nil {
 		settings.Shadowsocks = api.NewShadowsocksTcpAccount(user)
 		settings.Shadowsocks2022 = api.NewShadowsocksAccount(user)
 	}
