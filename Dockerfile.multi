@@ -1,0 +1,16 @@
+FROM alpine:latest
+
+RUN apk update && apk add --no-cache make
+
+RUN mkdir /app
+WORKDIR /app
+
+COPY Makefile .
+
+ARG TARGETARCH
+COPY gozargah-node-linux-${TARGETARCH} /app/main
+RUN chmod +x /app/main
+
+RUN make install_xray
+
+ENTRYPOINT ["./main", "serve"]
