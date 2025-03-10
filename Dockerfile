@@ -1,4 +1,4 @@
-FROM golang:1.24.0 as builder
+FROM golang:1.24.0 as base
 
 WORKDIR /app
 COPY go.mod .
@@ -6,7 +6,7 @@ COPY go.sum .
 RUN go mod download
 COPY . .
 
-COPY . .
+FROM base as builder
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o main -ldflags="-w -s" .
