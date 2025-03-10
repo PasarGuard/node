@@ -30,7 +30,7 @@ jobs:
           GOOS=linux GOARCH=${{ matrix.arch }} make build
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: gozargah-node-linux-${{ matrix.arch }}
           path: gozargah-node-linux-${{ matrix.arch }}
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Move binaries to correct location
         run: |
