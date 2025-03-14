@@ -108,7 +108,7 @@ func TestGRPCConnection(t *testing.T) {
 		&common.Backend{
 			Type:      common.BackendType_XRAY,
 			Config:    string(configFile),
-			KeepAlive: uint64(time.Second * 10),
+			KeepAlive: 10,
 		})
 	if err != nil {
 		t.Fatal(err)

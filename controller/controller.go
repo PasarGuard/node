@@ -57,7 +57,7 @@ func (c *Controller) Connect(keepAlive uint64) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.aliveCancel = cancel
 	if keepAlive > 0 {
-		go c.keepAliveTracker(ctx, time.Duration(keepAlive))
+		go c.keepAliveTracker(ctx, time.Duration(keepAlive)*time.Second)
 	}
 }
 
