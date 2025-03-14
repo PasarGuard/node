@@ -23,7 +23,7 @@ message Backend {
   BackendType type = 1;
   string config = 2;
   repeated User users = 3;
-  uint64 keepAlive = 4;
+  uint64 keep_alive = 4;
 }
 
 // log
