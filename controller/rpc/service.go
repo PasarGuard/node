@@ -4,12 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"log"
 	"net"
 	"sync"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 
 	"github.com/m03ed/gozargah-node/common"
 	"github.com/m03ed/gozargah-node/controller"
@@ -32,8 +31,8 @@ func (s *Service) StopService() {
 	s.controller.StopJobs()
 }
 
-func (s *Service) connect() {
-	s.controller.Connect()
+func (s *Service) connect(keepAlive uint64) {
+	s.controller.Connect(keepAlive)
 }
 
 func (s *Service) disconnect() {

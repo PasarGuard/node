@@ -106,8 +106,9 @@ func TestGRPCConnection(t *testing.T) {
 
 	info, err := client.Start(ctx,
 		&common.Backend{
-			Type:   common.BackendType_XRAY,
-			Config: string(configFile),
+			Type:      common.BackendType_XRAY,
+			Config:    string(configFile),
+			KeepAlive: uint64(time.Second * 10),
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -310,12 +311,21 @@ loop:
 	}
 	log.Println(nodeStats)
 
+	// test keep alive
+	time.Sleep(16 * time.Second)
+
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	if _, err = client.Stop(ctx, nil); err != nil {
-		t.Fatalf("Failed to stop s: %v", err)
+	_, err = client.GetBaseInfo(ctx, &common.Empty{})
+	if err != nil {
+		log.Println("info error: ", err)
+	} else {
+		t.Fatal("expected session ID error")
 	}
+
+	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	defer cancel()
 
 	if err = shutdownFunc(ctx); err != nil {
 		t.Fatalf("Failed to shutdown server: %v", err)

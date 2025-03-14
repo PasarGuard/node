@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-
 	"github.com/m03ed/gozargah-node/backend"
 	"github.com/m03ed/gozargah-node/backend/xray"
 	"github.com/m03ed/gozargah-node/common"
@@ -19,7 +18,7 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 		return nil, err
 	}
 
-	s.connect()
+	s.connect(detail.GetKeepAlive())
 
 	return s.controller.BaseInfoResponse(true, ""), nil
 }

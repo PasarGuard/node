@@ -51,6 +51,8 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	if token != sessionID {
 		return status.Errorf(codes.PermissionDenied, "session ID mismatch")
 	}
+	
+	s.controller.NewRequest()
 
 	return nil
 }

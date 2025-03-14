@@ -71,11 +71,11 @@ type Service struct {
 	mu         sync.Mutex
 }
 
-func (s *Service) connect(ip string) {
+func (s *Service) connect(ip string, keepAlive uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clientIP = ip
-	s.controller.Connect()
+	s.controller.Connect(keepAlive)
 }
 
 func (s *Service) disconnect() {

@@ -23,12 +23,14 @@ type Service interface {
 }
 
 type Controller struct {
-	backend    backend.Backend
-	sessionID  uuid.UUID
-	apiPort    int
-	stats      *common.SystemStatsResponse
-	cancelFunc context.CancelFunc
-	mu         sync.Mutex
+	backend     backend.Backend
+	sessionID   uuid.UUID
+	apiPort     int
+	lastRequest time.Time
+	stats       *common.SystemStatsResponse
+	aliveCancel context.CancelFunc
+	statsCancel context.CancelFunc
+	mu          sync.Mutex
 }
 
 func NewController() *Controller {
@@ -46,10 +48,17 @@ func (c *Controller) GetSessionID() uuid.UUID {
 	return c.sessionID
 }
 
-func (c *Controller) Connect() {
+func (c *Controller) Connect(keepAlive uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sessionID = uuid.New()
+	c.lastRequest = time.Now()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c.aliveCancel = cancel
+	if keepAlive > 0 {
+		go c.keepAliveTracker(ctx, time.Duration(keepAlive))
+	}
 }
 
 func (c *Controller) Disconnect() {
@@ -65,6 +74,15 @@ func (c *Controller) Disconnect() {
 	c.apiPort = apiPort
 
 	c.sessionID = uuid.Nil
+
+	c.aliveCancel()
+}
+
+func (c *Controller) NewRequest() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastRequest = time.Now()
+
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backendType common.BackendType) error {
@@ -89,6 +107,24 @@ func (c *Controller) GetBackend() backend.Backend {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.backend
+}
+
+func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Duration) {
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+			c.mu.Lock()
+			lastRequest := c.lastRequest
+			c.mu.Unlock()
+			if time.Since(lastRequest) >= keepAlive {
+				log.Println("disconnect automatically due to keep alive timeout")
+				c.Disconnect()
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}
 }
 
 func (c *Controller) recordSystemStats(ctx context.Context) {
@@ -142,13 +178,13 @@ func (c *Controller) startJobs() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.cancelFunc = cancel
+	c.statsCancel = cancel
 	go c.recordSystemStats(ctx)
 }
 
 func (c *Controller) StopJobs() {
 	c.mu.Lock()
-	c.cancelFunc()
+	c.statsCancel()
 	c.mu.Unlock()
 
 	c.Disconnect()
