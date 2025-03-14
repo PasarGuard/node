@@ -65,6 +65,8 @@ func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.aliveCancel()
+
 	if c.backend != nil {
 		c.backend.Shutdown()
 	}
@@ -75,7 +77,6 @@ func (c *Controller) Disconnect() {
 
 	c.sessionID = uuid.Nil
 
-	c.aliveCancel()
 }
 
 func (c *Controller) NewRequest() {
