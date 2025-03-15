@@ -151,6 +151,7 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 	}
 
 	stats, err := s.GetBackend().GetUserOnlineIpListStats(r.Context(), request.GetName())
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
