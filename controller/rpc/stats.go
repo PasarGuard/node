@@ -44,7 +44,14 @@ func (s *Service) GetUserOnlineStats(ctx context.Context, request *common.StatRe
 	if request.GetName() == "" {
 		return nil, errors.New("name is required")
 	}
-	return s.GetBackend().GetStatOnline(ctx, request.GetName())
+	return s.GetBackend().GetUserOnlineStats(ctx, request.GetName())
+}
+
+func (s *Service) GetUserOnlineIpListStats(ctx context.Context, request *common.StatRequest) (*common.StatsOnlineIpListResponse, error) {
+	if request.GetName() == "" {
+		return nil, errors.New("name is required")
+	}
+	return s.GetBackend().GetUserOnlineIpListStats(ctx, request.GetName())
 }
 
 func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common.BackendStatsResponse, error) {

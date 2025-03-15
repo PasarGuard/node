@@ -43,14 +43,24 @@ func (x *XrayHandler) QueryStats(ctx context.Context, pattern string, reset bool
 	return resp, nil
 }
 
-func (x *XrayHandler) GetStatOnline(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
+func (x *XrayHandler) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
 	client := *x.StatsServiceClient
 	resp, err := client.GetStatsOnline(ctx, &command.GetStatsRequest{Name: email})
 	if err != nil {
 		return nil, err
 	}
 
-	return &common.OnlineStatResponse{Email: email, Value: resp.GetStat().Value}, nil
+	return &common.OnlineStatResponse{Name: email, Value: resp.GetStat().GetValue()}, nil
+}
+
+func (x *XrayHandler) GetUserOnlineIpListStats(ctx context.Context, email string) (*common.StatsOnlineIpListResponse, error) {
+	client := *x.StatsServiceClient
+	resp, err := client.GetStatsOnlineIpList(ctx, &command.GetStatsRequest{Name: email})
+	if err != nil {
+		return nil, err
+	}
+
+	return &common.StatsOnlineIpListResponse{Name: email, Ips: resp.GetIps()}, nil
 }
 
 func (x *XrayHandler) GetUsersStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
