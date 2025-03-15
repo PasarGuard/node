@@ -66,7 +66,7 @@ func TestGRPCConnection(t *testing.T) {
 	}
 
 	shutdownFunc, s, err := StartGRPCListener(tlsConfig, addr)
-	defer s.StopService()
+	defer s.Disconnect()
 	if err != nil {
 		t.Fatal(err)
 	}

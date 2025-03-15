@@ -3,9 +3,12 @@ package rpc
 import (
 	"context"
 	"errors"
+	"net"
+
 	"github.com/m03ed/gozargah-node/backend"
 	"github.com/m03ed/gozargah-node/backend/xray"
 	"github.com/m03ed/gozargah-node/common"
+	"google.golang.org/grpc/peer"
 )
 
 func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.BaseInfoResponse, error) {
@@ -14,17 +17,34 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 		return nil, err
 	}
 
-	if err = s.controller.StartBackend(ctx, detail.GetType()); err != nil {
+	if err = s.StartBackend(ctx, detail.GetType()); err != nil {
 		return nil, err
 	}
 
-	s.connect(detail.GetKeepAlive())
+	clientIP := ""
+	if p, ok := peer.FromContext(ctx); ok {
+		// Extract IP address from peer address
+		if tcpAddr, ok := p.Addr.(*net.TCPAddr); ok {
+			clientIP = tcpAddr.IP.String()
+		} else {
+			// For other address types, extract just the IP without the port
+			addr := p.Addr.String()
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				clientIP = host
+			} else {
+				// If SplitHostPort fails, use the whole address
+				clientIP = addr
+			}
+		}
+	}
 
-	return s.controller.BaseInfoResponse(true, ""), nil
+	s.Connect(clientIP, detail.GetKeepAlive())
+
+	return s.BaseInfoResponse(true, ""), nil
 }
 
 func (s *Service) Stop(_ context.Context, _ *common.Empty) (*common.Empty, error) {
-	s.disconnect()
+	s.Disconnect()
 	return nil, nil
 }
 
@@ -45,5 +65,5 @@ func (s *Service) detectBackend(ctx context.Context, detail *common.Backend) (co
 }
 
 func (s *Service) GetBaseInfo(_ context.Context, _ *common.Empty) (*common.BaseInfoResponse, error) {
-	return s.controller.BaseInfoResponse(false, ""), nil
+	return s.BaseInfoResponse(false, ""), nil
 }

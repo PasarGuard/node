@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
-	common.SendProtoResponse(w, s.controller.BaseInfoResponse(false, ""))
+	common.SendProtoResponse(w, s.BaseInfoResponse(false, ""))
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
@@ -29,26 +29,26 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.controller.GetBackend() != nil {
+	if s.GetBackend() != nil {
 		log.Println("New connection from ", ip, " core control access was taken away from previous client.")
-		s.disconnect()
+		s.Disconnect()
 	}
 
-	s.connect(ip, keepAlive)
+	s.Connect(ip, keepAlive)
 
-	log.Println(ip, " connected, Session ID = ", s.controller.GetSessionID())
+	log.Println(ip, " connected, Session ID = ", s.GetSessionID())
 
-	if err = s.controller.StartBackend(ctx, backendType); err != nil {
+	if err = s.StartBackend(ctx, backendType); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	common.SendProtoResponse(w, s.controller.BaseInfoResponse(true, ""))
+	common.SendProtoResponse(w, s.BaseInfoResponse(true, ""))
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
-	log.Println(s.GetIP(), " disconnected, Session ID = ", s.controller.GetSessionID())
-	s.disconnect()
+	log.Println(s.GetIP(), " disconnected, Session ID = ", s.GetSessionID())
+	s.Disconnect()
 
 	common.SendProtoResponse(w, &common.Empty{})
 }

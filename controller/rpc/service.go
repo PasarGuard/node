@@ -4,39 +4,23 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/m03ed/gozargah-node/common"
+	"github.com/m03ed/gozargah-node/controller"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"log"
 	"net"
-	"sync"
-
-	"github.com/m03ed/gozargah-node/common"
-	"github.com/m03ed/gozargah-node/controller"
 )
 
 type Service struct {
 	common.UnimplementedNodeServiceServer
-	controller *controller.Controller
-	mu         sync.Mutex
+	controller.Controller
 }
 
 func NewService() *Service {
-	s := &Service{controller: controller.NewController()}
+	s := &Service{}
+	s.Init()
 	return s
-}
-
-func (s *Service) StopService() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.controller.StopJobs()
-}
-
-func (s *Service) connect(keepAlive uint64) {
-	s.controller.Connect(keepAlive)
-}
-
-func (s *Service) disconnect() {
-	s.controller.Disconnect()
 }
 
 func StartGRPCListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
@@ -84,5 +68,5 @@ func StartGRPCListener(tlsConfig *tls.Config, addr string) (func(ctx context.Con
 			grpcServer.Stop() // Force stop if graceful stop times out
 			return ctx.Err()
 		}
-	}, controller.Service(s), nil
+	}, s, nil
 }
