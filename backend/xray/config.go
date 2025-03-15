@@ -375,17 +375,25 @@ func (c *Config) ApplyAPI(apiPort int) error {
 }
 
 func (c *Config) checkPolicy() {
-	if c.Policy != nil {
-		zero, ok := c.Policy.Levels[0]
-		if !ok {
-			c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
-		} else {
-			zero.StatsUserDownlink = true
-			zero.StatsUserUplink = true
-		}
-	} else {
+	if c.Policy == nil {
 		c.Policy = &conf.PolicyConfig{Levels: make(map[uint32]*conf.Policy)}
 		c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
+		// StatsUserOnline is not set, which will default to false
+	} else {
+		if c.Policy.Levels == nil {
+			c.Policy.Levels = make(map[uint32]*conf.Policy)
+		}
+
+		zero, ok := c.Policy.Levels[0]
+		if !ok {
+			log.Println("detect nil 0")
+			c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
+		} else {
+			log.Println("detect not nil 0")
+			zero.StatsUserDownlink = true
+			zero.StatsUserUplink = true
+			// Don't modify StatsUserOnline, respect the value that's already there
+		}
 	}
 
 	c.Policy.System = &conf.SystemPolicy{
