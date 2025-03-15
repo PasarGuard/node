@@ -13,7 +13,7 @@ func (s *Service) GetOutboundsStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetOutboundsStats(r.Context(), request.GetReset_())
+	stats, err := s.GetBackend().GetOutboundsStats(r.Context(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -34,7 +34,7 @@ func (s *Service) GetOutboundStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetOutboundStats(r.Context(), request.GetName(), request.GetReset_())
+	stats, err := s.GetBackend().GetOutboundStats(r.Context(), request.GetName(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -50,7 +50,7 @@ func (s *Service) GetInboundsStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetInboundsStats(r.Context(), request.GetReset_())
+	stats, err := s.GetBackend().GetInboundsStats(r.Context(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -71,7 +71,7 @@ func (s *Service) GetInboundStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetInboundStats(r.Context(), request.GetName(), request.GetReset_())
+	stats, err := s.GetBackend().GetInboundStats(r.Context(), request.GetName(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -87,7 +87,7 @@ func (s *Service) GetUsersStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetUsersStats(r.Context(), request.GetReset_())
+	stats, err := s.GetBackend().GetUsersStats(r.Context(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -108,7 +108,7 @@ func (s *Service) GetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetUserStats(r.Context(), request.GetName(), request.GetReset_())
+	stats, err := s.GetBackend().GetUserStats(r.Context(), request.GetName(), request.GetReset_())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -129,7 +129,7 @@ func (s *Service) GetUserOnlineStat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.controller.GetBackend().GetStatOnline(r.Context(), request.GetName())
+	stats, err := s.GetBackend().GetStatOnline(r.Context(), request.GetName())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -139,7 +139,7 @@ func (s *Service) GetUserOnlineStat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.controller.GetBackend().GetSysStats(r.Context())
+	stats, err := s.GetBackend().GetSysStats(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -149,5 +149,5 @@ func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) GetSystemStats(w http.ResponseWriter, _ *http.Request) {
-	common.SendProtoResponse(w, s.controller.GetStats())
+	common.SendProtoResponse(w, s.GetStats())
 }

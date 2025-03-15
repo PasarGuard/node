@@ -15,7 +15,7 @@ func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// check ip
 		clientIP := s.GetIP()
-		clientID := s.controller.GetSessionID()
+		clientID := s.GetSessionID()
 		if clientIP == "" || clientID == uuid.Nil {
 			http.Error(w, "please connect first", http.StatusTooEarly)
 			return
@@ -61,7 +61,7 @@ func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
 
 func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		back := s.controller.GetBackend()
+		back := s.GetBackend()
 		if back == nil {
 			http.Error(w, "backend not initialized", http.StatusInternalServerError)
 			return

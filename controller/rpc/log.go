@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) GetLogs(_ *common.Empty, stream common.NodeService_GetLogsServer) error {
-	logChan := s.controller.GetBackend().GetLogs()
+	logChan := s.GetBackend().GetLogs()
 
 	for {
 		select {
@@ -23,7 +23,7 @@ func (s *Service) GetLogs(_ *common.Empty, stream common.NodeService_GetLogsServ
 
 		case <-stream.Context().Done():
 			// Client has disconnected or cancelled the request
-			return stream.Context().Err()
+			return nil
 		}
 	}
 }

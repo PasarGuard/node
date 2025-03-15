@@ -79,7 +79,7 @@ func TestRESTConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start HTTP listener: %v", err)
 	}
-	defer s.StopService()
+	defer s.Disconnect()
 
 	creds, err := tools.LoadTLSCredentials(sslClientCertFile, sslClientKeyFile, sslCertFile, true)
 	if err != nil {

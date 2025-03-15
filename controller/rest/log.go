@@ -16,7 +16,7 @@ func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	logChan := s.controller.GetBackend().GetLogs()
+	logChan := s.GetBackend().GetLogs()
 
 	for {
 		select {

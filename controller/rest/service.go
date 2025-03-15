@@ -4,20 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/go-chi/chi/v5"
+	"github.com/m03ed/gozargah-node/controller"
 	"log"
 	"net/http"
-	"sync"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/m03ed/gozargah-node/common"
-	"github.com/m03ed/gozargah-node/controller"
 )
 
 func NewService() *Service {
-	s := &Service{
-		controller: controller.NewController(),
-		clientIP:   "",
-	}
+	s := &Service{}
+	s.Init()
 	s.setRouter()
 	return s
 }
@@ -59,68 +54,12 @@ func (s *Service) setRouter() {
 		})
 	})
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Router = router
 }
 
 type Service struct {
-	Router     chi.Router
-	clientIP   string
-	controller *controller.Controller
-	mu         sync.Mutex
-}
-
-func (s *Service) connect(ip string, keepAlive uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.clientIP = ip
-	s.controller.Connect(keepAlive)
-}
-
-func (s *Service) disconnect() {
-	s.controller.Disconnect()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.clientIP = ""
-}
-
-func (s *Service) StopService() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.controller.StopJobs()
-}
-
-func (s *Service) GetIP() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.clientIP
-}
-
-func (s *Service) response(includeID bool, extra string) *common.BaseInfoResponse {
-	response := &common.BaseInfoResponse{
-		Started:     false,
-		CoreVersion: "",
-		NodeVersion: controller.NodeVersion,
-		Extra:       extra,
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	back := s.controller.GetBackend()
-	if back != nil {
-		response.Started = back.Started()
-		response.CoreVersion = back.GetVersion()
-	}
-
-	if includeID {
-		response.SessionId = s.controller.GetSessionID().String()
-	}
-
-	return response
+	controller.Controller
+	Router chi.Router
 }
 
 func StartHttpListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
@@ -141,5 +80,5 @@ func StartHttpListener(tlsConfig *tls.Config, addr string) (func(ctx context.Con
 	}()
 
 	// Return a shutdown function for HTTP server
-	return httpServer.Shutdown, controller.Service(s), nil
+	return httpServer.Shutdown, s, nil
 }

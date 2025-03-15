@@ -23,7 +23,7 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	}
 
 	// Check session ID
-	sessionID := s.controller.GetSessionID()
+	sessionID := s.GetSessionID()
 	if sessionID == uuid.Nil {
 		return status.Errorf(codes.Unauthenticated, "please connect first")
 	}
@@ -51,8 +51,8 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	if token != sessionID {
 		return status.Errorf(codes.PermissionDenied, "session ID mismatch")
 	}
-	
-	s.controller.NewRequest()
+
+	s.NewRequest()
 
 	return nil
 }
@@ -90,7 +90,7 @@ func CheckSessionIDStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 }
 
 func checkBackendStatus(s *Service) error {
-	back := s.controller.GetBackend()
+	back := s.GetBackend()
 	if back == nil {
 		return status.Errorf(codes.Internal, "backend not initialized")
 	}
