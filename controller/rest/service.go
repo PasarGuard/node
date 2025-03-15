@@ -47,6 +47,7 @@ func (s *Service) setRouter() {
 				statsGroup.Get("/users", s.GetUsersStats)
 				statsGroup.Get("/user", s.GetUserStats)
 				statsGroup.Get("/user/online", s.GetUserOnlineStat)
+				statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
 				statsGroup.Get("/backend", s.GetBackendStats)
 			})
 			private.Put("/user/sync", s.SyncUser)

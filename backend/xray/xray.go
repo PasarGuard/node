@@ -191,8 +191,12 @@ func (x *Xray) GetUserStats(ctx context.Context, email string, reset bool) (*com
 	return x.handler.GetUserStats(ctx, email, reset)
 }
 
-func (x *Xray) GetStatOnline(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
-	return x.handler.GetStatOnline(ctx, email)
+func (x *Xray) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
+	return x.handler.GetUserOnlineStats(ctx, email)
+}
+
+func (x *Xray) GetUserOnlineIpListStats(ctx context.Context, email string) (*common.StatsOnlineIpListResponse, error) {
+	return x.handler.GetUserOnlineIpListStats(ctx, email)
 }
 
 func (x *Xray) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
