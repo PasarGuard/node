@@ -45,7 +45,7 @@ func (x *XrayHandler) QueryStats(ctx context.Context, pattern string, reset bool
 
 func (x *XrayHandler) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
 	client := *x.StatsServiceClient
-	resp, err := client.GetStatsOnline(ctx, &command.GetStatsRequest{Name: email})
+	resp, err := client.GetStatsOnline(ctx, &command.GetStatsRequest{Name: fmt.Sprintf("user>>>%s>>>online", email)})
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (x *XrayHandler) GetUserOnlineStats(ctx context.Context, email string) (*co
 
 func (x *XrayHandler) GetUserOnlineIpListStats(ctx context.Context, email string) (*common.StatsOnlineIpListResponse, error) {
 	client := *x.StatsServiceClient
-	resp, err := client.GetStatsOnlineIpList(ctx, &command.GetStatsRequest{Name: email})
+	resp, err := client.GetStatsOnlineIpList(ctx, &command.GetStatsRequest{Name: fmt.Sprintf("user>>>%s>>>online", email)})
 	if err != nil {
 		return nil, err
 	}
