@@ -25,9 +25,8 @@ type Xray struct {
 	core       *Core
 	handler    *api.XrayHandler
 	configPath string
-	ctx        context.Context
 	cancelFunc context.CancelFunc
-	mu         sync.Mutex
+	mu         sync.RWMutex
 }
 
 func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPath string) (*Xray, error) {
@@ -48,7 +47,7 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 
 	xCtx, xCancel := context.WithCancel(context.Background())
 
-	xray := &Xray{configPath: configAbsolutePath, ctx: xCtx, cancelFunc: xCancel}
+	xray := &Xray{configPath: configAbsolutePath, cancelFunc: xCancel}
 
 	start := time.Now()
 
@@ -94,7 +93,7 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 		return nil, err
 	}
 	xray.setHandler(handler)
-	go xray.checkXrayHealth()
+	go xray.checkXrayHealth(xCtx)
 
 	return xray, nil
 }
@@ -106,8 +105,8 @@ func (x *Xray) setConfig(config *Config) {
 }
 
 func (x *Xray) getConfig() *Config {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.config
 }
 
@@ -118,26 +117,26 @@ func (x *Xray) setCore(core *Core) {
 }
 
 func (x *Xray) getCore() *Core {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.core
 }
 
 func (x *Xray) GetCore() backend.Core {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.core
 }
 
 func (x *Xray) GetLogs() chan string {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.core.GetLogs()
 }
 
 func (x *Xray) GetVersion() string {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.core.GetVersion()
 }
 
@@ -148,8 +147,8 @@ func (x *Xray) setHandler(handler *api.XrayHandler) {
 }
 
 func (x *Xray) getHandler() *api.XrayHandler {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 	return x.handler
 }
 
@@ -192,8 +191,12 @@ func (x *Xray) GetUserStats(ctx context.Context, email string, reset bool) (*com
 	return x.handler.GetUserStats(ctx, email, reset)
 }
 
-func (x *Xray) GetStatOnline(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
-	return x.handler.GetStatOnline(ctx, email)
+func (x *Xray) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
+	return x.handler.GetUserOnlineStats(ctx, email)
+}
+
+func (x *Xray) GetUserOnlineIpListStats(ctx context.Context, email string) (*common.StatsOnlineIpListResponse, error) {
+	return x.handler.GetUserOnlineIpListStats(ctx, email)
 }
 
 func (x *Xray) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
@@ -213,8 +216,8 @@ func (x *Xray) GetInboundStats(ctx context.Context, tag string, reset bool) (*co
 }
 
 func (x *Xray) GenerateConfigFile() error {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+	x.mu.RLock()
+	defer x.mu.RUnlock()
 
 	var prettyJSON bytes.Buffer
 
@@ -271,21 +274,29 @@ Loop:
 	return nil
 }
 
-func (x *Xray) checkXrayHealth() {
+func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 	for {
 		select {
-		case <-x.ctx.Done():
+		case <-baseCtx.Done():
 			return
 		default:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-			if _, err := x.GetSysStats(ctx); err != nil {
+			ctx, cancel := context.WithTimeout(baseCtx, time.Second*2)
+			_, err := x.GetSysStats(ctx)
+			cancel() // Always call cancel to avoid context leak
+
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					// Context was canceled due to x.ctx cancellation
+					return // Exit gracefully
+				}
+
+				// Handle other errors by attempting restart
 				if err = x.Restart(); err != nil {
 					nodeLogger.Log(nodeLogger.LogError, err.Error())
 				} else {
 					nodeLogger.Log(nodeLogger.LogInfo, "xray restarted")
 				}
 			}
-			cancel()
 		}
 		time.Sleep(time.Second * 2)
 	}

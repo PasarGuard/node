@@ -19,40 +19,52 @@ import (
 const NodeVersion = "1.0.0"
 
 type Service interface {
-	StopService()
+	Disconnect()
 }
 
 type Controller struct {
-	backend    backend.Backend
-	sessionID  uuid.UUID
-	apiPort    int
-	stats      *common.SystemStatsResponse
-	cancelFunc context.CancelFunc
-	mu         sync.Mutex
+	backend     backend.Backend
+	sessionID   uuid.UUID
+	apiPort     int
+	clientIP    string
+	lastRequest time.Time
+	stats       *common.SystemStatsResponse
+	cancelFunc  context.CancelFunc
+	mu          sync.RWMutex
 }
 
-func NewController() *Controller {
-	c := &Controller{
-		sessionID: uuid.Nil,
-		apiPort:   tools.FindFreePort(),
-	}
-	c.startJobs()
-	return c
+func (c *Controller) Init() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessionID = uuid.Nil
+	c.apiPort = tools.FindFreePort()
+	_, c.cancelFunc = context.WithCancel(context.Background())
 }
 
 func (c *Controller) GetSessionID() uuid.UUID {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.sessionID
 }
 
-func (c *Controller) Connect() {
+func (c *Controller) Connect(ip string, keepAlive uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sessionID = uuid.New()
+	c.lastRequest = time.Now()
+	c.clientIP = ip
+
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancelFunc = cancel
+	go c.recordSystemStats(ctx)
+	if keepAlive > 0 {
+		go c.keepAliveTracker(ctx, time.Duration(keepAlive)*time.Second)
+	}
 }
 
 func (c *Controller) Disconnect() {
+	c.cancelFunc()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -65,6 +77,20 @@ func (c *Controller) Disconnect() {
 	c.apiPort = apiPort
 
 	c.sessionID = uuid.Nil
+	c.clientIP = ""
+}
+
+func (c *Controller) GetIP() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.clientIP
+}
+
+func (c *Controller) NewRequest() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastRequest = time.Now()
+
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backendType common.BackendType) error {
@@ -86,9 +112,27 @@ func (c *Controller) StartBackend(ctx context.Context, backendType common.Backen
 }
 
 func (c *Controller) GetBackend() backend.Backend {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.backend
+}
+
+func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Duration) {
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+			c.mu.RLock()
+			lastRequest := c.lastRequest
+			c.mu.RUnlock()
+			if time.Since(lastRequest) >= keepAlive {
+				log.Println("disconnect automatically due to keep alive timeout")
+				c.Disconnect()
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}
 }
 
 func (c *Controller) recordSystemStats(ctx context.Context) {
@@ -111,8 +155,8 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 }
 
 func (c *Controller) GetStats() *common.SystemStatsResponse {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.stats
 }
 
@@ -136,21 +180,4 @@ func (c *Controller) BaseInfoResponse(includeID bool, extra string) *common.Base
 	}
 
 	return response
-}
-
-func (c *Controller) startJobs() {
-	ctx, cancel := context.WithCancel(context.Background())
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cancelFunc = cancel
-	go c.recordSystemStats(ctx)
-}
-
-func (c *Controller) StopJobs() {
-	c.mu.Lock()
-	c.cancelFunc()
-	c.mu.Unlock()
-
-	c.Disconnect()
-
 }

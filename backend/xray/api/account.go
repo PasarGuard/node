@@ -118,11 +118,13 @@ var (
 		9: "none",
 	}
 	CipherType_value = map[string]int32{
-		"aes-128-gcm":        5,
-		"aes-256-gcm":        6,
-		"chacha20-poly1305":  7,
-		"xchacha20-poly1305": 8,
-		"none":               9,
+		"aes-128-gcm":             5,
+		"aes-256-gcm":             6,
+		"chacha20-poly1305":       7,
+		"chacha20-ietf-poly1305":  7,
+		"xchacha20-poly1305":      8,
+		"xchacha20-ietf-poly1305": 8,
+		"none":                    9,
 	}
 )
 

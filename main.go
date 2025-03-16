@@ -39,7 +39,7 @@ func main() {
 		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr)
 	}
 
-	defer service.StopService()
+	defer service.Disconnect()
 
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)

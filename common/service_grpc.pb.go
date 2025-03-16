@@ -19,21 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_Start_FullMethodName              = "/service.NodeService/Start"
-	NodeService_Stop_FullMethodName               = "/service.NodeService/Stop"
-	NodeService_GetBaseInfo_FullMethodName        = "/service.NodeService/GetBaseInfo"
-	NodeService_GetLogs_FullMethodName            = "/service.NodeService/GetLogs"
-	NodeService_GetSystemStats_FullMethodName     = "/service.NodeService/GetSystemStats"
-	NodeService_GetBackendStats_FullMethodName    = "/service.NodeService/GetBackendStats"
-	NodeService_GetOutboundsStats_FullMethodName  = "/service.NodeService/GetOutboundsStats"
-	NodeService_GetOutboundStats_FullMethodName   = "/service.NodeService/GetOutboundStats"
-	NodeService_GetInboundsStats_FullMethodName   = "/service.NodeService/GetInboundsStats"
-	NodeService_GetInboundStats_FullMethodName    = "/service.NodeService/GetInboundStats"
-	NodeService_GetUsersStats_FullMethodName      = "/service.NodeService/GetUsersStats"
-	NodeService_GetUserStats_FullMethodName       = "/service.NodeService/GetUserStats"
-	NodeService_GetUserOnlineStats_FullMethodName = "/service.NodeService/GetUserOnlineStats"
-	NodeService_SyncUser_FullMethodName           = "/service.NodeService/SyncUser"
-	NodeService_SyncUsers_FullMethodName          = "/service.NodeService/SyncUsers"
+	NodeService_Start_FullMethodName                    = "/service.NodeService/Start"
+	NodeService_Stop_FullMethodName                     = "/service.NodeService/Stop"
+	NodeService_GetBaseInfo_FullMethodName              = "/service.NodeService/GetBaseInfo"
+	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
+	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
+	NodeService_GetBackendStats_FullMethodName          = "/service.NodeService/GetBackendStats"
+	NodeService_GetOutboundsStats_FullMethodName        = "/service.NodeService/GetOutboundsStats"
+	NodeService_GetOutboundStats_FullMethodName         = "/service.NodeService/GetOutboundStats"
+	NodeService_GetInboundsStats_FullMethodName         = "/service.NodeService/GetInboundsStats"
+	NodeService_GetInboundStats_FullMethodName          = "/service.NodeService/GetInboundStats"
+	NodeService_GetUsersStats_FullMethodName            = "/service.NodeService/GetUsersStats"
+	NodeService_GetUserStats_FullMethodName             = "/service.NodeService/GetUserStats"
+	NodeService_GetUserOnlineStats_FullMethodName       = "/service.NodeService/GetUserOnlineStats"
+	NodeService_GetUserOnlineIpListStats_FullMethodName = "/service.NodeService/GetUserOnlineIpListStats"
+	NodeService_SyncUser_FullMethodName                 = "/service.NodeService/SyncUser"
+	NodeService_SyncUsers_FullMethodName                = "/service.NodeService/SyncUsers"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -55,6 +56,7 @@ type NodeServiceClient interface {
 	GetUsersStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetUserStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	GetUserOnlineStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*OnlineStatResponse, error)
+	GetUserOnlineIpListStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatsOnlineIpListResponse, error)
 	SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error)
 	SyncUsers(ctx context.Context, in *Users, opts ...grpc.CallOption) (*Empty, error)
 }
@@ -206,6 +208,16 @@ func (c *nodeServiceClient) GetUserOnlineStats(ctx context.Context, in *StatRequ
 	return out, nil
 }
 
+func (c *nodeServiceClient) GetUserOnlineIpListStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatsOnlineIpListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StatsOnlineIpListResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetUserOnlineIpListStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *nodeServiceClient) SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_SyncUser_FullMethodName, cOpts...)
@@ -248,6 +260,7 @@ type NodeServiceServer interface {
 	GetUsersStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetUserStats(context.Context, *StatRequest) (*StatResponse, error)
 	GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error)
+	GetUserOnlineIpListStats(context.Context, *StatRequest) (*StatsOnlineIpListResponse, error)
 	SyncUser(grpc.ClientStreamingServer[User, Empty]) error
 	SyncUsers(context.Context, *Users) (*Empty, error)
 	mustEmbedUnimplementedNodeServiceServer()
@@ -298,6 +311,9 @@ func (UnimplementedNodeServiceServer) GetUserStats(context.Context, *StatRequest
 }
 func (UnimplementedNodeServiceServer) GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnlineStats not implemented")
+}
+func (UnimplementedNodeServiceServer) GetUserOnlineIpListStats(context.Context, *StatRequest) (*StatsOnlineIpListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserOnlineIpListStats not implemented")
 }
 func (UnimplementedNodeServiceServer) SyncUser(grpc.ClientStreamingServer[User, Empty]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncUser not implemented")
@@ -553,6 +569,24 @@ func _NodeService_GetUserOnlineStats_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_GetUserOnlineIpListStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetUserOnlineIpListStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetUserOnlineIpListStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetUserOnlineIpListStats(ctx, req.(*StatRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NodeService_SyncUser_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(NodeServiceServer).SyncUser(&grpc.GenericServerStream[User, Empty]{ServerStream: stream})
 }
@@ -632,6 +666,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUserOnlineStats",
 			Handler:    _NodeService_GetUserOnlineStats_Handler,
+		},
+		{
+			MethodName: "GetUserOnlineIpListStats",
+			Handler:    _NodeService_GetUserOnlineIpListStats_Handler,
 		},
 		{
 			MethodName: "SyncUsers",
