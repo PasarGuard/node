@@ -51,10 +51,11 @@ jobs:
 
       - name: Move binaries to correct location
         run: |
-          ls -la
-          chmod +x */gozargah-node-linux-*
           mkdir -p binaries
-          find . -name "gozargah-node-linux-*" -type f -exec cp {} binaries/ \;
+          # Explicitly copy artifacts (amd64 and arm64)
+          cp gozargah-node-linux-amd64/gozargah-node-linux-amd64 binaries/
+          cp gozargah-node-linux-arm64/gozargah-node-linux-arm64 binaries/
+          # Verify
           ls -la binaries/
 
       - name: Login to Docker Hub
