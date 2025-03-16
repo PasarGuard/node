@@ -8,7 +8,7 @@ WORKDIR /app
 COPY Makefile .
 
 ARG TARGETARCH
-COPY gozargah-node-linux-${TARGETARCH} /app/main
+COPY ./binaries/gozargah-node-linux-${TARGETARCH} /app/main
 RUN chmod +x /app/main
 
 RUN make install_xray
