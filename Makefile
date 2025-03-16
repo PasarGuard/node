@@ -19,7 +19,7 @@ endif
 .PHONY: clean build
 
 build:
-	go build -o $(OUTPUT) $(PARAMS) $(MAIN)
+	CGO_ENABLED=0 go build -o $(OUTPUT) $(PARAMS) $(MAIN)
 	$(ADDITION)
 
 clean:
