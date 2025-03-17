@@ -9,34 +9,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-binaries:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.0'
-          check-latest: true
-
-      - name: Build binary for ${{ matrix.arch }}
-        run: |
-          GOOS=linux GOARCH=${{ matrix.arch }} make build
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gozargah-node-linux-${{ matrix.arch }}
-          path: gozargah-node-linux-${{ matrix.arch }}
-          retention-days: 1
-
-  build-and-push-docker:
-    needs: build-binaries
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,15 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+          check-latest: true
 
-      - name: Move binaries to correct location
+      - name: Build binaries for all architectures
         run: |
-          ls -la
-          chmod +x */gozargah-node-linux-*
           mkdir -p binaries
-          find . -name "gozargah-node-linux-*" -type f -exec cp {} binaries/ \;
+          # Build for amd64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 make build
+          mv gozargah-node-linux-amd64 binaries/
+          
+          # Build for arm64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 make build
+          mv gozargah-node-linux-arm64 binaries/
+          
           ls -la binaries/
 
       - name: Login to Docker Hub

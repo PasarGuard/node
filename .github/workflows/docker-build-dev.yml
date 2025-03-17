@@ -2,42 +2,14 @@ name: Build and Push Docker Image (All Branches)
 
 on:
   push:
-    branches:
-      - '*'
+    branches: ['*']
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-binaries:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.0'
-          check-latest: true
-
-      - name: Build binary for ${{ matrix.arch }}
-        run: |
-          GOOS=linux GOARCH=${{ matrix.arch }} make build
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gozargah-node-linux-${{ matrix.arch }}
-          path: gozargah-node-linux-${{ matrix.arch }}
-          retention-days: 1
-
-  build-and-push-docker:
-    needs: build-binaries
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,16 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+          check-latest: true
 
-      - name: Move binaries to correct location
+      - name: Build binaries for all architectures
         run: |
           mkdir -p binaries
-          # Explicitly copy artifacts (amd64 and arm64)
-          cp gozargah-node-linux-amd64/gozargah-node-linux-amd64 binaries/
-          cp gozargah-node-linux-arm64/gozargah-node-linux-arm64 binaries/
-          # Verify
+          # Build for amd64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 make build
+          mv gozargah-node-linux-amd64 binaries/
+          
+          # Build for arm64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 make build
+          mv gozargah-node-linux-arm64 binaries/
+          
           ls -la binaries/
 
       - name: Login to Docker Hub
@@ -63,7 +42,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
+  
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -73,17 +52,11 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
+  
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/m03ed/gozargah-node
-
-      - name: Build and push Docker image
+      - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -93,6 +66,5 @@ jobs:
           tags: |
             m03ed/gozargah-node:${{ github.ref_name }}
             ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
