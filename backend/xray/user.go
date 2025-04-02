@@ -41,6 +41,53 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	return settings, nil
 }
 
+func checkVless(inbound *Inbound, account api.VlessAccount) api.VlessAccount {
+	if account.Flow != "" {
+
+		networkType, ok := inbound.StreamSettings["network"]
+		if !ok || !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
+			account.Flow = ""
+			return account
+		}
+
+		securityType, ok := inbound.StreamSettings["security"]
+		if !ok || !(securityType == "tls" || securityType == "reality") {
+			account.Flow = ""
+			return account
+		}
+
+		rawMap, ok := inbound.StreamSettings["rawSettings"].(map[string]interface{})
+		if !ok {
+			rawMap, ok = inbound.StreamSettings["tcpSettings"].(map[string]interface{})
+			if !ok {
+				return account
+			}
+		}
+
+		headerMap, ok := rawMap["header"].(map[string]interface{})
+		if !ok {
+			return account
+		}
+
+		headerType, ok := headerMap["Type"].(string)
+		if !ok {
+			return account
+		}
+
+		if headerType == "http" {
+			account.Flow = ""
+			return account
+		}
+	}
+	return account
+}
+
+func checkShadowsocks2022(method string, account api.ShadowsocksAccount) api.ShadowsocksAccount {
+	account.Password = common.EnsureBase64Password(account.Password, method)
+
+	return account
+}
+
 func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySettings) (api.Account, bool) {
 	if slices.Contains(inbounds, inbound.Tag) {
 		switch inbound.Protocol {
@@ -48,45 +95,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			if settings.Vless == nil {
 				return nil, false
 			}
-
-			account := *settings.Vless
-			if settings.Vless.Flow != "" {
-
-				networkType, ok := inbound.StreamSettings["network"]
-				if !ok || !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
-					account.Flow = ""
-					return &account, true
-				}
-
-				securityType, ok := inbound.StreamSettings["security"]
-				if !ok || !(securityType == "tls" || securityType == "reality") {
-					account.Flow = ""
-					return &account, true
-				}
-
-				rawMap, ok := inbound.StreamSettings["rawSettings"].(map[string]interface{})
-				if !ok {
-					rawMap, ok = inbound.StreamSettings["tcpSettings"].(map[string]interface{})
-					if !ok {
-						return &account, true
-					}
-				}
-
-				headerMap, ok := rawMap["header"].(map[string]interface{})
-				if !ok {
-					return &account, true
-				}
-
-				headerType, ok := headerMap["Type"].(string)
-				if !ok {
-					return &account, true
-				}
-
-				if headerType == "http" {
-					account.Flow = ""
-					return &account, true
-				}
-			}
+			account := checkVless(inbound, *settings.Vless)
 			return &account, true
 
 		case Vmess:
@@ -103,11 +112,13 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 
 		case Shadowsocks:
 			method, ok := inbound.Settings["method"].(string)
-			if ok && strings.HasPrefix("2022-blake3", method) {
+			if ok && strings.HasPrefix(method, "2022-blake3") {
 				if settings.Shadowsocks2022 == nil {
 					return nil, false
 				}
-				return settings.Shadowsocks2022, true
+				account := checkShadowsocks2022(method, *settings.Shadowsocks2022)
+
+				return &account, true
 			}
 			if settings.Shadowsocks == nil {
 				return nil, false
