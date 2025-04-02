@@ -15,7 +15,7 @@
             }
         },
         {
-            "tag": "Shadowsocks 2024",
+            "tag": "Shadowsocks 2022",
             "port": 1234,
             "protocol": "shadowsocks",
             "settings": {
