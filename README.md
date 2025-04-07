@@ -64,6 +64,23 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 | `DEBUG`                 | Debug mode for development; prints core logs in the node server (default: `False`).                                                                                      |
 | `GENERATED_CONFIG_PATH` | Path to the generated config by the node (default: `/var/lib/gozargah-node/generated`).                                                                                  |
 
+## SSL Configuration
+
+### SSL Certificates
+You can use SSL certificates issued by `Let's Encrypt` or other certificate authorities.  
+Make sure to set both `SSL_CERT_FILE` and `SSL_KEY_FILE` environment variables.
+
+### mTLS
+If you don't have access to a real domain or tools like `ACME`, you can use `mTLS` to connect to a node.  
+Just replace the `CN` and `subjectAltName` values with your server information:
+
+```shell
+openssl req -x509 -newkey rsa:4096 -keyout /var/lib/gozargah-node/certs/ssl_key.pem \
+  -out /var/lib/gozargah-node/certs/ssl_cert.pem -days 36500 -nodes \
+  -subj "/CN={replace with your server IP or domain}" \
+  -addext "subjectAltName = {replace with alternative names you need}"
+```
+
 ## API
 
 Gozargah Node supports two types of connection protocols: **gRPC** and **REST API**.  
