@@ -55,6 +55,7 @@ func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		s.NewRequest()
 		next.ServeHTTP(w, r)
 	})
 }

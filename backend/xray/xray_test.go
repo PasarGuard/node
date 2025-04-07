@@ -39,6 +39,7 @@ func TestXrayBackend(t *testing.T) {
 	user := &common.User{
 		Email: "test_user@example.com",
 		Inbounds: []string{
+			"Shadowsocks 2022",
 			"VMESS TCP NOTLS",
 			"VLESS TCP REALITY",
 			"TROJAN TCP NOTLS",

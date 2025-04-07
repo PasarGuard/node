@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"log"
 	"net"
 
 	"github.com/m03ed/gozargah-node/backend"
@@ -14,10 +15,6 @@ import (
 func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.BaseInfoResponse, error) {
 	ctx, err := s.detectBackend(ctx, detail)
 	if err != nil {
-		return nil, err
-	}
-
-	if err = s.StartBackend(ctx, detail.GetType()); err != nil {
 		return nil, err
 	}
 
@@ -36,6 +33,15 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 				clientIP = addr
 			}
 		}
+	}
+
+	if s.GetBackend() != nil {
+		log.Println("New connection from ", clientIP, " core control access was taken away from previous client.")
+		s.Disconnect()
+	}
+
+	if err = s.StartBackend(ctx, detail.GetType()); err != nil {
+		return nil, err
 	}
 
 	s.Connect(clientIP, detail.GetKeepAlive())

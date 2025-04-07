@@ -22,7 +22,7 @@ func init() {
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/gozargah-node/certs/ssl_key.pem")
 	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/gozargah-node/certs/ssl_client_cert.pem")
 	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/gozargah-node/generated/")
-	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "rest")
+	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "grpc")
 	MaxLogPerRequest = GetEnvAsInt("MAX_LOG_PER_REQUEST", 1000)
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")

@@ -28,7 +28,6 @@ func LoadTLSCredentials(cert, key, poolCert string, isClient bool) (*tls.Config,
 	}
 	if isClient {
 		config.RootCAs = certPool
-		config.InsecureSkipVerify = true
 	} else {
 		config.ClientAuth = tls.RequireAndVerifyClientCert
 		config.ClientCAs = certPool

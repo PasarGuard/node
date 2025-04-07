@@ -61,7 +61,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	switch i.Protocol {
 	case Vmess:
-		var clients []*api.VmessAccount
+		clients := []*api.VmessAccount{}
 		for _, user := range users {
 			if user.GetProxies().GetVmess() == nil {
 				continue
@@ -77,7 +77,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 		i.Settings["clients"] = clients
 
 	case Vless:
-		var clients []*api.VlessAccount
+		clients := []*api.VlessAccount{}
 		for _, user := range users {
 			if user.GetProxies().GetVless() == nil {
 				continue
@@ -86,14 +86,15 @@ func (i *Inbound) syncUsers(users []*common.User) {
 			if err != nil {
 				log.Println("error for user", user.GetEmail(), ":", err)
 			}
-			if newAccount, active := isActiveInbound(i, user.GetInbounds(), api.ProxySettings{Vless: account}); active {
-				clients = append(clients, newAccount.(*api.VlessAccount))
+			if slices.Contains(user.Inbounds, i.Tag) {
+				newAccount := checkVless(i, *account)
+				clients = append(clients, &newAccount)
 			}
 		}
 		i.Settings["clients"] = clients
 
 	case Trojan:
-		var clients []*api.TrojanAccount
+		clients := []*api.TrojanAccount{}
 		for _, user := range users {
 			if user.GetProxies().GetTrojan() == nil {
 				continue
@@ -106,14 +107,16 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	case Shadowsocks:
 		method, methodOk := i.Settings["method"].(string)
-		if methodOk && strings.HasPrefix("2022-blake3", method) {
-			var clients []*api.ShadowsocksAccount
+		if methodOk && strings.HasPrefix(method, "2022-blake3") {
+			clients := []*api.ShadowsocksAccount{}
 			for _, user := range users {
 				if user.GetProxies().GetShadowsocks() == nil {
 					continue
 				}
 				if slices.Contains(user.Inbounds, i.Tag) {
-					clients = append(clients, api.NewShadowsocksAccount(user))
+					account := api.NewShadowsocksAccount(user)
+					newAccount := checkShadowsocks2022(method, *account)
+					clients = append(clients, &newAccount)
 				}
 			}
 			i.Settings["clients"] = clients
@@ -212,7 +215,9 @@ func (i *Inbound) updateUser(account api.Account) {
 			}
 		}
 
-		i.Settings["clients"] = append(clients, account.(*api.ShadowsocksAccount))
+		method := i.Settings["method"].(string)
+		newAccount := checkShadowsocks2022(method, *account.(*api.ShadowsocksAccount))
+		i.Settings["clients"] = append(clients, &newAccount)
 
 	default:
 		return
@@ -268,7 +273,7 @@ func (i *Inbound) removeUser(email string) {
 
 	case Shadowsocks:
 		method, methodOk := i.Settings["method"].(string)
-		if methodOk && strings.HasPrefix("2022-blake3", method) {
+		if methodOk && strings.HasPrefix(method, "2022-blake3") {
 			clients, ok := i.Settings["clients"].([]*api.ShadowsocksAccount)
 			if !ok {
 				clients = []*api.ShadowsocksAccount{}
