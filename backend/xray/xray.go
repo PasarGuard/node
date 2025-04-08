@@ -247,12 +247,14 @@ func (x *Xray) GenerateConfigFile() error {
 
 func (x *Xray) checkXrayStatus() error {
 	core := x.getCore()
-
 	logChan := core.GetLogs()
 	version := core.GetVersion()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
+
+	// Precompile regex for better performance
+	logRegex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)\] (.+)$`)
 
 Loop:
 	for {
@@ -260,15 +262,24 @@ Loop:
 		case lastLog := <-logChan:
 			if strings.Contains(lastLog, "Xray "+version+" started") {
 				break Loop
+			}
+
+			// Check for failure patterns
+			matches := logRegex.FindStringSubmatch(lastLog)
+			if len(matches) > 3 {
+				// Check both error level and message content
+				if matches[2] == "Error" || strings.Contains(matches[3], "Failed to start") {
+					return fmt.Errorf("failed to start xray: %s", matches[3])
+				}
 			} else {
-				regex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)\] (.+)$`)
-				matches := regex.FindStringSubmatch(lastLog)
-				if len(matches) > 3 && matches[2] == "Error" {
-					return errors.New("Failed to start xray: " + matches[3])
+				// Fallback check if log format doesn't match
+				if strings.Contains(lastLog, "Failed to start") {
+					return fmt.Errorf("failed to start xray: %s", lastLog)
 				}
 			}
+
 		case <-ctx.Done():
-			return errors.New("failed to start xray: context done")
+			return errors.New("failed to start xray: context timeout")
 		}
 	}
 	return nil
