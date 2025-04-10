@@ -18,6 +18,7 @@ This project is in the testing and development stage. The code may undergo major
   - [Supported Cores](#supported-cores)
 - [Documentation](#documentation)
   - [Configuration](#configuration)
+  - [SSL Configuration](#ssl-configuration)
   - [API](#api)
     - [Data Structure](#data-structure)
     - [Methods](#methods)
