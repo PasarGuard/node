@@ -15,17 +15,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func validateSessionID(ctx context.Context, s *Service) error {
+func validateApiKey(ctx context.Context, s *Service) error {
 	// Extract metadata
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return status.Errorf(codes.Unauthenticated, "missing metadata")
-	}
-
-	// Check session ID
-	sessionID := s.GetSessionID()
-	if sessionID == uuid.Nil {
-		return status.Errorf(codes.Unauthenticated, "please connect first")
 	}
 
 	// Extract Authorization header
@@ -44,12 +38,13 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	tokenString := tokenParts[1]
 	token, err := uuid.Parse(tokenString)
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "invalid session ID: %v", err)
+		return status.Errorf(codes.InvalidArgument, "invalid api key: %v", err)
 	}
 
-	// Check if session ID matches
-	if token != sessionID {
-		return status.Errorf(codes.PermissionDenied, "session ID mismatch")
+	// Check session ID
+	apiKey := s.GetApiKey()
+	if token != apiKey {
+		return status.Errorf(codes.PermissionDenied, "api key mismatch")
 	}
 
 	s.NewRequest()
@@ -57,14 +52,14 @@ func validateSessionID(ctx context.Context, s *Service) error {
 	return nil
 }
 
-func CheckSessionIDMiddleware(s *Service) grpc.UnaryServerInterceptor {
+func validateApiKeyMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		if err := validateSessionID(ctx, s); err != nil {
+		if err := validateApiKey(ctx, s); err != nil {
 			return nil, err
 		}
 
@@ -72,7 +67,7 @@ func CheckSessionIDMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	}
 }
 
-func CheckSessionIDStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
+func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,
@@ -80,8 +75,8 @@ func CheckSessionIDStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 		handler grpc.StreamHandler,
 	) error {
 		// Use common session validation logic
-		if err := validateSessionID(ss.Context(), s); err != nil {
-			log.Println("invalid session ID stream:", err)
+		if err := validateApiKey(ss.Context(), s); err != nil {
+			log.Println("invalid api key stream:", err)
 			return err
 		}
 
@@ -200,7 +195,8 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/SyncUsers":                true,
 }
 
-var sessionIDMethods = map[string]bool{
+var apiKeyMethods = map[string]bool{
+	"/service.NodeService/Start":                    true,
 	"/service.NodeService/Stop":                     true,
 	"/service.NodeService/GetBaseInfo":              true,
 	"/service.NodeService/GetLogs":                  true,
@@ -229,8 +225,8 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 		interceptors = append(interceptors, LoggingInterceptor)
 
-		if sessionIDMethods[info.FullMethod] {
-			interceptors = append(interceptors, CheckSessionIDMiddleware(s))
+		if apiKeyMethods[info.FullMethod] {
+			interceptors = append(interceptors, validateApiKeyMiddleware(s))
 		}
 
 		if backendMethods[info.FullMethod] {
@@ -253,8 +249,8 @@ func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 
 		interceptors = append(interceptors, LoggingStreamInterceptor())
 
-		if sessionIDMethods[info.FullMethod] {
-			interceptors = append(interceptors, CheckSessionIDStreamMiddleware(s))
+		if apiKeyMethods[info.FullMethod] {
+			interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
 		}
 
 		if backendMethods[info.FullMethod] {

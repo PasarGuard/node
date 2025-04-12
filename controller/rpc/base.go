@@ -46,7 +46,7 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 
 	s.Connect(clientIP, detail.GetKeepAlive())
 
-	return s.BaseInfoResponse(true, ""), nil
+	return s.BaseInfoResponse(), nil
 }
 
 func (s *Service) Stop(_ context.Context, _ *common.Empty) (*common.Empty, error) {
@@ -71,5 +71,5 @@ func (s *Service) detectBackend(ctx context.Context, detail *common.Backend) (co
 }
 
 func (s *Service) GetBaseInfo(_ context.Context, _ *common.Empty) (*common.BaseInfoResponse, error) {
-	return s.BaseInfoResponse(false, ""), nil
+	return s.BaseInfoResponse(), nil
 }

@@ -3,7 +3,6 @@ package rest
 import (
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"strings"
 
@@ -11,30 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
+func (s *Service) validateApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// check ip
-		clientIP := s.GetIP()
-		clientID := s.GetSessionID()
-		if clientIP == "" || clientID == uuid.Nil {
-			http.Error(w, "please connect first", http.StatusTooEarly)
-			return
-		}
-
-		// check ip
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		switch {
-		case err != nil:
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		case ip != s.GetIP():
-			http.Error(w, "IP address is not valid", http.StatusForbidden)
-			return
-		}
 
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "please connect first", http.StatusUnauthorized)
+			http.Error(w, "missing authorization header", http.StatusUnauthorized)
 			return
 		}
 
@@ -44,14 +25,17 @@ func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// check API key
+		apiKey := s.GetApiKey()
+
 		tokenString := parts[1]
 		sessionID, err := uuid.Parse(tokenString)
 		switch {
 		case err != nil:
 			http.Error(w, "please send valid uuid", http.StatusUnprocessableEntity)
 			return
-		case sessionID != clientID:
-			http.Error(w, "session id mismatch.", http.StatusForbidden)
+		case sessionID != apiKey:
+			http.Error(w, "api key mismatch.", http.StatusForbidden)
 			return
 		}
 

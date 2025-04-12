@@ -11,8 +11,6 @@ message BaseInfoResponse {
   bool started = 1;
   string core_version = 2;
   string node_version = 3;
-  string session_id = 4;
-  string extra = 5;
 }
 
 enum BackendType {

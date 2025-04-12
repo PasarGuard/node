@@ -23,22 +23,21 @@ import (
 )
 
 var (
-	servicePort         = 8001
+	servicePort         = 8002
 	nodeHost            = "127.0.0.1"
 	xrayExecutablePath  = "/usr/local/bin/xray"
 	xrayAssetsPath      = "/usr/local/share/xray"
 	sslCertFile         = "../../certs/ssl_cert.pem"
 	sslKeyFile          = "../../certs/ssl_key.pem"
-	sslClientCertFile   = "../../certs/ssl_client_cert.pem"
-	sslClientKeyFile    = "../../certs/ssl_client_key.pem"
+	apiKey              = uuid.New()
 	generatedConfigPath = "../../generated/"
 	addr                = fmt.Sprintf("%s:%d", nodeHost, servicePort)
 	configPath          = "../../backend/xray/config.json"
 )
 
 func TestGRPCConnection(t *testing.T) {
-	config.SetEnv(servicePort, 0, nodeHost, xrayExecutablePath, xrayAssetsPath, sslCertFile,
-		sslKeyFile, sslClientCertFile, "grpc", generatedConfigPath, true)
+	config.SetEnv(servicePort, nodeHost, xrayExecutablePath, xrayAssetsPath, sslCertFile,
+		sslKeyFile, "grpc", generatedConfigPath, apiKey, true)
 
 	nodeLogger.SetOutputMode(true)
 
@@ -50,17 +49,8 @@ func TestGRPCConnection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	clientCertFileExists := tools.FileExists(sslClientCertFile)
-	if !clientCertFileExists {
-		t.Fatal("SSL_CLIENT_CERT_FILE is required.")
-	}
 
-	clientKeyFileExists := tools.FileExists(sslClientCertFile)
-	if !clientKeyFileExists {
-		t.Fatal("SSL_CLIENT_KEY_FILE is required.")
-	}
-
-	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile, sslClientCertFile, false)
+	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +61,17 @@ func TestGRPCConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	creds, err := tools.LoadTLSCredentials(sslClientCertFile, sslClientKeyFile, sslCertFile, true)
+	certPool, err := tools.LoadClientPool(sslCertFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(creds)))
+	creds := credentials.NewClientTLSFromCert(certPool, "")
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	conn, err := grpc.NewClient(addr, opts...)
 	if err != nil {
 		t.Fatalf("Failed to connect to gRPC server: %v", err)
 	}
@@ -89,22 +84,14 @@ func TestGRPCConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	baseCtx := context.Background()
+	// Add SessionId to the metadata
+	md := metadata.Pairs("authorization", "Bearer "+apiKey.String())
+	ctxWithSession := metadata.NewOutgoingContext(context.Background(), md)
 
-	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	_, err = client.GetBaseInfo(ctx, &common.Empty{})
-	if err != nil {
-		log.Println("info error: ", err)
-	} else {
-		t.Fatal("expected session ID error")
-	}
-
-	ctx, cancel = context.WithTimeout(baseCtx, 5*time.Second)
-	defer cancel()
-
-	info, err := client.Start(ctx,
+	_, err = client.Start(ctx,
 		&common.Backend{
 			Type:      common.BackendType_XRAY,
 			Config:    string(configFile),
@@ -113,13 +100,6 @@ func TestGRPCConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	sessionID := info.SessionId
-	log.Println("Session ID:", sessionID)
-
-	// Add SessionId to the metadata
-	md := metadata.Pairs("authorization", "Bearer "+info.SessionId)
-	ctxWithSession := metadata.NewOutgoingContext(context.Background(), md)
 
 	// test all methods
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
@@ -314,7 +294,7 @@ loop:
 	// test keep alive
 	time.Sleep(16 * time.Second)
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	_, err = client.GetBaseInfo(ctx, &common.Empty{})

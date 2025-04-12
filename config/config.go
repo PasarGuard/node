@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/google/uuid"
 	"log"
 	"os"
 	"regexp"
@@ -20,10 +21,12 @@ func init() {
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
 	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/gozargah-node/certs/ssl_cert.pem")
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/gozargah-node/certs/ssl_key.pem")
-	SslClientCertFile = GetEnv("SSL_CLIENT_CERT_FILE", "/var/lib/gozargah-node/certs/ssl_client_cert.pem")
+	ApiKey = GetEnvAsUUID("API_KEY")
+	if ApiKey != uuid.Nil {
+		log.Fatalf("[Error] Invalid API Key")
+	}
 	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/gozargah-node/generated/")
 	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "grpc")
-	MaxLogPerRequest = GetEnvAsInt("MAX_LOG_PER_REQUEST", 1000)
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
 
@@ -42,17 +45,16 @@ func init() {
 }
 
 // Warning: only use in tests
-func SetEnv(port, maxLogPerRequest int, host, xrayExecutablePath, xrayAssetsPath, sslCertFile, sslKeyFile, sslClientCertFile,
-	serviceProtocol, generatedConfigPath string, debug bool) {
+func SetEnv(port int, host, xrayExecutablePath, xrayAssetsPath, sslCertFile, sslKeyFile,
+	serviceProtocol, generatedConfigPath string, apiKey uuid.UUID, debug bool) {
 	ServicePort = port
 	NodeHost = host
 	XrayExecutablePath = xrayExecutablePath
 	XrayAssetsPath = xrayAssetsPath
 	SslCertFile = sslCertFile
 	SslKeyFile = sslKeyFile
-	SslClientCertFile = sslClientCertFile
+	ApiKey = apiKey
 	ServiceProtocol = serviceProtocol
-	MaxLogPerRequest = maxLogPerRequest
 	GeneratedConfigPath = generatedConfigPath
 	Debug = debug
 }
@@ -81,6 +83,16 @@ func GetEnvAsInt(name string, defaultVal int) int {
 	return defaultVal
 }
 
+func GetEnvAsUUID(name string) uuid.UUID {
+	valStr := GetEnv(name, "")
+
+	val, err := uuid.Parse(valStr)
+	if err != nil {
+		return uuid.Nil
+	}
+	return val
+}
+
 var (
 	ServicePort         int
 	NodeHost            string
@@ -88,9 +100,8 @@ var (
 	XrayAssetsPath      string
 	SslCertFile         string
 	SslKeyFile          string
-	SslClientCertFile   string
+	ApiKey              uuid.UUID
 	ServiceProtocol     string
-	MaxLogPerRequest    int
 	Debug               bool
 	GeneratedConfigPath string
 )
