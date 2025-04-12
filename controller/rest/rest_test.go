@@ -79,8 +79,7 @@ func TestRESTConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientTLSConfig := &tls.Config{RootCAs: certPool}
-	client := createHTTPClient(clientTLSConfig)
+	client := tools.CreateHTTPClient(certPool, nodeHost)
 
 	url := fmt.Sprintf("https://%s", addr)
 

@@ -23,7 +23,7 @@ func init() {
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/gozargah-node/certs/ssl_key.pem")
 	ApiKey, err = GetEnvAsUUID("API_KEY")
 	if err != nil {
-		log.Fatalf("[Error] Faild to load API Key, error: %v", err)
+		log.Printf("[Error] Faild to load API Key, error: %v", err)
 	}
 	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/gozargah-node/generated/")
 	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "grpc")

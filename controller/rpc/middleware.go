@@ -28,22 +28,22 @@ func validateApiKey(ctx context.Context, s *Service) error {
 		return status.Errorf(codes.Unauthenticated, "missing authorization header")
 	}
 
-	// Validate token format (Bearer <token>)
+	// Validate key format (Bearer <key>)
 	tokenParts := strings.Split(authHeader[0], " ")
 	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
 		return status.Errorf(codes.InvalidArgument, "invalid authorization header format")
 	}
 
-	// Parse token
+	// Parse key
 	tokenString := tokenParts[1]
-	token, err := uuid.Parse(tokenString)
+	key, err := uuid.Parse(tokenString)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid api key: %v", err)
 	}
 
 	// Check session ID
 	apiKey := s.GetApiKey()
-	if token != apiKey {
+	if key != apiKey {
 		return status.Errorf(codes.PermissionDenied, "api key mismatch")
 	}
 

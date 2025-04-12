@@ -29,12 +29,12 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 		apiKey := s.GetApiKey()
 
 		tokenString := parts[1]
-		sessionID, err := uuid.Parse(tokenString)
+		key, err := uuid.Parse(tokenString)
 		switch {
 		case err != nil:
 			http.Error(w, "please send valid uuid", http.StatusUnprocessableEntity)
 			return
-		case sessionID != apiKey:
+		case key != apiKey:
 			http.Error(w, "api key mismatch.", http.StatusForbidden)
 			return
 		}
