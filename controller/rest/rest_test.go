@@ -30,8 +30,7 @@ var (
 	xrayAssetsPath      = "/usr/local/share/xray"
 	sslCertFile         = "../../certs/ssl_cert.pem"
 	sslKeyFile          = "../../certs/ssl_key.pem"
-	sslClientCertFile   = "../../certs/ssl_client_cert.pem"
-	sslClientKeyFile    = "../../certs/ssl_client_key.pem"
+	apiKey              = uuid.New()
 	generatedConfigPath = "../../generated/"
 	addr                = fmt.Sprintf("%s:%d", nodeHost, servicePort)
 	configPath          = "../../backend/xray/config.json"
@@ -52,8 +51,8 @@ func createHTTPClient(tlsConfig *tls.Config) *http.Client {
 }
 
 func TestRESTConnection(t *testing.T) {
-	config.SetEnv(servicePort, 1000, nodeHost, xrayExecutablePath, xrayAssetsPath,
-		sslCertFile, sslKeyFile, sslClientCertFile, "rest", generatedConfigPath, true)
+	config.SetEnv(servicePort, nodeHost, xrayExecutablePath, xrayAssetsPath,
+		sslCertFile, sslKeyFile, "rest", generatedConfigPath, apiKey, true)
 
 	nodeLogger.SetOutputMode(true)
 
@@ -65,12 +64,7 @@ func TestRESTConnection(t *testing.T) {
 		}
 	}
 
-	clientFileExists := tools.FileExists(sslClientCertFile)
-	if !clientFileExists {
-		t.Fatal("SSL_CLIENT_CERT_FILE is required.")
-	}
-
-	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile, sslClientCertFile, false)
+	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,15 +75,13 @@ func TestRESTConnection(t *testing.T) {
 	}
 	defer s.Disconnect()
 
-	creds, err := tools.LoadTLSCredentials(sslClientCertFile, sslClientKeyFile, sslCertFile, true)
+	certPool, err := tools.LoadClientPool(sslCertFile)
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := tools.CreateHTTPClient(certPool, nodeHost)
 
 	url := fmt.Sprintf("https://%s", addr)
-
-	client := createHTTPClient(creds)
-	sessionId := ""
 
 	createAuthenticatedRequest := func(method, endpoint string, data proto.Message, response proto.Message) error {
 		body, err := proto.Marshal(data)
@@ -101,7 +93,7 @@ func TestRESTConnection(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+sessionId)
+		req.Header.Set("x-api-key", apiKey.String())
 		if body != nil {
 			req.Header.Set("Content-Type", "application/x-protobuf")
 		}
@@ -124,7 +116,7 @@ func TestRESTConnection(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+sessionId)
+		req.Header.Set("x-api-key", apiKey.String())
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -205,11 +197,6 @@ func TestRESTConnection(t *testing.T) {
 	var baseInfoResp common.BaseInfoResponse
 	if err = createAuthenticatedRequest("POST", "/start", backendStartReq, &baseInfoResp); err != nil {
 		t.Fatalf("Failed to start backend: %v", err)
-	}
-
-	sessionId = baseInfoResp.GetSessionId()
-	if sessionId == "" {
-		t.Fatal("No session ID received")
 	}
 
 	var stats common.StatResponse

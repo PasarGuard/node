@@ -22,13 +22,12 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", config.NodeHost, config.ServicePort)
 
-	tlsConfig, err := tools.LoadTLSCredentials(config.SslCertFile, config.SslKeyFile,
-		config.SslClientCertFile, false)
+	tlsConfig, err := tools.LoadTLSCredentials(config.SslCertFile, config.SslKeyFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("Starting Node Version: %s", controller.NodeVersion)
+	log.Printf("Starting Node: v%s", controller.NodeVersion)
 
 	var shutdownFunc func(ctx context.Context) error
 	var service controller.Service

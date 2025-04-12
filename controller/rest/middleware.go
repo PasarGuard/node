@@ -2,56 +2,30 @@ package rest
 
 import (
 	"fmt"
-	"log"
-	"net"
-	"net/http"
-	"strings"
-
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"log"
+	"net/http"
 )
 
-func (s *Service) checkSessionIDMiddleware(next http.Handler) http.Handler {
+func (s *Service) validateApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// check ip
-		clientIP := s.GetIP()
-		clientID := s.GetSessionID()
-		if clientIP == "" || clientID == uuid.Nil {
-			http.Error(w, "please connect first", http.StatusTooEarly)
+		apiKeyHeader := r.Header.Get("x-api-key")
+		if apiKeyHeader == "" {
+			http.Error(w, "missing x-api-key header", http.StatusUnauthorized)
 			return
 		}
 
-		// check ip
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		// check API key
+		apiKey := s.GetApiKey()
+
+		key, err := uuid.Parse(apiKeyHeader)
 		switch {
 		case err != nil:
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "invalid api key format: must be a valid UUID", http.StatusUnprocessableEntity)
 			return
-		case ip != s.GetIP():
-			http.Error(w, "IP address is not valid", http.StatusForbidden)
-			return
-		}
-
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "please connect first", http.StatusUnauthorized)
-			return
-		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 {
-			http.Error(w, "invalid Authorization header format", http.StatusUnauthorized)
-			return
-		}
-
-		tokenString := parts[1]
-		sessionID, err := uuid.Parse(tokenString)
-		switch {
-		case err != nil:
-			http.Error(w, "please send valid uuid", http.StatusUnprocessableEntity)
-			return
-		case sessionID != clientID:
-			http.Error(w, "session id mismatch.", http.StatusForbidden)
+		case key != apiKey:
+			http.Error(w, "api key mismatch", http.StatusForbidden)
 			return
 		}
 

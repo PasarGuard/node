@@ -22,37 +22,32 @@ func (s *Service) setRouter() {
 
 	// Api Handlers
 	router.Use(LogRequest)
+	router.Use(s.validateApiKey)
 
 	router.Post("/start", s.Start)
+	router.Get("/info", s.Base)
+	router.Put("/stop", s.Stop)
+	router.Get("/logs", s.GetLogs)
 
-	router.Group(func(protected chi.Router) {
-		// check session and need to return data as context
-		protected.Use(s.checkSessionIDMiddleware)
+	router.Get("/stats/system", s.GetSystemStats)
 
-		protected.Get("/info", s.Base)
-		protected.Put("/stop", s.Stop)
-		protected.Get("/logs", s.GetLogs)
+	router.Group(func(private chi.Router) {
+		private.Use(s.checkBackendMiddleware)
 
-		protected.Get("/stats/system", s.GetSystemStats)
-
-		protected.Group(func(private chi.Router) {
-			private.Use(s.checkBackendMiddleware)
-
-			// stats api
-			private.Route("/stats", func(statsGroup chi.Router) {
-				statsGroup.Get("/inbounds", s.GetInboundsStats)
-				statsGroup.Get("/inbound", s.GetInboundStats)
-				statsGroup.Get("/outbounds", s.GetOutboundsStats)
-				statsGroup.Get("/outbound", s.GetOutboundStats)
-				statsGroup.Get("/users", s.GetUsersStats)
-				statsGroup.Get("/user", s.GetUserStats)
-				statsGroup.Get("/user/online", s.GetUserOnlineStat)
-				statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
-				statsGroup.Get("/backend", s.GetBackendStats)
-			})
-			private.Put("/user/sync", s.SyncUser)
-			private.Put("/users/sync", s.SyncUsers)
+		// stats api
+		private.Route("/stats", func(statsGroup chi.Router) {
+			statsGroup.Get("/inbounds", s.GetInboundsStats)
+			statsGroup.Get("/inbound", s.GetInboundStats)
+			statsGroup.Get("/outbounds", s.GetOutboundsStats)
+			statsGroup.Get("/outbound", s.GetOutboundStats)
+			statsGroup.Get("/users", s.GetUsersStats)
+			statsGroup.Get("/user", s.GetUserStats)
+			statsGroup.Get("/user/online", s.GetUserOnlineStat)
+			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
+			statsGroup.Get("/backend", s.GetBackendStats)
 		})
+		private.Put("/user/sync", s.SyncUser)
+		private.Put("/users/sync", s.SyncUsers)
 	})
 
 	s.Router = router

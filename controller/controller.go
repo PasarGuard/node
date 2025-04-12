@@ -24,7 +24,7 @@ type Service interface {
 
 type Controller struct {
 	backend     backend.Backend
-	sessionID   uuid.UUID
+	ApiKey      uuid.UUID
 	apiPort     int
 	clientIP    string
 	lastRequest time.Time
@@ -36,21 +36,20 @@ type Controller struct {
 func (c *Controller) Init() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.sessionID = uuid.Nil
+	c.ApiKey = config.ApiKey
 	c.apiPort = tools.FindFreePort()
 	_, c.cancelFunc = context.WithCancel(context.Background())
 }
 
-func (c *Controller) GetSessionID() uuid.UUID {
+func (c *Controller) GetApiKey() uuid.UUID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.sessionID
+	return c.ApiKey
 }
 
 func (c *Controller) Connect(ip string, keepAlive uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.sessionID = uuid.New()
 	c.lastRequest = time.Now()
 	c.clientIP = ip
 
@@ -76,7 +75,6 @@ func (c *Controller) Disconnect() {
 	apiPort := tools.FindFreePort()
 	c.apiPort = apiPort
 
-	c.sessionID = uuid.Nil
 	c.clientIP = ""
 }
 
@@ -160,7 +158,7 @@ func (c *Controller) GetStats() *common.SystemStatsResponse {
 	return c.stats
 }
 
-func (c *Controller) BaseInfoResponse(includeID bool, extra string) *common.BaseInfoResponse {
+func (c *Controller) BaseInfoResponse() *common.BaseInfoResponse {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -168,15 +166,11 @@ func (c *Controller) BaseInfoResponse(includeID bool, extra string) *common.Base
 		Started:     false,
 		CoreVersion: "",
 		NodeVersion: NodeVersion,
-		Extra:       extra,
 	}
 
 	if c.backend != nil {
 		response.Started = c.backend.Started()
 		response.CoreVersion = c.backend.GetVersion()
-	}
-	if includeID {
-		response.SessionId = c.sessionID.String()
 	}
 
 	return response

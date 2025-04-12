@@ -15,56 +15,43 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func validateSessionID(ctx context.Context, s *Service) error {
+func validateApiKey(ctx context.Context, s *Service) error {
 	// Extract metadata
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return status.Errorf(codes.Unauthenticated, "missing metadata")
 	}
 
-	// Check session ID
-	sessionID := s.GetSessionID()
-	if sessionID == uuid.Nil {
-		return status.Errorf(codes.Unauthenticated, "please connect first")
+	// Extract x-api-key header
+	apiKeys, ok := md["x-api-key"]
+	if !ok || len(apiKeys) == 0 {
+		return status.Errorf(codes.Unauthenticated, "missing x-api-key header")
 	}
 
-	// Extract Authorization header
-	authHeader, ok := md["authorization"]
-	if !ok || len(authHeader) == 0 {
-		return status.Errorf(codes.Unauthenticated, "missing authorization header")
-	}
+	// Get the first key (there should typically be only one)
+	apiKeyHeader := apiKeys[0]
 
-	// Validate token format (Bearer <token>)
-	tokenParts := strings.Split(authHeader[0], " ")
-	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-		return status.Errorf(codes.InvalidArgument, "invalid authorization header format")
-	}
-
-	// Parse token
-	tokenString := tokenParts[1]
-	token, err := uuid.Parse(tokenString)
-	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "invalid session ID: %v", err)
-	}
-
-	// Check if session ID matches
-	if token != sessionID {
-		return status.Errorf(codes.PermissionDenied, "session ID mismatch")
+	apiKey := s.GetApiKey()
+	key, err := uuid.Parse(apiKeyHeader)
+	switch {
+	case err != nil:
+		return status.Errorf(codes.InvalidArgument, "invalid api key format: must be a valid UUID")
+	case key != apiKey:
+		return status.Errorf(codes.PermissionDenied, "api key mismatch")
 	}
 
 	s.NewRequest()
-
 	return nil
 }
 
-func CheckSessionIDMiddleware(s *Service) grpc.UnaryServerInterceptor {
+func validateApiKeyMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
 		req interface{},
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		if err := validateSessionID(ctx, s); err != nil {
+		if err := validateApiKey(ctx, s); err != nil {
 			return nil, err
 		}
 
@@ -72,7 +59,7 @@ func CheckSessionIDMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	}
 }
 
-func CheckSessionIDStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
+func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,
@@ -80,8 +67,8 @@ func CheckSessionIDStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 		handler grpc.StreamHandler,
 	) error {
 		// Use common session validation logic
-		if err := validateSessionID(ss.Context(), s); err != nil {
-			log.Println("invalid session ID stream:", err)
+		if err := validateApiKey(ss.Context(), s); err != nil {
+			log.Println("invalid api key stream:", err)
 			return err
 		}
 
@@ -200,24 +187,6 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/SyncUsers":                true,
 }
 
-var sessionIDMethods = map[string]bool{
-	"/service.NodeService/Stop":                     true,
-	"/service.NodeService/GetBaseInfo":              true,
-	"/service.NodeService/GetLogs":                  true,
-	"/service.NodeService/GetSystemStats":           true,
-	"/service.NodeService/GetOutboundsStats":        true,
-	"/service.NodeService/GetOutboundStats":         true,
-	"/service.NodeService/GetInboundsStats":         true,
-	"/service.NodeService/GetInboundStats":          true,
-	"/service.NodeService/GetUsersStats":            true,
-	"/service.NodeService/GetUserStats":             true,
-	"/service.NodeService/GetUserOnlineStats":       true,
-	"/service.NodeService/GetUserOnlineIpListStats": true,
-	"/service.NodeService/GetBackendStats":          true,
-	"/service.NodeService/SyncUser":                 true,
-	"/service.NodeService/SyncUsers":                true,
-}
-
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -229,9 +198,7 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 		interceptors = append(interceptors, LoggingInterceptor)
 
-		if sessionIDMethods[info.FullMethod] {
-			interceptors = append(interceptors, CheckSessionIDMiddleware(s))
-		}
+		interceptors = append(interceptors, validateApiKeyMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			interceptors = append(interceptors, CheckBackendMiddleware(s))
@@ -253,9 +220,7 @@ func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 
 		interceptors = append(interceptors, LoggingStreamInterceptor())
 
-		if sessionIDMethods[info.FullMethod] {
-			interceptors = append(interceptors, CheckSessionIDStreamMiddleware(s))
-		}
+		interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			interceptors = append(interceptors, CheckBackendStreamMiddleware(s))

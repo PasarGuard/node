@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
-	common.SendProtoResponse(w, s.BaseInfoResponse(false, ""))
+	common.SendProtoResponse(w, s.BaseInfoResponse())
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
@@ -36,18 +36,15 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 
 	s.Connect(ip, keepAlive)
 
-	log.Println(ip, " connected, Session ID = ", s.GetSessionID())
-
 	if err = s.StartBackend(ctx, backendType); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	common.SendProtoResponse(w, s.BaseInfoResponse(true, ""))
+	common.SendProtoResponse(w, s.BaseInfoResponse())
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
-	log.Println(s.GetIP(), " disconnected, Session ID = ", s.GetSessionID())
 	s.Disconnect()
 
 	common.SendProtoResponse(w, &common.Empty{})
