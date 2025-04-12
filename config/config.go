@@ -21,9 +21,9 @@ func init() {
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
 	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/gozargah-node/certs/ssl_cert.pem")
 	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/gozargah-node/certs/ssl_key.pem")
-	ApiKey = GetEnvAsUUID("API_KEY")
-	if ApiKey != uuid.Nil {
-		log.Fatalf("[Error] Invalid API Key")
+	ApiKey, err = GetEnvAsUUID("API_KEY")
+	if err != nil {
+		log.Fatalf("[Error] Faild to load API Key, error: %v", err)
 	}
 	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/gozargah-node/generated/")
 	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "grpc")
@@ -83,14 +83,14 @@ func GetEnvAsInt(name string, defaultVal int) int {
 	return defaultVal
 }
 
-func GetEnvAsUUID(name string) uuid.UUID {
+func GetEnvAsUUID(name string) (uuid.UUID, error) {
 	valStr := GetEnv(name, "")
 
 	val, err := uuid.Parse(valStr)
 	if err != nil {
-		return uuid.Nil
+		return uuid.Nil, err
 	}
-	return val
+	return val, nil
 }
 
 var (
