@@ -93,7 +93,7 @@ func TestRESTConnection(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+apiKey.String())
+		req.Header.Set("x-api-key", apiKey.String())
 		if body != nil {
 			req.Header.Set("Content-Type", "application/x-protobuf")
 		}
@@ -116,7 +116,7 @@ func TestRESTConnection(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+apiKey.String())
+		req.Header.Set("x-api-key", apiKey.String())
 
 		resp, err := client.Do(req)
 		if err != nil {

@@ -22,33 +22,25 @@ func validateApiKey(ctx context.Context, s *Service) error {
 		return status.Errorf(codes.Unauthenticated, "missing metadata")
 	}
 
-	// Extract Authorization header
-	authHeader, ok := md["authorization"]
-	if !ok || len(authHeader) == 0 {
-		return status.Errorf(codes.Unauthenticated, "missing authorization header")
+	// Extract x-api-key header
+	apiKeys, ok := md["x-api-key"]
+	if !ok || len(apiKeys) == 0 {
+		return status.Errorf(codes.Unauthenticated, "missing x-api-key header")
 	}
 
-	// Validate key format (Bearer <key>)
-	tokenParts := strings.Split(authHeader[0], " ")
-	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-		return status.Errorf(codes.InvalidArgument, "invalid authorization header format")
-	}
+	// Get the first key (there should typically be only one)
+	apiKeyHeader := apiKeys[0]
 
-	// Parse key
-	tokenString := tokenParts[1]
-	key, err := uuid.Parse(tokenString)
-	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "invalid api key: %v", err)
-	}
-
-	// Check session ID
 	apiKey := s.GetApiKey()
-	if key != apiKey {
+	key, err := uuid.Parse(apiKeyHeader)
+	switch {
+	case err != nil:
+		return status.Errorf(codes.InvalidArgument, "invalid api key format: must be a valid UUID")
+	case key != apiKey:
 		return status.Errorf(codes.PermissionDenied, "api key mismatch")
 	}
 
 	s.NewRequest()
-
 	return nil
 }
 
@@ -195,25 +187,6 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/SyncUsers":                true,
 }
 
-var apiKeyMethods = map[string]bool{
-	"/service.NodeService/Start":                    true,
-	"/service.NodeService/Stop":                     true,
-	"/service.NodeService/GetBaseInfo":              true,
-	"/service.NodeService/GetLogs":                  true,
-	"/service.NodeService/GetSystemStats":           true,
-	"/service.NodeService/GetOutboundsStats":        true,
-	"/service.NodeService/GetOutboundStats":         true,
-	"/service.NodeService/GetInboundsStats":         true,
-	"/service.NodeService/GetInboundStats":          true,
-	"/service.NodeService/GetUsersStats":            true,
-	"/service.NodeService/GetUserStats":             true,
-	"/service.NodeService/GetUserOnlineStats":       true,
-	"/service.NodeService/GetUserOnlineIpListStats": true,
-	"/service.NodeService/GetBackendStats":          true,
-	"/service.NodeService/SyncUser":                 true,
-	"/service.NodeService/SyncUsers":                true,
-}
-
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -225,9 +198,7 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 		interceptors = append(interceptors, LoggingInterceptor)
 
-		if apiKeyMethods[info.FullMethod] {
-			interceptors = append(interceptors, validateApiKeyMiddleware(s))
-		}
+		interceptors = append(interceptors, validateApiKeyMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			interceptors = append(interceptors, CheckBackendMiddleware(s))
@@ -249,9 +220,7 @@ func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 
 		interceptors = append(interceptors, LoggingStreamInterceptor())
 
-		if apiKeyMethods[info.FullMethod] {
-			interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
-		}
+		interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			interceptors = append(interceptors, CheckBackendStreamMiddleware(s))

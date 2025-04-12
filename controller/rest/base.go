@@ -36,8 +36,6 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 
 	s.Connect(ip, keepAlive)
 
-	log.Println(ip, " connected, Session ID = ", s.GetApiKey())
-
 	if err = s.StartBackend(ctx, backendType); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -47,7 +45,6 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
-	log.Println(s.GetIP(), " disconnected, Session ID = ", s.GetApiKey())
 	s.Disconnect()
 
 	common.SendProtoResponse(w, &common.Empty{})

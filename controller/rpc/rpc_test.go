@@ -85,7 +85,7 @@ func TestGRPCConnection(t *testing.T) {
 	}
 
 	// Add SessionId to the metadata
-	md := metadata.Pairs("authorization", "Bearer "+apiKey.String())
+	md := metadata.Pairs("x-api-key", apiKey.String())
 	ctxWithSession := metadata.NewOutgoingContext(context.Background(), md)
 
 	ctx, cancel := context.WithTimeout(ctxWithSession, 5*time.Second)
