@@ -12,7 +12,8 @@ services:
 
       SSL_CERT_FILE: "/var/lib/gozargah-node/certs/ssl_cert.pem"
       SSL_KEY_FILE: "/var/lib/gozargah-node/certs/ssl_key.pem"
-      SSL_CLIENT_CERT_FILE: "/var/lib/gozargah-node/certs/ssl_client_cert.pem"
+      # api key must be a valid uuid (you can use any version you want)
+      # API_KEY: xxxxxxxx-yyyy-zzzz-mmmm-aaaaaaaaaaa
 
       GENERATED_CONFIG_PATH: "/var/lib/gozargah-node/generated"
 
