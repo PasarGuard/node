@@ -59,7 +59,7 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 | `XRAY_ASSETS_PATH`      | Path of Xray assets (default: `/usr/local/share/xray`).                                                                                                                  |
 | `SSL_CERT_FILE`         | SSL certificate file to secure the application between master and node (it will generate a self-signed SSL if it doesn't exist; better to use a real SSL with a domain). |
 | `SSL_KEY_FILE`          | SSL key file to secure the application between master and node (it will generate a self-signed SSL if it doesn't exist; better to use a real SSL with a domain).         |
-| `SSL_CLIENT_CERT_FILE`  | SSL certificate file to ensure only allowed clients can connect.                                                                                                         |
+| `API_KEY`               | Api Key to ensure only allowed clients can connect (type: `UUID`).                                                                                                       |
 | `SERVICE_PROTOCOL`      | Protocol to use: `grpc` or `rest` (recommended: `grpc`).                                                                                                                 |
 | `MAX_LOG_PER_REQUEST`   | Maximum number of logs per request (only for long polling in REST connections).                                                                                          |
 | `DEBUG`                 | Debug mode for development; prints core logs in the node server (default: `False`).                                                                                      |
@@ -70,6 +70,7 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 ### SSL Certificates
 You can use SSL certificates issued by `Let's Encrypt` or other certificate authorities.  
 Make sure to set both `SSL_CERT_FILE` and `SSL_KEY_FILE` environment variables.
+Use `fullchain` for `SSL_CERT_FILE` and `cert` as `server_ca` in client side. 
 
 ### mTLS
 If you don't have access to a real domain or tools like `ACME`, you can use `mTLS` to connect to a node.  
