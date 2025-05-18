@@ -90,7 +90,12 @@ func (c *Core) Start(config *Config) error {
 		return errors.New("xray is started already")
 	}
 
-	logLevel := config.LogConfig.LogLevel
+	logConfig := config.LogConfig
+	if logConfig == nil {
+		return errors.New("log config is empty")
+	}
+
+	logLevel := logConfig.LogLevel
 	if logLevel == "none" || logLevel == "error" {
 		config.LogConfig.LogLevel = "warning"
 	}
