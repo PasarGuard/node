@@ -119,7 +119,7 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return
 		default:
 			c.mu.RLock()
 			lastRequest := c.lastRequest
@@ -137,7 +137,7 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return
 		default:
 			stats, err := tools.GetSystemStats()
 			if err != nil {
@@ -147,7 +147,7 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 				c.stats = stats
 				c.mu.Unlock()
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }

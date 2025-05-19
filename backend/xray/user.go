@@ -155,10 +155,6 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		}
 	}
 
-	if err = x.GenerateConfigFile(); err != nil {
-		log.Println(err)
-	}
-
 	if errMessage != "" {
 		return errors.New("failed to add user:" + errMessage)
 	}

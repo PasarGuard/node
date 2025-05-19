@@ -256,12 +256,11 @@ func (x *Xray) checkXrayStatus() error {
 	// Precompile regex for better performance
 	logRegex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)\] (.+)$`)
 
-Loop:
 	for {
 		select {
 		case lastLog := <-logChan:
 			if strings.Contains(lastLog, "Xray "+version+" started") {
-				break Loop
+				return nil
 			}
 
 			// Check for failure patterns
@@ -282,7 +281,6 @@ Loop:
 			return errors.New("failed to start xray: context timeout")
 		}
 	}
-	return nil
 }
 
 func (x *Xray) checkXrayHealth(baseCtx context.Context) {
@@ -291,7 +289,7 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 		case <-baseCtx.Done():
 			return
 		default:
-			ctx, cancel := context.WithTimeout(baseCtx, time.Second*2)
+			ctx, cancel := context.WithTimeout(baseCtx, time.Second*3)
 			_, err := x.GetSysStats(ctx)
 			cancel() // Always call cancel to avoid context leak
 
@@ -309,6 +307,6 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 				}
 			}
 		}
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 5)
 	}
 }
