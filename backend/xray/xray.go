@@ -183,14 +183,6 @@ func (x *Xray) GetSysStats(ctx context.Context) (*common.BackendStatsResponse, e
 	return x.handler.GetSysStats(ctx)
 }
 
-func (x *Xray) GetUsersStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetUsersStats(ctx, reset)
-}
-
-func (x *Xray) GetUserStats(ctx context.Context, email string, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetUserStats(ctx, email, reset)
-}
-
 func (x *Xray) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
 	return x.handler.GetUserOnlineStats(ctx, email)
 }
@@ -199,20 +191,27 @@ func (x *Xray) GetUserOnlineIpListStats(ctx context.Context, email string) (*com
 	return x.handler.GetUserOnlineIpListStats(ctx, email)
 }
 
-func (x *Xray) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetOutboundsStats(ctx, reset)
-}
+func (x *Xray) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
+	switch request.GetType() {
 
-func (x *Xray) GetOutboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetOutboundStats(ctx, tag, reset)
-}
+	case common.StatType_Outbounds:
+		return x.handler.GetOutboundsStats(ctx, request.GetReset_())
+	case common.StatType_Outbound:
+		return x.handler.GetOutboundStats(ctx, request.GetName(), request.GetReset_())
 
-func (x *Xray) GetInboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetInboundsStats(ctx, reset)
-}
+	case common.StatType_Inbounds:
+		return x.handler.GetInboundsStats(ctx, request.GetReset_())
+	case common.StatType_Inbound:
+		return x.handler.GetInboundStats(ctx, request.GetName(), request.GetReset_())
 
-func (x *Xray) GetInboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
-	return x.handler.GetInboundStats(ctx, tag, reset)
+	case common.StatType_UsersStat:
+		return x.handler.GetUsersStats(ctx, request.GetReset_())
+	case common.StatType_UserStat:
+		return x.handler.GetUserStats(ctx, request.GetName(), request.GetReset_())
+
+	default:
+		return nil, errors.New("not implemented stat type")
+	}
 }
 
 func (x *Xray) GenerateConfigFile() error {

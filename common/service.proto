@@ -41,9 +41,19 @@ message StatResponse {
   repeated Stat stats = 1;
 }
 
+enum StatType {
+  Outbounds = 0;
+  Outbound = 1;
+  Inbounds = 2;
+  Inbound = 3;
+  UsersStat = 4;
+  UserStat = 5;
+}
+
 message StatRequest {
   string name = 1;
   bool reset = 2;
+  StatType type = 3;
 }
 
 message OnlineStatResponse {
@@ -124,15 +134,12 @@ service NodeService {
 
   rpc GetSystemStats (Empty) returns (SystemStatsResponse) {}
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
-  rpc GetOutboundsStats (StatRequest) returns (StatResponse) {}
-  rpc GetOutboundStats (StatRequest) returns (StatResponse) {}
-  rpc GetInboundsStats (StatRequest) returns (StatResponse) {}
-  rpc GetInboundStats (StatRequest) returns (StatResponse) {}
-  rpc GetUsersStats (StatRequest) returns (StatResponse) {}
-  rpc GetUserStats (StatRequest) returns (StatResponse) {}
+
+  rpc GetStats (StatRequest) returns (StatResponse) {}
+
   rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
   rpc GetUserOnlineIpListStats(StatRequest) returns (StatsOnlineIpListResponse) {}
-  
+
   rpc SyncUser (stream User) returns (Empty) {}
   rpc SyncUsers (Users) returns (Empty) {}
 }

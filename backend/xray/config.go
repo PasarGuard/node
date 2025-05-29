@@ -9,6 +9,7 @@ import (
 
 	"github.com/m03ed/gozargah-node/backend/xray/api"
 	"github.com/m03ed/gozargah-node/common"
+
 	"github.com/xtls/xray-core/infra/conf"
 )
 
@@ -391,21 +392,24 @@ func (c *Config) checkPolicy() {
 
 		zero, ok := c.Policy.Levels[0]
 		if !ok {
-			log.Println("detect nil 0")
 			c.Policy.Levels[0] = &conf.Policy{StatsUserUplink: true, StatsUserDownlink: true}
 		} else {
-			log.Println("detect not nil 0")
 			zero.StatsUserDownlink = true
 			zero.StatsUserUplink = true
 			// Don't modify StatsUserOnline, respect the value that's already there
 		}
 	}
 
-	c.Policy.System = &conf.SystemPolicy{
-		StatsInboundDownlink:  false,
-		StatsInboundUplink:    false,
-		StatsOutboundDownlink: true,
-		StatsOutboundUplink:   true,
+	if c.Policy.System == nil {
+		c.Policy.System = &conf.SystemPolicy{
+			StatsInboundDownlink:  false,
+			StatsInboundUplink:    false,
+			StatsOutboundDownlink: true,
+			StatsOutboundUplink:   true,
+		}
+	} else {
+		c.Policy.System.StatsOutboundDownlink = true
+		c.Policy.System.StatsOutboundUplink = true
 	}
 }
 

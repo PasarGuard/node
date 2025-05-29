@@ -36,12 +36,7 @@ func (s *Service) setRouter() {
 
 		// stats api
 		private.Route("/stats", func(statsGroup chi.Router) {
-			statsGroup.Get("/inbounds", s.GetInboundsStats)
-			statsGroup.Get("/inbound", s.GetInboundStats)
-			statsGroup.Get("/outbounds", s.GetOutboundsStats)
-			statsGroup.Get("/outbound", s.GetOutboundStats)
-			statsGroup.Get("/users", s.GetUsersStats)
-			statsGroup.Get("/user", s.GetUserStats)
+			statsGroup.Get("/", s.GetStats)
 			statsGroup.Get("/user/online", s.GetUserOnlineStat)
 			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
 			statsGroup.Get("/backend", s.GetBackendStats)

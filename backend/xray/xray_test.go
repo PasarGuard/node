@@ -105,7 +105,7 @@ func TestXrayBackend(t *testing.T) {
 	defer cancel()
 
 	// test with service StatsServiceClient
-	stats, err := back.GetOutboundsStats(ctx1, true)
+	stats, err := back.getHandler().GetOutboundsStats(ctx1, true)
 	if err != nil {
 		t.Error(err)
 	}

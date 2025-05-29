@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -44,6 +45,9 @@ func (x *XrayHandler) QueryStats(ctx context.Context, pattern string, reset bool
 }
 
 func (x *XrayHandler) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
+	if email == "" {
+		return nil, errors.New("email required")
+	}
 	client := *x.StatsServiceClient
 	resp, err := client.GetStatsOnline(ctx, &command.GetStatsRequest{Name: fmt.Sprintf("user>>>%s>>>online", email)})
 	if err != nil {
@@ -54,6 +58,9 @@ func (x *XrayHandler) GetUserOnlineStats(ctx context.Context, email string) (*co
 }
 
 func (x *XrayHandler) GetUserOnlineIpListStats(ctx context.Context, email string) (*common.StatsOnlineIpListResponse, error) {
+	if email == "" {
+		return nil, errors.New("email required")
+	}
 	client := *x.StatsServiceClient
 	resp, err := client.GetStatsOnlineIpList(ctx, &command.GetStatsRequest{Name: fmt.Sprintf("user>>>%s>>>online", email)})
 	if err != nil {
@@ -147,6 +154,9 @@ func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*commo
 }
 
 func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool) (*common.StatResponse, error) {
+	if email == "" {
+		return nil, errors.New("email required")
+	}
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("user>>>%s>>>", email), reset)
 	if err != nil {
 		return nil, err
@@ -174,6 +184,9 @@ func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool
 }
 
 func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
+	if tag == "" {
+		return nil, errors.New("tag required")
+	}
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("inbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err
@@ -201,6 +214,9 @@ func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset boo
 }
 
 func (x *XrayHandler) GetOutboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
+	if tag == "" {
+		return nil, errors.New("tag required")
+	}
 	resp, err := x.QueryStats(ctx, fmt.Sprintf("outbound>>>%s>>>", tag), reset)
 	if err != nil {
 		return nil, err

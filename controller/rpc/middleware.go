@@ -174,12 +174,7 @@ func LoggingStreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 var backendMethods = map[string]bool{
-	"/service.NodeService/GetOutboundsStats":        true,
-	"/service.NodeService/GetOutboundStats":         true,
-	"/service.NodeService/GetInboundsStats":         true,
-	"/service.NodeService/GetInboundStats":          true,
-	"/service.NodeService/GetUsersStats":            true,
-	"/service.NodeService/GetUserStats":             true,
+	"/service.NodeService/GetStats":                 true,
 	"/service.NodeService/GetUserOnlineStats":       true,
 	"/service.NodeService/GetUserOnlineIpListStats": true,
 	"/service.NodeService/GetBackendStats":          true,

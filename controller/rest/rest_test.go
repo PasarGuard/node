@@ -201,7 +201,7 @@ func TestRESTConnection(t *testing.T) {
 
 	var stats common.StatResponse
 	// Try To Get Outbounds Stats
-	if err = createAuthenticatedRequest("GET", "/stats/outbounds", &common.StatRequest{Reset_: true}, &stats); err != nil {
+	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Outbounds}, &stats); err != nil {
 		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestRESTConnection(t *testing.T) {
 			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
 
-	if err = createAuthenticatedRequest("GET", "/stats/inbounds", &common.StatRequest{Reset_: true}, &stats); err != nil {
+	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Inbounds}, &stats); err != nil {
 		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
 
@@ -219,7 +219,7 @@ func TestRESTConnection(t *testing.T) {
 			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
 
-	if err = createAuthenticatedRequest("GET", "/stats/users", &common.StatRequest{Reset_: true}, &stats); err != nil {
+	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_UsersStat}, &stats); err != nil {
 		t.Fatalf("Failed to get users stats: %v", err)
 	}
 
