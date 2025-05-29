@@ -8,7 +8,7 @@
     </a>
 </p>
 
-# Attention ⚠️  
+# Attention ⚠️
 This project is in the testing and development stage. The code may undergo major changes during this phase, so use it at your own risk.  
 
 ## Table of Contents
@@ -51,19 +51,19 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 
 > You can set the settings below using environment variables or by placing them in a `.env` file.
 
-| Variable                | Description                                                                                                                                                              |
-|:------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `SERVICE_PORT`          | Bind application to this port (default: `62050`).                                                                                                                        |
-| `NODE_HOST`             | Bind application to this host (default: `127.0.0.1`).                                                                                                                    |
-| `XRAY_EXECUTABLE_PATH`  | Path of Xray binary (default: `/usr/local/bin/xray`).                                                                                                                    |
-| `XRAY_ASSETS_PATH`      | Path of Xray assets (default: `/usr/local/share/xray`).                                                                                                                  |
-| `SSL_CERT_FILE`         | SSL certificate file to secure the application between master and node (it will generate a self-signed SSL if it doesn't exist; better to use a real SSL with a domain). |
-| `SSL_KEY_FILE`          | SSL key file to secure the application between master and node (it will generate a self-signed SSL if it doesn't exist; better to use a real SSL with a domain).         |
-| `API_KEY`               | Api Key to ensure only allowed clients can connect (type: `UUID`).                                                                                                       |
-| `SERVICE_PROTOCOL`      | Protocol to use: `grpc` or `rest` (recommended: `grpc`).                                                                                                                 |
-| `MAX_LOG_PER_REQUEST`   | Maximum number of logs per request (only for long polling in REST connections).                                                                                          |
-| `DEBUG`                 | Debug mode for development; prints core logs in the node server (default: `False`).                                                                                      |
-| `GENERATED_CONFIG_PATH` | Path to the generated config by the node (default: `/var/lib/gozargah-node/generated`).                                                                                  |
+| Variable                | Description                                                                                                      |
+|:------------------------|------------------------------------------------------------------------------------------------------------------|
+| `SERVICE_PORT`          | Bind application to this port (default: `62050`).                                                                |
+| `NODE_HOST`             | Bind application to this host (default: `127.0.0.1`).                                                            |
+| `XRAY_EXECUTABLE_PATH`  | Path of Xray binary (default: `/usr/local/bin/xray`).                                                            |
+| `XRAY_ASSETS_PATH`      | Path of Xray assets (default: `/usr/local/share/xray`).                                                          |
+| `SSL_CERT_FILE`         | SSL certificate file to secure the application between master and node (better to use a real SSL with a domain). |
+| `SSL_KEY_FILE`          | SSL key file to secure the application between master and node (better to use a real SSL with a domain).         |
+| `API_KEY`               | Api Key to ensure only allowed clients can connect (type: `UUID`).                                               |
+| `SERVICE_PROTOCOL`      | Protocol to use: `grpc` or `rest` (recommended: `grpc`).                                                         |
+| `MAX_LOG_PER_REQUEST`   | Maximum number of logs per request (only for long polling in REST connections).                                  |
+| `DEBUG`                 | Debug mode for development; prints core logs in the node server (default: `False`).                              |
+| `GENERATED_CONFIG_PATH` | Path to the generated config by the node (default: `/var/lib/gozargah-node/generated`).                          |
 
 ## SSL Configuration
 
@@ -72,8 +72,8 @@ You can use SSL certificates issued by `Let's Encrypt` or other certificate auth
 Make sure to set both `SSL_CERT_FILE` and `SSL_KEY_FILE` environment variables.
 Use `fullchain` for `SSL_CERT_FILE` and `cert` as `server_ca` in client side. 
 
-### mTLS
-If you don't have access to a real domain or tools like `ACME`, you can use `mTLS` to connect to a node.  
+### self-signed certificate
+If you don't have access to a real domain or tools like `ACME`, you can use `self-signed certificate` to connect to a node.  
 Just replace the `CN` and `subjectAltName` values with your server information:
 
 ```shell
@@ -107,7 +107,8 @@ The node uses the `common/service.proto` file messages for both protocols.
 | `Log`                  | Contains:<br/>- `detail` (string): Log details.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `Stat`                 | Contains:<br/>- `name` (string): Stat name.<br/>- `type` (string): Stat type.<br/>- `link` (string): Link associated with the stat.<br/>- `value` (int64): Stat value.                                                                                                                                                                                                                                                                                                                                                  |
 | `StatResponse`         | Contains:<br/>- `stats` ([]Stat): List of stats.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `StatRequest`          | Contains:<br/>- `name` (string): Name of the stat to request, user email or inbound \ outbound tag.<br/>- `reset` (bool) Whether to reset traffic stats.                                                                                                                                                                                                                                                                                                                                                                |
+| `StatType`             | Enum:<br/>- `Outbounds = 0`: Return `Outbounds` stats<br/>- `Outbound = 1`: Return single `Outbound` stats.<br/>- `Inbounds = 2`: Return `Inbounds` stats<br/>- `Inbound = 3`: Return single `Inbound` stats.<br/>- `UsersStat = 4`: Return `Users` stats<br/>- `UserStat = 5`: Return single `User` stats.                                                                                                                                                                                                             |
+| `StatRequest`          | Contains:<br/>- `name` (string): Name of the stat to request, user email or inbound \ outbound tag.<br/>- `reset` (bool) Whether to reset traffic stats.<br/>- `type` (StatType) Define which stat you need.                                                                                                                                                                                                                                                                                                            |
 | `OnlineStatResponse`   | Contains:<br/>- `name` (string): User's email.<br/>- `value` (int64): Online connection number.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `OnlineStatResponse`   | Contains:<br/>- `name` (string): User's email.<br/>- `value` (map<string, int64>): Online stat value.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `BackendStatsResponse` | Contains:<br/>- `num_goroutine` (uint32): Number of goroutines.<br/>- `num_gc` (uint32): Number of garbage collections.<br/>- `alloc` (uint64): Allocated memory.<br/>- `total_alloc` (uint64): Total allocated memory.<br/>- `sys` (uint64): System memory.<br/>- `mallocs` (uint64): Number of mallocs.<br/>- `frees` (uint64): Number of frees.<br/>- `live_objects` (uint64): Number of live objects.<br/>- `pause_total_ns` (uint64): Total pause time in nanoseconds.<br/>- `uptime` (uint32): Uptime in seconds. |
@@ -130,12 +131,7 @@ The node uses the `common/service.proto` file messages for both protocols.
 | `GetLogs()`                  | `GET`,`/logs`                 | `Empty`       | gRPC: (stream `Log`)<br/>REST API: (`SSE`) | This method is a `SSE` connection in the REST protocol, but in gRPC, it provides a stream connection.                                                                      |
 | `GetSystemStats()`           | `GET`,`/stats/system`         | `Empty`       | `SystemStatsResponse`                      | Retrieves system statistics.                                                                                                                                               |
 | `GetBackendStats()`          | `GET`,`/stats/backend`        | `Empty`       | `BackendStatsResponse`                     | Retrieves backend statistics.                                                                                                                                              |
-| `GetOutboundsStats()`        | `GET`, `/stats/outbounds`     | `StatRequest` | `StatResponse`                             | Retrieves outbound statistics. The `name` field in the request will be ignored.                                                                                            |
-| `GetOutboundStats()`         | `GET`,`/stats/outbound`       | `StatRequest` | `StatResponse`                             | Retrieves statistics for a specific outbound.                                                                                                                              |
-| `GetInboundsStats()`         | `GET`,`/stats/inbounds`       | `StatRequest` | `StatResponse`                             | Retrieves inbound statistics. The `name` field in the request will be ignored.                                                                                             |
-| `GetInboundStats()`          | `GET`,`/stats/inbound`        | `StatRequest` | `StatResponse`                             | Retrieves statistics for a specific inbound.                                                                                                                               |
-| `GetUsersStats()`            | `GET`,`/stats/users`          | `StatRequest` | `StatResponse`                             | Retrieves user statistics and resets traffic stats. The `name` field in the request will be ignored.                                                                       |
-| `GetUserStats()`             | `GET`,`/stats/user`           | `StatRequest` | `StatResponse`                             | Retrieves statistics for a specific user.                                                                                                                                  |
+| `GetStats()`                 | `GET`,`/stats`                | `StatRequest` | `StatResponse`                             | Retrieves statistics based on type. The `name` field will be ignored for `Outbounds`, `Inbounds` and `UsersStat`.                                                          |
 | `GetUserOnlineStats()`       | `GET`,`/stats/user/online`    | `StatRequest` | `OnlineStatResponse`                       | Retrieves online statistics for a specific user. The `reset` field in the request will be ignored                                                                          |
 | `GetUserOnlineIpListStats()` | `GET`,`/stats/user/online_ip` | `StatRequest` | `StatsOnlineIpListResponse`                | Retrieves ip list statistics for a specific user. The `reset` field in the request will be ignored                                                                         |
 | `SyncUser()`                 | `PUT`,`/user/sync`            | `User`        | `Empty`                                    | Adds/updates/removes a user in the core. To remove a user, ensure you send empty inbounds. Provides a stream in `gRPC` but must be called for each user in the `REST API`. |
