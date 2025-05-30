@@ -11,8 +11,3 @@ func ReadFileAsString(filePath string) (string, error) {
 	}
 	return string(fileBytes), nil
 }
-
-func FileExists(filename string) bool {
-	_, err := os.Stat(filename)
-	return !os.IsNotExist(err)
-}

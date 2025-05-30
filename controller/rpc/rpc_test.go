@@ -41,15 +41,6 @@ func TestGRPCConnection(t *testing.T) {
 
 	nodeLogger.SetOutputMode(true)
 
-	certFileExists := tools.FileExists(sslCertFile)
-	keyFileExists := tools.FileExists(sslKeyFile)
-
-	if !certFileExists || !keyFileExists {
-		if err := tools.RewriteSslFile(sslCertFile, sslKeyFile); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile)
 	if err != nil {
 		t.Fatal(err)

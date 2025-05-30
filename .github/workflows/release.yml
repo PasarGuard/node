@@ -118,7 +118,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.gotoolchain || '1.24.0' }}
+          go-version: ${{ matrix.gotoolchain || '1.24.3' }}
           check-latest: true
 
       - name: Get project dependencies
