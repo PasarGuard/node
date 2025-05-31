@@ -1,6 +1,12 @@
 # Gozargah-Node-Go
 <p align="center">
     <a href="#">
+        <img src="https://img.shields.io/github/actions/workflow/status/m03ed/gozargah-node/docker-build.yml?style=flat-square" />
+    </a>
+    <a href="https://hub.docker.com/r/gozargah/marzban" target="_blank">
+        <img src="https://img.shields.io/docker/pulls/m03ed/gozargah-node?style=flat-square&logo=docker" />
+    </a>
+    <a href="#">
         <img src="https://img.shields.io/github/license/m03ed/gozargah-node?style=flat-square" />
     </a>
     <a href="#">
@@ -162,6 +168,9 @@ We ❤️‍🔥 contributors! If you'd like to contribute, please check out our
 
 Check [open issues](https://github.com/m03ed/gozargah-node/issues) to help the progress of this project.
 
+## Stargazers over time
+[![Stargazers over time](https://starchart.cc/M03ED/gozargah-node.svg?variant=adaptive)](https://starchart.cc/M03ED/gozargah-node)
+                    
 <p align="center">
 Thanks to the all contributors who have helped improve Gozargah Node:
 </p>
