@@ -12,7 +12,6 @@ type Backend interface {
 	GetLogs() chan string
 	Restart() error
 	Shutdown()
-	GenerateConfigFile() error
 	SyncUser(context.Context, *common.User) error
 	SyncUsers(context.Context, []*common.User) error
 	GetSysStats(context.Context) (*common.BackendStatsResponse, error)
@@ -20,3 +19,7 @@ type Backend interface {
 	GetUserOnlineStats(context.Context, string) (*common.OnlineStatResponse, error)
 	GetUserOnlineIpListStats(context.Context, string) (*common.StatsOnlineIpListResponse, error)
 }
+
+type ConfigKey struct{}
+
+type UsersKey struct{}

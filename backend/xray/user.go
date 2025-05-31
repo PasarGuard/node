@@ -163,9 +163,6 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 
 func (x *Xray) SyncUsers(_ context.Context, users []*common.User) error {
 	x.config.syncUsers(users)
-	if err := x.GenerateConfigFile(); err != nil {
-		return err
-	}
 	if err := x.Restart(); err != nil {
 		return err
 	}

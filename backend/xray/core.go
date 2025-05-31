@@ -3,7 +3,9 @@ package xray
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -41,6 +43,36 @@ func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
 	core.setVersion(version)
 
 	return core, nil
+}
+
+func (c *Core) GenerateConfigFile(config *Config) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var prettyJSON bytes.Buffer
+
+	styConfig, err := config.ToJSON()
+	if err != nil {
+		return err
+	}
+
+	if err = json.Indent(&prettyJSON, []byte(styConfig), "", "    "); err != nil {
+		return err
+	}
+
+	// Ensure the directory exists
+	if err = os.MkdirAll(c.configPath, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %v", err)
+	}
+
+	jsonFile, err := os.Create(filepath.Join(c.configPath, "xray.json"))
+	if err != nil {
+		return err
+	}
+	defer jsonFile.Close()
+
+	_, err = jsonFile.WriteString(prettyJSON.String())
+	return err
 }
 
 func (c *Core) refreshVersion() (string, error) {
@@ -100,15 +132,15 @@ func (c *Core) Start(config *Config) error {
 		config.LogConfig.LogLevel = "warning"
 	}
 
+	err := c.GenerateConfigFile(config)
+	if err != nil {
+		return err
+	}
+
 	accessFile, errorFile := config.RemoveLogFiles()
 
 	cmd := exec.Command(c.executablePath, "-c", filepath.Join(c.configPath, "xray.json"))
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
-
-	xrayJson, err := config.ToJSON()
-	if err != nil {
-		return err
-	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -124,7 +156,6 @@ func (c *Core) Start(config *Config) error {
 		return err
 	}
 
-	cmd.Stdin = bytes.NewBufferString(xrayJson)
 	err = cmd.Start()
 	if err != nil {
 		return err
