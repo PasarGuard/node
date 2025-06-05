@@ -29,7 +29,7 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.GetBackend() != nil {
+	if s.Backend() != nil {
 		log.Println("New connection from ", ip, " core control access was taken away from previous client.")
 		s.Disconnect()
 	}

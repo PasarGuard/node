@@ -34,7 +34,7 @@ func NewXrayAPI(apiPort int) (*XrayHandler, error) {
 
 func (x *XrayHandler) Close() {
 	if x.GrpcClient != nil {
-		x.GrpcClient.Close()
+		_ = x.GrpcClient.Close()
 	}
 	x.StatsServiceClient = nil
 	x.HandlerServiceClient = nil

@@ -243,7 +243,7 @@ func TestGRPCConnection(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetLogs Stream
+	// test Logs Stream
 	logs, _ := client.GetLogs(ctx, &common.Empty{})
 loop:
 	for {

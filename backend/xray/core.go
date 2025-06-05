@@ -40,7 +40,7 @@ func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
 	if err != nil {
 		return nil, err
 	}
-	core.setVersion(version)
+	core.version = version
 
 	return core, nil
 }
@@ -93,13 +93,7 @@ func (c *Core) refreshVersion() (string, error) {
 	return "", errors.New("could not parse Xray version")
 }
 
-func (c *Core) setVersion(version string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.version = version
-}
-
-func (c *Core) GetVersion() string {
+func (c *Core) Version() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.version
@@ -132,12 +126,14 @@ func (c *Core) Start(config *Config) error {
 		config.LogConfig.LogLevel = "warning"
 	}
 
+	accessFile, errorFile := config.RemoveLogFiles()
+
 	err := c.GenerateConfigFile(config)
 	if err != nil {
 		return err
 	}
-
-	accessFile, errorFile := config.RemoveLogFiles()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	cmd := exec.Command(c.executablePath, "-c", filepath.Join(c.configPath, "xray.json"))
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
@@ -162,7 +158,9 @@ func (c *Core) Start(config *Config) error {
 	}
 	c.process = cmd
 
-	ctxCore := c.makeContext()
+	ctxCore, cancel := context.WithCancel(context.Background())
+	c.cancelFunc = cancel
+
 	// Start capturing process logs
 	go c.captureProcessLogs(ctxCore, stdout)
 	go c.captureProcessLogs(ctxCore, stderr)
@@ -208,16 +206,8 @@ func (c *Core) Restart(config *Config) error {
 	return nil
 }
 
-func (c *Core) GetLogs() chan string {
+func (c *Core) Logs() chan string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.logsChan
-}
-
-func (c *Core) makeContext() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cancelFunc = cancel
-	return ctx
 }

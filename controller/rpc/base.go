@@ -35,7 +35,7 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 		}
 	}
 
-	if s.GetBackend() != nil {
+	if s.Backend() != nil {
 		log.Println("New connection from ", clientIP, " core control access was taken away from previous client.")
 		s.Disconnect()
 	}

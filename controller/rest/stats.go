@@ -13,7 +13,7 @@ func (s *Service) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.GetBackend().GetStats(r.Context(), &request)
+	stats, err := s.Backend().GetStats(r.Context(), &request)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -29,7 +29,7 @@ func (s *Service) GetUserOnlineStat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.GetBackend().GetUserOnlineStats(r.Context(), request.GetName())
+	stats, err := s.Backend().GetUserOnlineStats(r.Context(), request.GetName())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -45,7 +45,7 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	stats, err := s.GetBackend().GetUserOnlineIpListStats(r.Context(), request.GetName())
+	stats, err := s.Backend().GetUserOnlineIpListStats(r.Context(), request.GetName())
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -56,7 +56,7 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.GetBackend().GetSysStats(r.Context())
+	stats, err := s.Backend().GetSysStats(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

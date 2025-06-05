@@ -8,8 +8,8 @@ import (
 
 type Backend interface {
 	Started() bool
-	GetVersion() string
-	GetLogs() chan string
+	Version() string
+	Logs() chan string
 	Restart() error
 	Shutdown()
 	SyncUser(context.Context, *common.User) error

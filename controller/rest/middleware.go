@@ -17,7 +17,7 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 		}
 
 		// check API key
-		apiKey := s.GetApiKey()
+		apiKey := s.ApiKey()
 
 		key, err := uuid.Parse(apiKeyHeader)
 		switch {
@@ -36,7 +36,7 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 
 func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		back := s.GetBackend()
+		back := s.Backend()
 		if back == nil {
 			http.Error(w, "backend not initialized", http.StatusInternalServerError)
 			return

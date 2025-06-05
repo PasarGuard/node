@@ -28,7 +28,7 @@ func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = s.GetBackend().SyncUser(r.Context(), user); err != nil {
+	if err = s.Backend().SyncUser(r.Context(), user); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = s.GetBackend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
+	if err = s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

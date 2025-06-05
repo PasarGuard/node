@@ -31,7 +31,7 @@ func validateApiKey(ctx context.Context, s *Service) error {
 	// Get the first key (there should typically be only one)
 	apiKeyHeader := apiKeys[0]
 
-	apiKey := s.GetApiKey()
+	apiKey := s.ApiKey()
 	key, err := uuid.Parse(apiKeyHeader)
 	switch {
 	case err != nil:
@@ -77,7 +77,7 @@ func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 }
 
 func checkBackendStatus(s *Service) error {
-	back := s.GetBackend()
+	back := s.Backend()
 	if back == nil {
 		return status.Errorf(codes.Internal, "backend not initialized")
 	}

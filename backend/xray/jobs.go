@@ -12,15 +12,18 @@ import (
 )
 
 func (x *Xray) checkXrayStatus() error {
-	core := x.getCore()
-	logChan := core.GetLogs()
-	version := core.GetVersion()
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	
+	core := x.core
+	logChan := core.Logs()
+	version := core.Version()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	// Precompile regex for better performance
-	logRegex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)\] (.+)$`)
+	logRegex := regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[([^]]+)] (.+)$`)
 
 	for {
 		select {

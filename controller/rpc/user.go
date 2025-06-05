@@ -22,14 +22,14 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 			return errors.New("email is required")
 		}
 
-		if err = s.GetBackend().SyncUser(stream.Context(), user); err != nil {
+		if err = s.Backend().SyncUser(stream.Context(), user); err != nil {
 			return status.Errorf(codes.Internal, "failed to update user: %v", err)
 		}
 	}
 }
 
 func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.Empty, error) {
-	if err := s.GetBackend().SyncUsers(ctx, users.GetUsers()); err != nil {
+	if err := s.Backend().SyncUsers(ctx, users.GetUsers()); err != nil {
 		return nil, err
 	}
 

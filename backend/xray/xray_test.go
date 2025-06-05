@@ -105,7 +105,7 @@ func TestXrayBackend(t *testing.T) {
 	defer cancel()
 
 	// test with service StatsServiceClient
-	stats, err := back.getHandler().GetOutboundsStats(ctx1, true)
+	stats, err := back.handler.GetOutboundsStats(ctx1, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -124,7 +124,7 @@ func TestXrayBackend(t *testing.T) {
 	ctx1, cancel = context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	logs := back.GetLogs()
+	logs := back.Logs()
 loop:
 	for {
 		select {

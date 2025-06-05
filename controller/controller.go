@@ -16,7 +16,7 @@ import (
 	"github.com/m03ed/gozargah-node/tools"
 )
 
-const NodeVersion = "0.0.4"
+const NodeVersion = "0.0.6"
 
 type Service interface {
 	Disconnect()
@@ -24,7 +24,7 @@ type Service interface {
 
 type Controller struct {
 	backend     backend.Backend
-	ApiKey      uuid.UUID
+	apiKey      uuid.UUID
 	apiPort     int
 	clientIP    string
 	lastRequest time.Time
@@ -36,15 +36,15 @@ type Controller struct {
 func (c *Controller) Init() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ApiKey = config.ApiKey
+	c.apiKey = config.ApiKey
 	c.apiPort = tools.FindFreePort()
 	_, c.cancelFunc = context.WithCancel(context.Background())
 }
 
-func (c *Controller) GetApiKey() uuid.UUID {
+func (c *Controller) ApiKey() uuid.UUID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ApiKey
+	return c.apiKey
 }
 
 func (c *Controller) Connect(ip string, keepAlive uint64) {
@@ -78,7 +78,7 @@ func (c *Controller) Disconnect() {
 	c.clientIP = ""
 }
 
-func (c *Controller) GetIP() string {
+func (c *Controller) Ip() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.clientIP
@@ -88,7 +88,6 @@ func (c *Controller) NewRequest() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastRequest = time.Now()
-
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backendType common.BackendType) error {
@@ -109,7 +108,7 @@ func (c *Controller) StartBackend(ctx context.Context, backendType common.Backen
 	return nil
 }
 
-func (c *Controller) GetBackend() backend.Backend {
+func (c *Controller) Backend() backend.Backend {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.backend
@@ -170,7 +169,7 @@ func (c *Controller) BaseInfoResponse() *common.BaseInfoResponse {
 
 	if c.backend != nil {
 		response.Started = c.backend.Started()
-		response.CoreVersion = c.backend.GetVersion()
+		response.CoreVersion = c.backend.Version()
 	}
 
 	return response

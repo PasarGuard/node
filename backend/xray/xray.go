@@ -55,7 +55,7 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 	users := ctx.Value(backend.UsersKey{}).([]*common.User)
 	config.syncUsers(users)
 
-	xray.setConfig(config)
+	xray.config = config
 
 	log.Println("config generated in", time.Since(start).Seconds(), "second.")
 
@@ -68,7 +68,7 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 		return nil, err
 	}
 
-	xray.setCore(core)
+	xray.core = core
 
 	if err = xray.checkXrayStatus(); err != nil {
 		xray.Shutdown()
@@ -80,58 +80,22 @@ func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPa
 		xray.Shutdown()
 		return nil, err
 	}
-	xray.setHandler(handler)
+	xray.handler = handler
 	go xray.checkXrayHealth(xCtx)
 
 	return xray, nil
 }
 
-func (x *Xray) setConfig(config *Config) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	x.config = config
-}
-
-func (x *Xray) getConfig() *Config {
+func (x *Xray) Logs() chan string {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
-	return x.config
+	return x.core.Logs()
 }
 
-func (x *Xray) setCore(core *Core) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	x.core = core
-}
-
-func (x *Xray) getCore() *Core {
+func (x *Xray) Version() string {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
-	return x.core
-}
-
-func (x *Xray) GetLogs() chan string {
-	x.mu.RLock()
-	defer x.mu.RUnlock()
-	return x.core.GetLogs()
-}
-
-func (x *Xray) GetVersion() string {
-	x.mu.RLock()
-	defer x.mu.RUnlock()
-	return x.core.GetVersion()
-}
-
-func (x *Xray) setHandler(handler *api.XrayHandler) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	x.handler = handler
-}
-
-func (x *Xray) getHandler() *api.XrayHandler {
-	x.mu.RLock()
-	defer x.mu.RUnlock()
-	return x.handler
+	return x.core.Version()
 }
 
 func (x *Xray) Started() bool {

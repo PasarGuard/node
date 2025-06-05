@@ -135,8 +135,8 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		return err
 	}
 
-	handler := x.getHandler()
-	inbounds := x.getConfig().InboundConfigs
+	handler := x.handler
+	inbounds := x.config.InboundConfigs
 
 	var errMessage string
 
