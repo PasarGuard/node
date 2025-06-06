@@ -23,6 +23,7 @@ This project is in the testing and development stage. The code may undergo major
   - [Why Use Gozargah Node?](#why-use-gozargah-node)
   - [Supported Cores](#supported-cores)
 - [Documentation](#documentation)
+  - [Installation](#installation)
   - [Configuration](#configuration)
   - [SSL Configuration](#ssl-configuration)
   - [API](#api)
@@ -52,6 +53,50 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 | [v2ray-core](https://github.com/v2fly/v2ray-core) | ❌       |
 
 # Documentation
+
+## Installation
+
+### One Click
+run following command in you shell and use node
+```shell
+sudo bash -c "$(curl -sL https://github.com/ImMohammad20000/Marzban-scripts/raw/master/gozargah-node.sh)" @ install
+```
+
+### Docker
+Install docker on your machine
+```shell
+curl -fsSL https://get.docker.com | sh
+```
+Download docker compose file
+```shell
+wget https://raw.githubusercontent.com/M03ED/gozargah-node/refs/heads/main/docker-compose.yml
+```
+Configure your .env file and run node with following command
+```shell
+docker compose up -d
+```
+
+### Manual (Not Recommended For Beginners)
+Install go on your system (https://go.dev/dl/)
+Clone the project
+```shell
+git clone https://github.com/M03ED/gozargah-node.git
+```
+Generate binary file for your system
+```shell
+make deps
+make
+```
+Install xray
+```shell
+make install_xray
+```
+Generate certificate based on your system network ip or domain
+```shell
+make generate_server_cert CN=example.com SAN="DNS:example.com,IP:your server ip"
+```
+Configure you .env file and run the binary
+
 
 ## Configuration
 

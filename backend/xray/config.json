@@ -174,5 +174,16 @@
             "protocol": "blackhole",
             "tag": "BLOCK"
         }
-    ]
+    ],
+    "routing": {
+        "rules": [
+            {
+                "type": "field",
+                "outboundTag": "BLOCK",
+                "ip": [
+                  "geoip:private"
+                ]
+            }
+        ]
+  }
 }

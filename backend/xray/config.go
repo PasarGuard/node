@@ -2,6 +2,7 @@ package xray
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -24,7 +25,7 @@ const (
 
 type Config struct {
 	LogConfig        *conf.LogConfig        `json:"log"`
-	RouterConfig     map[string]interface{} `json:"routing"`
+	RouterConfig     *conf.RouterConfig     `json:"routing"`
 	DNSConfig        map[string]interface{} `json:"dns"`
 	InboundConfigs   []*Inbound             `json:"inbounds"`
 	OutboundConfigs  interface{}            `json:"outbounds"`
@@ -322,7 +323,30 @@ func (c *Config) ToJSON() (string, error) {
 	return string(b), nil
 }
 
-func (c *Config) ApplyAPI(apiPort int) error {
+func filterRules(rules []json.RawMessage, apiTag string) ([]json.RawMessage, error) {
+	if rules == nil {
+		rules = []json.RawMessage{}
+	}
+
+	filtered := make([]json.RawMessage, 0, len(rules))
+	for _, raw := range rules {
+		var obj map[string]interface{}
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return nil, fmt.Errorf("invalid JSON in rule: %w", err)
+		}
+
+		// Check if outboundTag exists and matches apiTag
+		if outboundTagValue, ok := obj["outboundTag"].(string); ok && outboundTagValue == apiTag {
+			continue
+		}
+
+		filtered = append(filtered, raw)
+	}
+
+	return filtered, nil
+}
+
+func (c *Config) ApplyAPI(apiPort int) (err error) {
 	// Remove the existing inbound with the API_INBOUND tag
 	for i, inbound := range c.InboundConfigs {
 		if inbound.Tag == "API_INBOUND" {
@@ -330,31 +354,21 @@ func (c *Config) ApplyAPI(apiPort int) error {
 		}
 	}
 
+	apiTag := "API"
+
 	if c.API == nil {
 		c.API = &conf.APIConfig{
 			Services: []string{"HandlerService", "LoggerService", "StatsService"},
-			Tag:      "API",
+			Tag:      apiTag,
 		}
 	}
 
-	rules, ok := c.RouterConfig["rules"].([]map[string]interface{})
-	if c.API.Tag != "" {
-		apiTag := c.API.Tag
-		if ok {
-			for i, rule := range rules {
-				if outboundTag, ok := rule["outboundTag"].(string); ok && outboundTag == apiTag {
-					rules = append(rules[:i], rules[i+1:]...)
-				}
-			}
-		} else {
-			// Initialize RouterConfig if it's nil
-			if c.RouterConfig == nil {
-				c.RouterConfig = make(map[string]interface{})
-			}
-			// Set a default empty slice of rules
-			c.RouterConfig["rules"] = []map[string]interface{}{}
-		}
+	if c.RouterConfig == nil {
+		c.RouterConfig = &conf.RouterConfig{}
 	}
+
+	rules := c.RouterConfig.RuleList
+	c.RouterConfig.RuleList, err = filterRules(rules, apiTag)
 
 	c.checkPolicy()
 
@@ -375,7 +389,14 @@ func (c *Config) ApplyAPI(apiPort int) error {
 		"type":        "field",
 	}
 
-	c.RouterConfig["rules"] = append([]map[string]interface{}{rule}, rules...)
+	rawBytes, err := json.Marshal(rule)
+	if err != nil {
+		return err
+	}
+
+	newRaw := json.RawMessage(rawBytes)
+
+	c.RouterConfig.RuleList = append([]json.RawMessage{newRaw}, c.RouterConfig.RuleList...)
 
 	return nil
 }
