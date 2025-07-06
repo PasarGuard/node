@@ -34,9 +34,11 @@ type Controller struct {
 }
 
 func New() *Controller {
+	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
-		apiKey:  config.ApiKey,
-		apiPort: tools.FindFreePort(),
+		apiKey:     config.ApiKey,
+		apiPort:    tools.FindFreePort(),
+		cancelFunc: cancel,
 	}
 }
 
