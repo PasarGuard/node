@@ -10,9 +10,10 @@ import (
 	"net/http"
 )
 
-func NewService() *Service {
-	s := &Service{}
-	s.Init()
+func New() *Service {
+	s := &Service{
+		Controller: *controller.New(),
+	}
 	s.setRouter()
 	return s
 }
@@ -54,7 +55,7 @@ type Service struct {
 }
 
 func StartHttpListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
-	s := NewService()
+	s := New()
 
 	httpServer := &http.Server{
 		Addr:      addr,

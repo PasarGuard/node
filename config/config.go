@@ -42,21 +42,14 @@ func init() {
 		log.Println(nodeHostStr, " is not a valid IP address.\n WEBAPP_HOST will be set to 127.0.0.1")
 		NodeHost = "127.0.0.1"
 	}
+
+	LogBufferSize = GetEnvAsInt("LOG_BUFFER_SIZE", 1000)
 }
 
 // Warning: only use in tests
-func SetEnv(port int, host, xrayExecutablePath, xrayAssetsPath, sslCertFile, sslKeyFile,
-	serviceProtocol, generatedConfigPath string, apiKey uuid.UUID, debug bool) {
-	ServicePort = port
-	NodeHost = host
-	XrayExecutablePath = xrayExecutablePath
-	XrayAssetsPath = xrayAssetsPath
-	SslCertFile = sslCertFile
-	SslKeyFile = sslKeyFile
-	ApiKey = apiKey
-	ServiceProtocol = serviceProtocol
+func SetEnvForTest(generatedConfigPath string, key uuid.UUID) {
 	GeneratedConfigPath = generatedConfigPath
-	Debug = debug
+	ApiKey = key
 }
 
 func GetEnv(key, fallback string) string {
@@ -104,4 +97,5 @@ var (
 	ServiceProtocol     string
 	Debug               bool
 	GeneratedConfigPath string
+	LogBufferSize       int
 )

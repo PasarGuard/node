@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -26,8 +25,6 @@ import (
 var (
 	servicePort         = 8002
 	nodeHost            = "127.0.0.1"
-	xrayExecutablePath  = "/usr/local/bin/xray"
-	xrayAssetsPath      = "/usr/local/share/xray"
 	sslCertFile         = "../../certs/ssl_cert.pem"
 	sslKeyFile          = "../../certs/ssl_key.pem"
 	apiKey              = uuid.New()
@@ -36,23 +33,8 @@ var (
 	configPath          = "../../backend/xray/config.json"
 )
 
-// httpClient creates a custom HTTP client with TLS configuration
-func createHTTPClient(tlsConfig *tls.Config) *http.Client {
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		Protocols:       new(http.Protocols),
-	}
-	transport.Protocols.SetHTTP2(true)
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-	}
-}
-
 func TestRESTConnection(t *testing.T) {
-	config.SetEnv(servicePort, nodeHost, xrayExecutablePath, xrayAssetsPath,
-		sslCertFile, sslKeyFile, "rest", generatedConfigPath, apiKey, true)
+	config.SetEnvForTest(generatedConfigPath, apiKey)
 
 	nodeLogger.SetOutputMode(true)
 
@@ -224,7 +206,6 @@ func TestRESTConnection(t *testing.T) {
 	if err = createAuthenticatedRequest("GET", "/stats/backend", &common.Empty{}, &backendStats); err != nil {
 		t.Fatalf("Failed to get backend stats: %v", err)
 	}
-
 	fmt.Println(backendStats)
 
 	if err = createAuthenticatedRequest("PUT", "/user/sync", user, &common.Empty{}); err != nil {

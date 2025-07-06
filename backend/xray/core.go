@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/m03ed/gozargah-node/config"
 	nodeLogger "github.com/m03ed/gozargah-node/logger"
 )
 
@@ -33,7 +34,7 @@ func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
 		configPath:     configPath,
-		logsChan:       make(chan string),
+		logsChan:       make(chan string, config.LogBufferSize),
 	}
 
 	version, err := core.refreshVersion()
@@ -51,12 +52,12 @@ func (c *Core) GenerateConfigFile(config *Config) error {
 
 	var prettyJSON bytes.Buffer
 
-	styConfig, err := config.ToJSON()
+	strConfig, err := config.ToJSON()
 	if err != nil {
 		return err
 	}
 
-	if err = json.Indent(&prettyJSON, []byte(styConfig), "", "    "); err != nil {
+	if err = json.Indent(&prettyJSON, []byte(strConfig), "", "    "); err != nil {
 		return err
 	}
 
@@ -111,24 +112,24 @@ func (c *Core) Started() bool {
 	return false
 }
 
-func (c *Core) Start(config *Config) error {
+func (c *Core) Start(xConfig *Config) error {
 	if c.Started() {
 		return errors.New("xray is started already")
 	}
 
-	logConfig := config.LogConfig
+	logConfig := xConfig.LogConfig
 	if logConfig == nil {
 		return errors.New("log config is empty")
 	}
 
 	logLevel := logConfig.LogLevel
 	if logLevel == "none" || logLevel == "error" {
-		config.LogConfig.LogLevel = "warning"
+		xConfig.LogConfig.LogLevel = "warning"
 	}
 
-	accessFile, errorFile := config.RemoveLogFiles()
+	accessFile, errorFile := xConfig.RemoveLogFiles()
 
-	err := c.GenerateConfigFile(config)
+	err := c.GenerateConfigFile(xConfig)
 	if err != nil {
 		return err
 	}

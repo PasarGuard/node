@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"google.golang.org/grpc/status"
 	"net/http"
 
 	"github.com/m03ed/gozargah-node/common"
@@ -15,7 +16,10 @@ func (s *Service) GetStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := s.Backend().GetStats(r.Context(), &request)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		err = common.InterceptNotFound(err)
+		st, _ := status.FromError(err)
+		httpCode := common.GrpcCodeToHTTP(st.Code())
+		http.Error(w, err.Error(), httpCode)
 		return
 	}
 
@@ -31,7 +35,10 @@ func (s *Service) GetUserOnlineStat(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := s.Backend().GetUserOnlineStats(r.Context(), request.GetName())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		err = common.InterceptNotFound(err)
+		st, _ := status.FromError(err)
+		httpCode := common.GrpcCodeToHTTP(st.Code())
+		http.Error(w, err.Error(), httpCode)
 		return
 	}
 
@@ -46,9 +53,11 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 	}
 
 	stats, err := s.Backend().GetUserOnlineIpListStats(r.Context(), request.GetName())
-
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		err = common.InterceptNotFound(err)
+		st, _ := status.FromError(err)
+		httpCode := common.GrpcCodeToHTTP(st.Code())
+		http.Error(w, err.Error(), httpCode)
 		return
 	}
 

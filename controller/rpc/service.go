@@ -17,14 +17,14 @@ type Service struct {
 	controller.Controller
 }
 
-func NewService() *Service {
-	s := &Service{}
-	s.Init()
-	return s
+func New() *Service {
+	return &Service{
+		Controller: *controller.New(),
+	}
 }
 
 func StartGRPCListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
-	s := NewService()
+	s := New()
 
 	creds := credentials.NewTLS(tlsConfig)
 

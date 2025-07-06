@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package service;
 
-option go_package = "marzban_node_go/common";
+option go_package = "github.com/m03ed/gozargah-node/common";
 
 message Empty {}
 

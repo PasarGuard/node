@@ -16,7 +16,7 @@ import (
 	"github.com/m03ed/gozargah-node/tools"
 )
 
-const NodeVersion = "0.0.7"
+const NodeVersion = "0.0.8"
 
 type Service interface {
 	Disconnect()
@@ -33,12 +33,11 @@ type Controller struct {
 	mu          sync.RWMutex
 }
 
-func (c *Controller) Init() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.apiKey = config.ApiKey
-	c.apiPort = tools.FindFreePort()
-	_, c.cancelFunc = context.WithCancel(context.Background())
+func New() *Controller {
+	return &Controller{
+		apiKey:  config.ApiKey,
+		apiPort: tools.FindFreePort(),
+	}
 }
 
 func (c *Controller) ApiKey() uuid.UUID {
@@ -71,10 +70,7 @@ func (c *Controller) Disconnect() {
 		c.backend.Shutdown()
 	}
 	c.backend = nil
-
-	apiPort := tools.FindFreePort()
-	c.apiPort = apiPort
-
+	c.apiPort = tools.FindFreePort()
 	c.clientIP = ""
 }
 

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -60,4 +62,51 @@ func EnsureBase64Password(password string, method string) string {
 	}
 
 	return base64.StdEncoding.EncodeToString(keyBytes)
+}
+
+// GrpcCodeToHTTP maps gRPC codes to HTTP status codes.
+func GrpcCodeToHTTP(code codes.Code) int {
+	switch code {
+	case codes.OK:
+		return http.StatusOK
+	case codes.Canceled:
+		return 499 // client closed request
+	case codes.InvalidArgument:
+		return http.StatusBadRequest
+	case codes.Unauthenticated:
+		return http.StatusUnauthorized
+	case codes.PermissionDenied:
+		return http.StatusForbidden
+	case codes.NotFound:
+		return http.StatusNotFound
+	case codes.AlreadyExists:
+		return http.StatusConflict
+	case codes.ResourceExhausted:
+		return http.StatusTooManyRequests
+	case codes.FailedPrecondition:
+		return http.StatusPreconditionFailed
+	case codes.Aborted:
+		return http.StatusConflict
+	case codes.OutOfRange:
+		return http.StatusBadRequest
+	case codes.Unimplemented:
+		return http.StatusNotImplemented
+	case codes.Internal:
+		return http.StatusInternalServerError
+	case codes.Unavailable:
+		return http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		return http.StatusGatewayTimeout
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// InterceptNotFound checks for errors ending with "not found."
+// and wraps them as gRPC NotFound.
+func InterceptNotFound(err error) error {
+	if err != nil && strings.HasSuffix(err.Error(), "not found.") {
+		return status.Error(codes.NotFound, err.Error())
+	}
+	return err
 }

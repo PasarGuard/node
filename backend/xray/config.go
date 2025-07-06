@@ -356,11 +356,9 @@ func (c *Config) ApplyAPI(apiPort int) (err error) {
 
 	apiTag := "API"
 
-	if c.API == nil {
-		c.API = &conf.APIConfig{
-			Services: []string{"HandlerService", "LoggerService", "StatsService"},
-			Tag:      apiTag,
-		}
+	c.API = &conf.APIConfig{
+		Services: []string{"HandlerService", "LoggerService", "StatsService"},
+		Tag:      apiTag,
 	}
 
 	if c.RouterConfig == nil {

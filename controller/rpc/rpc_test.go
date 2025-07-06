@@ -25,8 +25,6 @@ import (
 var (
 	servicePort         = 8002
 	nodeHost            = "127.0.0.1"
-	xrayExecutablePath  = "/usr/local/bin/xray"
-	xrayAssetsPath      = "/usr/local/share/xray"
 	sslCertFile         = "../../certs/ssl_cert.pem"
 	sslKeyFile          = "../../certs/ssl_key.pem"
 	apiKey              = uuid.New()
@@ -36,8 +34,7 @@ var (
 )
 
 func TestGRPCConnection(t *testing.T) {
-	config.SetEnv(servicePort, nodeHost, xrayExecutablePath, xrayAssetsPath, sslCertFile,
-		sslKeyFile, "grpc", generatedConfigPath, apiKey, true)
+	config.SetEnvForTest(generatedConfigPath, apiKey)
 
 	nodeLogger.SetOutputMode(true)
 
@@ -140,6 +137,26 @@ func TestGRPCConnection(t *testing.T) {
 
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+	}
+
+	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	defer cancel()
+
+	// test GetUserOnlineStats
+	_, err = client.GetUserOnlineStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
+	st, _ := status.FromError(err)
+	if st.Code() != codes.NotFound {
+		t.Fatalf("Failed to get users stats: %v", err)
+	}
+
+	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+	defer cancel()
+
+	// test GetUserOnlineStats
+	_, err = client.GetUserOnlineIpListStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
+	st, _ = status.FromError(err)
+	if st.Code() != codes.NotFound {
+		t.Fatalf("Failed to get users stats: %v", err)
 	}
 
 	ctx, cancel = context.WithTimeout(ctxWithSession, 10*time.Second)
