@@ -16,7 +16,7 @@ import (
 	"github.com/m03ed/gozargah-node/tools"
 )
 
-const NodeVersion = "0.0.8"
+const NodeVersion = "0.0.9"
 
 type Service interface {
 	Disconnect()
@@ -142,7 +142,6 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 				c.stats = stats
 				c.mu.Unlock()
 			}
-			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }

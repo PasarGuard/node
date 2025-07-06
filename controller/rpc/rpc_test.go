@@ -297,7 +297,12 @@ loop:
 	if err != nil {
 		t.Fatalf("Failed to get node stats: %v", err)
 	}
-	log.Println(nodeStats)
+	log.Println("mem_total:", nodeStats.GetMemTotal())
+	log.Println("mem_usage:", nodeStats.GetMemUsed())
+	log.Println("cpu_usage:", nodeStats.GetCpuUsage())
+	log.Println("cpu_cores:", nodeStats.GetCpuCores())
+	log.Println("incoming_bandwidth:", nodeStats.GetIncomingBandwidthSpeed())
+	log.Println("outgoing_bandwidth:", nodeStats.GetOutgoingBandwidthSpeed())
 
 	// test keep alive
 	time.Sleep(16 * time.Second)

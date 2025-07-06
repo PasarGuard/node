@@ -1,14 +1,11 @@
 package tools
 
 import (
-	"bufio"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/shirou/gopsutil/v4/net"
 
 	"github.com/m03ed/gozargah-node/common"
 )
@@ -41,72 +38,45 @@ func GetSystemStats() (*common.SystemStatsResponse, error) {
 	if err != nil {
 		return stats, err
 	}
-	stats.IncomingBandwidthSpeed = uint64(incomingSpeed)
-	stats.OutgoingBandwidthSpeed = uint64(outgoingSpeed)
+	stats.IncomingBandwidthSpeed = incomingSpeed
+	stats.OutgoingBandwidthSpeed = outgoingSpeed
 
 	return stats, nil
 }
 
-func getBandwidthSpeed() (int, int, error) {
-	file, err := os.Open("/proc/net/dev")
+// getBandwidthSpeed returns the aggregate incoming (rx) and outgoing (tx)
+// bandwidth in bytes per second, sampled over a 1‑second interval.
+func getBandwidthSpeed() (uint64, uint64, error) {
+	// 1) First snapshot
+	first, err := net.IOCounters(true)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer file.Close()
 
-	var totalRxBytes, totalTxBytes uint64
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, ":") {
-			fields := strings.Fields(line)
-			if len(fields) < 17 {
-				continue
-			}
-
-			rxBytes, err := strconv.ParseUint(fields[1], 10, 64)
-			if err != nil {
-				return 0, 0, err
-			}
-
-			txBytes, err := strconv.ParseUint(fields[9], 10, 64)
-			if err != nil {
-				return 0, 0, err
-			}
-
-			totalRxBytes += rxBytes
-			totalTxBytes += txBytes
-		}
-	}
-
-	// Measure again after 1 second to calculate the speed
+	// 2) Wait one second
 	time.Sleep(1 * time.Second)
 
-	file.Seek(0, 0)
-	scanner = bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, ":") {
-			fields := strings.Fields(line)
-			if len(fields) < 17 {
-				continue
-			}
+	// 3) Second snapshot
+	second, err := net.IOCounters(true)
+	if err != nil {
+		return 0, 0, err
+	}
 
-			rxBytes, err := strconv.ParseUint(fields[1], 10, 64)
-			if err != nil {
-				return 0, 0, err
-			}
+	// 4) Compute deltas and sum across all interfaces
+	//    Build a map from interface name → first snapshot
+	prev := make(map[string]net.IOCountersStat, len(first))
+	for _, c := range first {
+		prev[c.Name] = c
+	}
 
-			txBytes, err := strconv.ParseUint(fields[9], 10, 64)
-			if err != nil {
-				return 0, 0, err
-			}
-
-			totalRxBytes = rxBytes - totalRxBytes
-			totalTxBytes = txBytes - totalTxBytes
+	var totalRx, totalTx uint64
+	for _, c := range second {
+		if p, ok := prev[c.Name]; ok {
+			totalRx += c.BytesRecv - p.BytesRecv
+			totalTx += c.BytesSent - p.BytesSent
 		}
 	}
 
-	return int(totalRxBytes), int(totalTxBytes), nil
+	// 5) Return the totals
+	return totalRx, totalTx, nil
 }
