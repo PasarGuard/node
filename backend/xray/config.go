@@ -63,7 +63,8 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	switch i.Protocol {
 	case Vmess:
-		clients := []*api.VmessAccount{}
+		clients := make([]*api.VmessAccount, 0, len(users))
+
 		for _, user := range users {
 			if user.GetProxies().GetVmess() == nil {
 				continue
@@ -79,7 +80,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 		i.Settings["clients"] = clients
 
 	case Vless:
-		clients := []*api.VlessAccount{}
+		clients := make([]*api.VlessAccount, 0, len(users))
 		for _, user := range users {
 			if user.GetProxies().GetVless() == nil {
 				continue
@@ -96,7 +97,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 		i.Settings["clients"] = clients
 
 	case Trojan:
-		clients := []*api.TrojanAccount{}
+		clients := make([]*api.TrojanAccount, 0, len(users))
 		for _, user := range users {
 			if user.GetProxies().GetTrojan() == nil {
 				continue
@@ -110,7 +111,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 	case Shadowsocks:
 		method, methodOk := i.Settings["method"].(string)
 		if methodOk && strings.HasPrefix(method, "2022-blake3") {
-			clients := []*api.ShadowsocksAccount{}
+			clients := make([]*api.ShadowsocksAccount, 0, len(users))
 			for _, user := range users {
 				if user.GetProxies().GetShadowsocks() == nil {
 					continue
@@ -124,7 +125,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 			i.Settings["clients"] = clients
 
 		} else {
-			clients := []*api.ShadowsocksTcpAccount{}
+			clients := make([]*api.ShadowsocksTcpAccount, 0, len(users))
 			for _, user := range users {
 				if user.GetProxies().GetShadowsocks() == nil {
 					continue
