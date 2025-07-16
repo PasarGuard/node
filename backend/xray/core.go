@@ -52,12 +52,12 @@ func (c *Core) GenerateConfigFile(config *Config) error {
 
 	var prettyJSON bytes.Buffer
 
-	strConfig, err := config.ToJSON()
+	bytesConfig, err := config.ToBytes()
 	if err != nil {
 		return err
 	}
 
-	if err = json.Indent(&prettyJSON, []byte(strConfig), "", "    "); err != nil {
+	if err = json.Indent(&prettyJSON, bytesConfig, "", "    "); err != nil {
 		return err
 	}
 

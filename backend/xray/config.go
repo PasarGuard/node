@@ -311,7 +311,7 @@ func (i *Inbound) removeUser(email string) {
 
 type Stats struct{}
 
-func (c *Config) ToJSON() (string, error) {
+func (c *Config) ToBytes() ([]byte, error) {
 	for _, i := range c.InboundConfigs {
 		i.mu.RLock()
 		defer i.mu.RUnlock()
@@ -319,9 +319,9 @@ func (c *Config) ToJSON() (string, error) {
 
 	b, err := json.Marshal(c)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(b), nil
+	return b, nil
 }
 
 func filterRules(rules []json.RawMessage, apiTag string) ([]json.RawMessage, error) {
