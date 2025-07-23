@@ -159,6 +159,11 @@ func (c *Core) Start(xConfig *Config) error {
 	}
 	c.process = cmd
 
+	// Wait for the process to exit to prevent zombie processes
+	go func() {
+		_ = cmd.Wait()
+	}()
+
 	ctxCore, cancel := context.WithCancel(context.Background())
 	c.cancelFunc = cancel
 
@@ -176,10 +181,15 @@ func (c *Core) Stop() {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_ = c.process.Process.Kill()
+
+	if c.process != nil && c.process.Process != nil {
+		_ = c.process.Process.Kill()
+	}
 	c.process = nil
 
-	c.cancelFunc()
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+	}
 
 	log.Println("xray core stopped")
 }
