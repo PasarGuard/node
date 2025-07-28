@@ -46,23 +46,15 @@ func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
 	return core, nil
 }
 
-func (c *Core) GenerateConfigFile(config *Config) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+func (c *Core) GenerateConfigFile(config []byte) error {
 	var prettyJSON bytes.Buffer
 
-	bytesConfig, err := config.ToBytes()
-	if err != nil {
-		return err
-	}
-
-	if err = json.Indent(&prettyJSON, bytesConfig, "", "    "); err != nil {
+	if err := json.Indent(&prettyJSON, config, "", "    "); err != nil {
 		return err
 	}
 
 	// Ensure the directory exists
-	if err = os.MkdirAll(c.configPath, 0755); err != nil {
+	if err := os.MkdirAll(c.configPath, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
 
@@ -72,7 +64,7 @@ func (c *Core) GenerateConfigFile(config *Config) error {
 	}
 	defer jsonFile.Close()
 
-	_, err = jsonFile.WriteString(prettyJSON.String())
+	_, err = jsonFile.Write(prettyJSON.Bytes())
 	return err
 }
 
@@ -113,10 +105,6 @@ func (c *Core) Started() bool {
 }
 
 func (c *Core) Start(xConfig *Config) error {
-	if c.Started() {
-		return errors.New("xray is started already")
-	}
-
 	logConfig := xConfig.LogConfig
 	if logConfig == nil {
 		return errors.New("log config is empty")
@@ -129,14 +117,21 @@ func (c *Core) Start(xConfig *Config) error {
 
 	accessFile, errorFile := xConfig.RemoveLogFiles()
 
-	err := c.GenerateConfigFile(xConfig)
-	if err != nil {
-		return err
+	bytesConfig, err := xConfig.ToBytes()
+	if config.Debug {
+		if err = c.GenerateConfigFile(bytesConfig); err != nil {
+			return err
+		}
 	}
+
+	if c.Started() {
+		return errors.New("xray is started already")
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cmd := exec.Command(c.executablePath, "-c", filepath.Join(c.configPath, "xray.json"))
+	cmd := exec.Command(c.executablePath, "-c", "stdin:")
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
 
 	stdout, err := cmd.StdoutPipe()
@@ -153,8 +148,8 @@ func (c *Core) Start(xConfig *Config) error {
 		return err
 	}
 
-	err = cmd.Start()
-	if err != nil {
+	cmd.Stdin = bytes.NewBuffer(bytesConfig)
+	if err = cmd.Start(); err != nil {
 		return err
 	}
 	c.process = cmd
