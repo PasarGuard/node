@@ -16,7 +16,7 @@ import (
 	"github.com/m03ed/gozargah-node/tools"
 )
 
-const NodeVersion = "0.0.11"
+const NodeVersion = "0.0.12"
 
 type Service interface {
 	Disconnect()
