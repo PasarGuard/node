@@ -14,19 +14,15 @@ import (
 func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	settings := api.ProxySettings{}
 	if user.GetProxies().GetVmess() != nil {
-		vmessAccount, err := api.NewVmessAccount(user)
-		if err != nil {
-			return settings, err
+		if vmessAccount, err := api.NewVmessAccount(user); err == nil {
+			settings.Vmess = vmessAccount
 		}
-		settings.Vmess = vmessAccount
 	}
 
 	if user.GetProxies().GetVless() != nil {
-		vlessAccount, err := api.NewVlessAccount(user)
-		if err != nil {
-			return settings, err
+		if vlessAccount, err := api.NewVlessAccount(user); err == nil {
+			settings.Vless = vlessAccount
 		}
-		settings.Vless = vlessAccount
 	}
 
 	if user.GetProxies().GetTrojan() != nil {
