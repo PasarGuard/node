@@ -4,7 +4,7 @@ import (
 	"google.golang.org/grpc/status"
 	"net/http"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 func (s *Service) GetStats(w http.ResponseWriter, r *http.Request) {

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	nodeLogger "github.com/m03ed/gozargah-node/logger"
+	nodeLogger "github.com/pasarguard/node/logger"
 )
 
 func (x *Xray) checkXrayStatus() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	
+
 	core := x.core
 	logChan := core.Logs()
 	version := core.Version()

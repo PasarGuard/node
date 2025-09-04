@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/m03ed/gozargah-node/backend"
-	"github.com/m03ed/gozargah-node/common"
-	"github.com/m03ed/gozargah-node/tools"
+	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/tools"
 )
 
 var (
@@ -28,7 +28,7 @@ func TestXrayBackend(t *testing.T) {
 	}
 
 	//test creating config
-	newConfig, err := NewXRayConfig(xrayFile)
+	newConfig, err := NewXRayConfig(xrayFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

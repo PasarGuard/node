@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/m03ed/gozargah-node/config"
-	"github.com/m03ed/gozargah-node/controller"
-	"github.com/m03ed/gozargah-node/controller/rest"
-	"github.com/m03ed/gozargah-node/controller/rpc"
-	nodeLogger "github.com/m03ed/gozargah-node/logger"
-	"github.com/m03ed/gozargah-node/tools"
+	"github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/controller"
+	"github.com/pasarguard/node/controller/rest"
+	"github.com/pasarguard/node/controller/rpc"
+	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/tools"
 )
 
 func main() {

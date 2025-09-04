@@ -1,8 +1,8 @@
 services:
-  gozargah-node:
-    image: m03ed/gozargah-node:latest
+  node:
+    image: pasarguard/node:latest
     # for situations, you don't have access to docker hub use 👇
-    # image: ghcr.io/m03ed/gozargah-node:latest
+    # image: ghcr.io/pasarguard/node:latest
     restart: always
     network_mode: host
 
@@ -10,12 +10,12 @@ services:
       SERVICE_PORT: 62050
       SERVICE_PROTOCOL: "grpc"
 
-      SSL_CERT_FILE: "/var/lib/gozargah-node/certs/ssl_cert.pem"
-      SSL_KEY_FILE: "/var/lib/gozargah-node/certs/ssl_key.pem"
+      SSL_CERT_FILE: "/var/lib/pasarguard/certs/ssl_cert.pem"
+      SSL_KEY_FILE: "/var/lib/pasarguard/certs/ssl_key.pem"
       # api key must be a valid uuid (you can use any version you want)
       # API_KEY: xxxxxxxx-yyyy-zzzz-mmmm-aaaaaaaaaaa
 
-      GENERATED_CONFIG_PATH: "/var/lib/gozargah-node/generated"
+      GENERATED_CONFIG_PATH: "/var/lib/pasarguard/generated"
 
     volumes:
-      - /var/lib/gozargah-node:/var/lib/gozargah-node
+      - /var/lib/pasarguard:/var/lib/pasarguard

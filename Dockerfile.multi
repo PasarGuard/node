@@ -8,9 +8,9 @@ WORKDIR /app
 COPY Makefile .
 
 ARG TARGETARCH
-COPY binaries/gozargah-node-linux-${TARGETARCH} ./main
+COPY binaries/pasarguard-node-linux-${TARGETARCH} ./main
 RUN chmod +x ./main
 
 RUN make install_xray
 
-ENTRYPOINT ["./main", "serve"]
+ENTRYPOINT ["./main"]

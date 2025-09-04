@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"github.com/go-chi/chi/v5"
-	"github.com/m03ed/gozargah-node/controller"
 	"log"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/pasarguard/node/controller"
 )
 
 func New() *Service {
@@ -24,23 +27,23 @@ func (s *Service) setRouter() {
 	// Api Handlers
 	router.Use(LogRequest)
 	router.Use(s.validateApiKey)
+	router.Use(middleware.Recoverer)
 
 	router.Post("/start", s.Start)
 	router.Get("/info", s.Base)
-	router.Put("/stop", s.Stop)
-	router.Get("/logs", s.GetLogs)
-
-	router.Get("/stats/system", s.GetSystemStats)
 
 	router.Group(func(private chi.Router) {
 		private.Use(s.checkBackendMiddleware)
 
+		router.Put("/stop", s.Stop)
+		router.Get("/logs", s.GetLogs)
 		// stats api
 		private.Route("/stats", func(statsGroup chi.Router) {
 			statsGroup.Get("/", s.GetStats)
 			statsGroup.Get("/user/online", s.GetUserOnlineStat)
 			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
 			statsGroup.Get("/backend", s.GetBackendStats)
+			router.Get("/system", s.GetSystemStats)
 		})
 		private.Put("/user/sync", s.SyncUser)
 		private.Put("/users/sync", s.SyncUsers)

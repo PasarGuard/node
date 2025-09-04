@@ -6,7 +6,11 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE: ${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
+  IMAGE_LATEST: ${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+  GHCR_IMAGE_LATEST: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+  BINARY_NAME: pasarguard-node-linux
 
 jobs:
   build-and-push:
@@ -21,7 +25,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.3'
+          go-version: '1.25'
           check-latest: true
 
       - name: Build binaries for all architectures
@@ -29,12 +33,12 @@ jobs:
           mkdir -p binaries
           # Build for amd64
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 make build
-          mv gozargah-node-linux-amd64 binaries/
-          
+          mv ${{env.BINARY_NAME}}-amd64 binaries/
+
           # Build for arm64
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 make build
-          mv gozargah-node-linux-arm64 binaries/
-          
+          mv ${{env.BINARY_NAME}}-arm64 binaries/
+
           ls -la binaries/
 
       - name: Login to Docker Hub
@@ -60,17 +64,17 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/m03ed/gozargah-node
+          images: ${{ env.REGISTRY }}/${{env.GHCR_IMAGE}}
 
       - name: Set Docker tags
         id: tags
         run: |
           if [ "${{ github.event.release.prerelease }}" = "true" ]; then
             # Pre-release: only version tags
-            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "DOCKER_TAGS=${{env.IMAGE}},${{env.GHCR_IMAGE}}" >> $GITHUB_ENV
           else
             # Regular release: version tags + latest tags
-            echo "DOCKER_TAGS=m03ed/gozargah-node:${{ github.ref_name }},m03ed/gozargah-node:latest,ghcr.io/m03ed/gozargah-node:${{ github.ref_name }},ghcr.io/m03ed/gozargah-node:latest" >> $GITHUB_ENV
+            echo "DOCKER_TAGS=${{env.IMAGE}},${{env.IMAGE_LATEST}},${{env.GHCR_IMAGE}},${{env.GHCR_IMAGE_LATEST}}" >> $GITHUB_ENV
           fi
 
       - name: Build and push Docker image

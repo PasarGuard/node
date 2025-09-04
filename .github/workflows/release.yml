@@ -113,12 +113,12 @@ jobs:
             _NAME="${GOOS}-${GOARCH}"
           fi
           echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
-          echo "BINARY_NAME=gozargah-node-${_NAME}" >> $GITHUB_ENV
+          echo "BINARY_NAME=pasarguard-node-${_NAME}" >> $GITHUB_ENV
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.gotoolchain || '1.24.3' }}
+          go-version: ${{ matrix.gotoolchain || '1.25' }}
           check-latest: true
 
       - name: Get project dependencies
@@ -127,9 +127,9 @@ jobs:
       - name: Build binary and zip
         run: |
           make
-          find . -type f -name "gozargah-node*" -exec mv {} "./gozargah-node-${{ env.ASSET_NAME }}" \;
+          find . -type f -name "pasarguard-node*" -exec mv {} "./pasarguard-node-${{ env.ASSET_NAME }}" \;
           # Create zip file with max compression and include README & LICENSE
-          zip -9 "./gozargah-node-${{ env.ASSET_NAME }}.zip" "./gozargah-node-${{ env.ASSET_NAME }}" README.md LICENSE
+          zip -9 "./pasarguard-node-${{ env.ASSET_NAME }}.zip" "./pasarguard-node-${{ env.ASSET_NAME }}" README.md LICENSE
 
       - name: Upload Release Asset
         id: upload-release-asset
@@ -138,6 +138,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./gozargah-node-${{ env.ASSET_NAME }}.zip
-          asset_name: gozargah-node-${{ env.ASSET_NAME }}.zip
+          asset_path: ./pasarguard-node-${{ env.ASSET_NAME }}.zip
+          asset_name: pasarguard-node-${{ env.ASSET_NAME }}.zip
           asset_content_type: application/zip

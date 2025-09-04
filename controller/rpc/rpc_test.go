@@ -16,10 +16,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/m03ed/gozargah-node/common"
-	"github.com/m03ed/gozargah-node/config"
-	nodeLogger "github.com/m03ed/gozargah-node/logger"
-	"github.com/m03ed/gozargah-node/tools"
+	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
+	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/tools"
 )
 
 var (

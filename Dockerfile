@@ -1,4 +1,4 @@
-FROM golang:1.24.3 as base
+FROM golang:1.25 as base
 
 WORKDIR /app
 COPY go.mod .
@@ -22,4 +22,4 @@ COPY Makefile .
 
 RUN make install_xray
 
-ENTRYPOINT ["./main", "serve"]
+ENTRYPOINT ["./main"]

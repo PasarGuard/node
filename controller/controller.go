@@ -9,14 +9,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/m03ed/gozargah-node/backend"
-	"github.com/m03ed/gozargah-node/backend/xray"
-	"github.com/m03ed/gozargah-node/common"
-	"github.com/m03ed/gozargah-node/config"
-	"github.com/m03ed/gozargah-node/tools"
+	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/xray"
+	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/tools"
 )
 
-const NodeVersion = "0.0.12"
+const NodeVersion = "0.0.13"
 
 type Service interface {
 	Disconnect()

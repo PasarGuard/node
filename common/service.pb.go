@@ -220,13 +220,14 @@ func (x *BaseInfoResponse) GetNodeVersion() string {
 }
 
 type Backend struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          BackendType            `protobuf:"varint,1,opt,name=type,proto3,enum=service.BackendType" json:"type,omitempty"`
-	Config        string                 `protobuf:"bytes,2,opt,name=config,proto3" json:"config,omitempty"`
-	Users         []*User                `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
-	KeepAlive     uint64                 `protobuf:"varint,4,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Type            BackendType            `protobuf:"varint,1,opt,name=type,proto3,enum=service.BackendType" json:"type,omitempty"`
+	Config          string                 `protobuf:"bytes,2,opt,name=config,proto3" json:"config,omitempty"`
+	Users           []*User                `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
+	KeepAlive       uint64                 `protobuf:"varint,4,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
+	ExcludeInbounds []string               `protobuf:"bytes,5,rep,name=exclude_inbounds,json=excludeInbounds,proto3" json:"exclude_inbounds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Backend) Reset() {
@@ -285,6 +286,13 @@ func (x *Backend) GetKeepAlive() uint64 {
 		return x.KeepAlive
 	}
 	return 0
+}
+
+func (x *Backend) GetExcludeInbounds() []string {
+	if x != nil {
+		return x.ExcludeInbounds
+	}
+	return nil
 }
 
 // log
@@ -1183,13 +1191,14 @@ const file_common_service_proto_rawDesc = "" +
 	"\x10BaseInfoResponse\x12\x18\n" +
 	"\astarted\x18\x01 \x01(\bR\astarted\x12!\n" +
 	"\fcore_version\x18\x02 \x01(\tR\vcoreVersion\x12!\n" +
-	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\x8f\x01\n" +
+	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\xba\x01\n" +
 	"\aBackend\x12(\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\tR\x06config\x12#\n" +
 	"\x05users\x18\x03 \x03(\v2\r.service.UserR\x05users\x12\x1d\n" +
 	"\n" +
-	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\"\x1d\n" +
+	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\x12)\n" +
+	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\"\x1d\n" +
 	"\x03Log\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\"X\n" +
 	"\x04Stat\x12\x12\n" +
@@ -1273,7 +1282,7 @@ const file_common_service_proto_rawDesc = "" +
 	"\x12GetUserOnlineStats\x12\x14.service.StatRequest\x1a\x1b.service.OnlineStatResponse\"\x00\x12V\n" +
 	"\x18GetUserOnlineIpListStats\x12\x14.service.StatRequest\x1a\".service.StatsOnlineIpListResponse\"\x00\x12-\n" +
 	"\bSyncUser\x12\r.service.User\x1a\x0e.service.Empty\"\x00(\x01\x12-\n" +
-	"\tSyncUsers\x12\x0e.service.Users\x1a\x0e.service.Empty\"\x00B'Z%github.com/m03ed/gozargah-node/commonb\x06proto3"
+	"\tSyncUsers\x12\x0e.service.Users\x1a\x0e.service.Empty\"\x00B#Z!github.com/pasarguard/node/commonb\x06proto3"
 
 var (
 	file_common_service_proto_rawDescOnce sync.Once

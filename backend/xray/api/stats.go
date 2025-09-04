@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 func (x *XrayHandler) GetSysStats(ctx context.Context) (*common.BackendStatsResponse, error) {

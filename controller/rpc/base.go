@@ -6,9 +6,9 @@ import (
 	"log"
 	"net"
 
-	"github.com/m03ed/gozargah-node/backend"
-	"github.com/m03ed/gozargah-node/backend/xray"
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/xray"
+	"github.com/pasarguard/node/common"
 	"google.golang.org/grpc/peer"
 )
 
@@ -56,7 +56,7 @@ func (s *Service) Stop(_ context.Context, _ *common.Empty) (*common.Empty, error
 
 func (s *Service) detectBackend(ctx context.Context, detail *common.Backend) (context.Context, error) {
 	if detail.GetType() == common.BackendType_XRAY {
-		config, err := xray.NewXRayConfig(detail.GetConfig())
+		config, err := xray.NewXRayConfig(detail.GetConfig(), detail.GetExcludeInbounds())
 		if err != nil {
 			return nil, err
 		}

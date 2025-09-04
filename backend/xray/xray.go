@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/m03ed/gozargah-node/backend"
-	"github.com/m03ed/gozargah-node/backend/xray/api"
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/xray/api"
+	"github.com/pasarguard/node/common"
 )
 
 type Xray struct {

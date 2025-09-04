@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 func (s *Service) GetLogs(_ *common.Empty, stream common.NodeService_GetLogsServer) error {

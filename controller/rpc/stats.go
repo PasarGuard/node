@@ -3,7 +3,7 @@ package rpc
 import (
 	"context"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 func (s *Service) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {

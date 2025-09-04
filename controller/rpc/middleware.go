@@ -79,7 +79,7 @@ func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 func checkBackendStatus(s *Service) error {
 	back := s.Backend()
 	if back == nil {
-		return status.Errorf(codes.Internal, "backend not initialized")
+		return status.Errorf(codes.Unavailable, "backend not initialized")
 	}
 	if !back.Started() {
 		return status.Errorf(codes.Unavailable, "core is not started yet")
@@ -178,8 +178,11 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/GetUserOnlineStats":       true,
 	"/service.NodeService/GetUserOnlineIpListStats": true,
 	"/service.NodeService/GetBackendStats":          true,
+	"/service.NodeService/GetSystemStats":           true,
+	"/service.NodeService/Stop":                     true,
 	"/service.NodeService/SyncUser":                 true,
 	"/service.NodeService/SyncUsers":                true,
+	"/service.NodeService/GetLogs":                  true,
 }
 
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {

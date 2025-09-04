@@ -1,6 +1,6 @@
-module github.com/m03ed/gozargah-node
+module github.com/pasarguard/node
 
-go 1.24.3
+go 1.25
 
 require (
 	github.com/go-chi/chi/v5 v5.2.2

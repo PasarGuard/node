@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/m03ed/gozargah-node/backend/xray/api"
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/backend/xray/api"
+	"github.com/pasarguard/node/common"
 
 	"github.com/xtls/xray-core/infra/conf"
 )
@@ -49,10 +49,14 @@ type Inbound struct {
 	Sniffing       interface{}            `json:"sniffing,omitempty"`
 	Allocation     map[string]interface{} `json:"allocate,omitempty"`
 	mu             sync.RWMutex
+	exclude        bool
 }
 
 func (c *Config) syncUsers(users []*common.User) {
 	for _, i := range c.InboundConfigs {
+		if i.exclude {
+			continue
+		}
 		i.syncUsers(users)
 	}
 }
@@ -442,11 +446,19 @@ func (c *Config) RemoveLogFiles() (accessFile, errorFile string) {
 	return accessFile, errorFile
 }
 
-func NewXRayConfig(config string) (*Config, error) {
+func NewXRayConfig(config string, exclude []string) (*Config, error) {
 	var xrayConfig Config
 	err := json.Unmarshal([]byte(config), &xrayConfig)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, i := range xrayConfig.InboundConfigs {
+		if slices.Contains(exclude, i.Tag) {
+			i.mu.Lock()
+			i.exclude = true
+			i.mu.Unlock()
+		}
 	}
 
 	return &xrayConfig, nil

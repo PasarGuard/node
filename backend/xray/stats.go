@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 func (x *Xray) GetSysStats(ctx context.Context) (*common.BackendStatsResponse, error) {

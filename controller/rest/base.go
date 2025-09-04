@@ -7,9 +7,9 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/m03ed/gozargah-node/backend"
-	"github.com/m03ed/gozargah-node/backend/xray"
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/xray"
+	"github.com/pasarguard/node/common"
 )
 
 func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
@@ -59,7 +59,7 @@ func (s *Service) detectBackend(r *http.Request) (context.Context, common.Backen
 	}
 
 	if data.Type == common.BackendType_XRAY {
-		config, err := xray.NewXRayConfig(data.Config)
+		config, err := xray.NewXRayConfig(data.GetConfig(), data.GetExcludeInbounds())
 		if err != nil {
 			return nil, 0, 0, err
 		}

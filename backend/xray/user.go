@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/m03ed/gozargah-node/backend/xray/api"
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/backend/xray/api"
+	"github.com/pasarguard/node/common"
 )
 
 func setupUserAccount(user *common.User) (api.ProxySettings, error) {
@@ -136,9 +136,15 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 
 	var errMessage string
 
+	userInbounds := user.GetInbounds()
+
 	for _, inbound := range inbounds {
+		if inbound.exclude {
+			continue
+		}
+
 		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
-		account, isActive := isActiveInbound(inbound, user.GetInbounds(), proxySetting)
+		account, isActive := isActiveInbound(inbound, userInbounds, proxySetting)
 		if isActive {
 			inbound.updateUser(account)
 			err = handler.AddInboundUser(ctx, inbound.Tag, account)

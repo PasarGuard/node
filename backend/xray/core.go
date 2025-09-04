@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/m03ed/gozargah-node/config"
-	nodeLogger "github.com/m03ed/gozargah-node/logger"
+	"github.com/pasarguard/node/config"
+	nodeLogger "github.com/pasarguard/node/logger"
 )
 
 type Core struct {

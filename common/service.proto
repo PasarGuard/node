@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package service;
 
-option go_package = "github.com/m03ed/gozargah-node/common";
+option go_package = "github.com/pasarguard/node/common";
 
 message Empty {}
 
@@ -22,6 +22,7 @@ message Backend {
   string config = 2;
   repeated User users = 3;
   uint64 keep_alive = 4;
+  repeated string exclude_inbounds = 5;
 }
 
 // log

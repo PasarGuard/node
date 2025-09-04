@@ -3,7 +3,7 @@ package backend
 import (
 	"context"
 
-	"github.com/m03ed/gozargah-node/common"
+	"github.com/pasarguard/node/common"
 )
 
 type Backend interface {

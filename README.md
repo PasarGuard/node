@@ -1,16 +1,16 @@
-# Gozargah-Node-Go
+# PasarGuard-Node
 <p align="center">
     <a href="#">
-        <img src="https://img.shields.io/github/actions/workflow/status/m03ed/gozargah-node/docker-build.yml?style=flat-square" />
+        <img src="https://img.shields.io/github/actions/workflow/status/PasarGuard/node/docker-build.yml?style=flat-square" />
     </a>
-    <a href="https://hub.docker.com/r/gozargah/marzban" target="_blank">
-        <img src="https://img.shields.io/docker/pulls/m03ed/gozargah-node?style=flat-square&logo=docker" />
-    </a>
-    <a href="#">
-        <img src="https://img.shields.io/github/license/m03ed/gozargah-node?style=flat-square" />
+    <a href="https://hub.docker.com/r/pasarguard/node" target="_blank">
+        <img src="https://img.shields.io/docker/pulls/PasarGuard/node?style=flat-square&logo=docker" />
     </a>
     <a href="#">
-        <img src="https://img.shields.io/github/stars/m03ed/gozargah-node?style=social" />
+        <img src="https://img.shields.io/github/license/PasarGuard/node?style=flat-square" />
+    </a>
+    <a href="#">
+        <img src="https://img.shields.io/github/stars/PasarGuard/node?style=social" />
     </a>
 </p>
 
@@ -20,7 +20,7 @@ This project is in the testing and development stage. The code may undergo major
 ## Table of Contents
 
 - [Overview](#overview)
-  - [Why Use Gozargah Node?](#why-use-gozargah-node)
+  - [Why Use PasarGuard Node?](#why-use-the-PasarGuard-node)
   - [Supported Cores](#supported-cores)
 - [Documentation](#documentation)
   - [Installation](#installation)
@@ -37,11 +37,11 @@ This project is in the testing and development stage. The code may undergo major
 
 # Overview
 
-Gozargah Node is developed by the Gozargah team to replace [Marzban-node](https://github.com/Gozargah/Marzban-node). It aims to be more stable, scalable, and efficient.
+The PasarGuard Node is developed by the PasarGuard team. It aims to be stable, scalable, and efficient.
 
-## Why Use Gozargah Node?
+## Why use the PasarGuard Node?
 
-We designed this project to be usable in any project, even without Marzban. You can run nodes with a simple script and the help of official libraries.  
+We designed this project to be usable in any project, even without PasarGuard panel. You can run nodes with a simple script and the help of official libraries.  
 We plan to expand supported cores after the testing stage, allowing you to use any core you want.
 
 ## Supported Cores
@@ -57,9 +57,9 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 ## Installation
 
 ### One Click
-run following command in you shell and use node
+run the following command in your shell and use node
 ```shell
-sudo bash -c "$(curl -sL https://github.com/ImMohammad20000/Marzban-scripts/raw/master/gozargah-node.sh)" @ install
+sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/node-cli.sh)" @ install
 ```
 
 ### Docker
@@ -67,11 +67,11 @@ Install docker on your machine
 ```shell
 curl -fsSL https://get.docker.com | sh
 ```
-Download docker compose file
+Download a docker compose file
 ```shell
-wget https://raw.githubusercontent.com/M03ED/gozargah-node/refs/heads/main/docker-compose.yml
+wget https://raw.githubusercontent.com/PasarGuard/node/refs/heads/main/docker-compose.yml
 ```
-Configure your .env file and run node with following command
+Configure your .env file and run node with the following command
 ```shell
 docker compose up -d
 ```
@@ -80,9 +80,9 @@ docker compose up -d
 Install go on your system (https://go.dev/dl/)
 Clone the project
 ```shell
-git clone https://github.com/M03ED/gozargah-node.git
+git clone https://github.com/PasarGuard/node.git
 ```
-Generate binary file for your system
+Generate a binary file for your system
 ```shell
 make deps
 make
@@ -95,7 +95,7 @@ Generate certificate based on your system network ip or domain
 ```shell
 make generate_server_cert CN=example.com SAN="DNS:example.com,IP:your server ip"
 ```
-Configure you .env file and run the binary
+Configure your `.env` file and run the binary
 
 
 ## Configuration
@@ -114,7 +114,7 @@ Configure you .env file and run the binary
 | `SERVICE_PROTOCOL`      | Protocol to use: `grpc` or `rest` (recommended: `grpc`).                                                         |
 | `MAX_LOG_PER_REQUEST`   | Maximum number of logs per request (only for long polling in REST connections).                                  |
 | `DEBUG`                 | Debug mode for development; prints core logs in the node server (default: `False`).                              |
-| `GENERATED_CONFIG_PATH` | Path to the generated config by the node (default: `/var/lib/gozargah-node/generated`).                          |
+| `GENERATED_CONFIG_PATH` | Path to the generated config by the node (default: `/var/lib/pasarguard/generated`).                             |
 
 ## SSL Configuration
 
@@ -128,15 +128,15 @@ If you don't have access to a real domain or tools like `ACME`, you can use `sel
 Just replace the `CN` and `subjectAltName` values with your server information:
 
 ```shell
-openssl req -x509 -newkey rsa:4096 -keyout /var/lib/gozargah-node/certs/ssl_key.pem \
-  -out /var/lib/gozargah-node/certs/ssl_cert.pem -days 36500 -nodes \
+openssl req -x509 -newkey rsa:4096 -keyout /var/lib/pasarguard/certs/ssl_key.pem \
+  -out /var/lib/pasarguard/certs/ssl_cert.pem -days 36500 -nodes \
   -subj "/CN={replace with your server IP or domain}" \
   -addext "subjectAltName = {replace with alternative names you need}"
 ```
 
 ## API
 
-Gozargah Node supports two types of connection protocols: **gRPC** and **REST API**.  
+PasarGuard Node supports two types of connection protocols: **gRPC** and **REST API**.  
 We recommend using **gRPC**, with REST always available as a fallback option (in case there is a problem with gRPC).
 
 ### Data Structure
@@ -189,39 +189,39 @@ The node uses the `common/service.proto` file messages for both protocols.
 | `SyncUsers()`                | `PUT`,`/users/sync`           | `Users`       | `Empty`                                    | Removes all old users and replaces them with the provided users.                                                                                                           |
 
 # Official library
-We create some library's for you so make your job easier
+We create some library for you so make your job easier
 
 ## Go
-[gozargah-node-bridge](https://github.com/m03ed/gozargah_node_bridge)
+[node-bridge](https://github.com/PasarGuard/node_bridge)
 
-To add bridge to your project use:
+To add `bridge` to your project use:
 ```shell
-go get github.com/m03ed/gozargah_node_bridge
+go get github.com/PasarGuard/node_bridge
 ```
 ## Python
-[gozargah-node-bridge-py](https://github.com/m03ed/gozargah_node_bridge_py)
+[node-bridge-py](https://github.com/PasarGuard/node_bridge_py)
 ```shell
-pip install gozargah-node-bridge
+pip install pasarguard-node-bridge
 ```
 
 # Donation
-You can help gozargah team with your donations, [Click Here](https://donate.gozargah.pro)
+You can help PasarGuard team with your donations, [Click Here](https://donate.pasarguard.org/)
 
 # Contributors
 
-We ❤️‍🔥 contributors! If you'd like to contribute, please check out our [Contributing Guidelines](CONTRIBUTING.md) and feel free to submit a pull request or open an issue. We also welcome you to join our [Telegram](https://t.me/gozargah_marzban) group for either support or contributing guidance.
+We ❤️‍🔥 contributors! If you'd like to contribute, please check out our [Contributing Guidelines](CONTRIBUTING.md) and feel free to submit a pull request or open an issue. We also welcome you to join our [Telegram](https://t.me/Pasar_Guard) group for either support or contributing guidance.
 
-Check [open issues](https://github.com/m03ed/gozargah-node/issues) to help the progress of this project.
+Check [open issues](https://github.com/PasarGuard/node/issues) to help the progress of this project.
 
 ## Stargazers over time
-[![Stargazers over time](https://starchart.cc/M03ED/gozargah-node.svg?variant=adaptive)](https://starchart.cc/M03ED/gozargah-node)
+[![Stargazers over time](https://starchart.cc/PasarGuard/node.svg?variant=adaptive)](https://starchart.cc/PasarGuard/node)
                     
 <p align="center">
-Thanks to the all contributors who have helped improve Gozargah Node:
+Thanks to the all contributors who have helped improve PasarGuard Node:
 </p>
 <p align="center">
-<a href="https://github.com/m03ed/gozargah-node/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=m03ed/gozargah-node" />
+<a href="https://github.com/PasarGuard/node/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=PasarGuard/node" />
 </a>
 </p>
 <p align="center">
