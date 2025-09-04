@@ -6,8 +6,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
+  IMAGE: pasarguard/${{ github.event.repository.name }}:${{ github.ref_name }}
+  GHCR_IMAGE: ghcr.io/pasarguard/${{ github.event.repository.name }}:${{ github.ref_name }}
   BINARY_NAME: pasarguard-node-linux
 
 jobs:

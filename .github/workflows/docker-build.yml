@@ -6,10 +6,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
-  IMAGE_LATEST: ${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
-  GHCR_IMAGE_LATEST: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest
+  IMAGE: pasarguard/${{ github.event.repository.name }}:${{ github.ref_name }}
+  GHCR_IMAGE: ghcr.io/pasarguard/${{ github.event.repository.name }}:${{ github.ref_name }}
+  IMAGE_LATEST: pasarguard/${{ github.event.repository.name }}:latest
+  GHCR_IMAGE_LATEST: ghcr.io/pasarguard/${{ github.event.repository.name }}:latest
   BINARY_NAME: pasarguard-node-linux
 
 jobs:
