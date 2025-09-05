@@ -1,4 +1,5 @@
 # PasarGuard-Node
+
 <p align="center">
     <a href="#">
         <img src="https://img.shields.io/github/actions/workflow/status/PasarGuard/node/docker-build.yml?style=flat-square" />
@@ -15,25 +16,26 @@
 </p>
 
 # Attention ⚠️
-This project is in the testing and development stage. The code may undergo major changes during this phase, so use it at your own risk.  
+
+This project is in the testing and development stage. The code may undergo major changes during this phase, so use it at your own risk.
 
 ## Table of Contents
 
-- [Overview](#overview)
-  - [Why Use PasarGuard Node?](#why-use-the-PasarGuard-node)
-  - [Supported Cores](#supported-cores)
-- [Documentation](#documentation)
-  - [Installation](#installation)
-  - [Configuration](#configuration)
-  - [SSL Configuration](#ssl-configuration)
-  - [API](#api)
-    - [Data Structure](#data-structure)
-    - [Methods](#methods)
-- [Official library](#official-library)
-  - [Go](#go)
-  - [Python](#python)
-- [Donation](#donation)
-- [Contributors](#contributors)
+-   [Overview](#overview)
+    -   [Why Use PasarGuard Node?](#why-use-the-PasarGuard-node)
+    -   [Supported Cores](#supported-cores)
+-   [Documentation](#documentation)
+    -   [Installation](#installation)
+    -   [Configuration](#configuration)
+    -   [SSL Configuration](#ssl-configuration)
+    -   [API](#api)
+        -   [Data Structure](#data-structure)
+        -   [Methods](#methods)
+-   [Official library](#official-library)
+    -   [Go](#go)
+    -   [Python](#python)
+-   [Donation](#donation)
+-   [Contributors](#contributors)
 
 # Overview
 
@@ -47,63 +49,79 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 ## Supported Cores
 
 |                       Core                        | Support |
-|:-------------------------------------------------:|---------|
-|  [xray-core](https://github.com/XTLS/Xray-core)   | ✅       |
-| [sing-box](https://github.com/SagerNet/sing-box)  | ❌       |
-| [v2ray-core](https://github.com/v2fly/v2ray-core) | ❌       |
+| :-----------------------------------------------: | ------- |
+|  [xray-core](https://github.com/XTLS/Xray-core)   | ✅      |
+| [sing-box](https://github.com/SagerNet/sing-box)  | ❌      |
+| [v2ray-core](https://github.com/v2fly/v2ray-core) | ❌      |
 
 # Documentation
 
 ## Installation
 
 ### One Click
+
 run the following command in your shell and use node
+
 ```shell
-sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/node-cli.sh)" @ install
+sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
 ```
 
 ### Docker
+
 Install docker on your machine
+
 ```shell
 curl -fsSL https://get.docker.com | sh
 ```
+
 Download a docker compose file
+
 ```shell
 wget https://raw.githubusercontent.com/PasarGuard/node/refs/heads/main/docker-compose.yml
 ```
+
 Configure your .env file and run node with the following command
+
 ```shell
 docker compose up -d
 ```
 
 ### Manual (Not Recommended For Beginners)
+
 Install go on your system (https://go.dev/dl/)
 Clone the project
+
 ```shell
 git clone https://github.com/PasarGuard/node.git
 ```
+
 Generate a binary file for your system
+
 ```shell
 make deps
 make
 ```
+
 Install xray
+
 ```shell
 make install_xray
 ```
+
 Generate certificate based on your system network ip or domain
+
 ```shell
 make generate_server_cert CN=example.com SAN="DNS:example.com,IP:your server ip"
 ```
-Configure your `.env` file and run the binary
 
+Configure your `.env` file and run the binary
 
 ## Configuration
 
 > You can set the settings below using environment variables or by placing them in a `.env` file.
 
 | Variable                | Description                                                                                                      |
-|:------------------------|------------------------------------------------------------------------------------------------------------------|
+| :---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `SERVICE_PORT`          | Bind application to this port (default: `62050`).                                                                |
 | `NODE_HOST`             | Bind application to this host (default: `127.0.0.1`).                                                            |
 | `XRAY_EXECUTABLE_PATH`  | Path of Xray binary (default: `/usr/local/bin/xray`).                                                            |
@@ -119,11 +137,13 @@ Configure your `.env` file and run the binary
 ## SSL Configuration
 
 ### SSL Certificates
+
 You can use SSL certificates issued by `Let's Encrypt` or other certificate authorities.  
 Make sure to set both `SSL_CERT_FILE` and `SSL_KEY_FILE` environment variables.
-Use `fullchain` for `SSL_CERT_FILE` and `cert` as `server_ca` in client side. 
+Use `fullchain` for `SSL_CERT_FILE` and `cert` as `server_ca` in client side.
 
 ### self-signed certificate
+
 If you don't have access to a real domain or tools like `ACME`, you can use `self-signed certificate` to connect to a node.  
 Just replace the `CN` and `subjectAltName` values with your server information:
 
@@ -144,7 +164,7 @@ We recommend using **gRPC**, with REST always available as a fallback option (in
 The node uses the `common/service.proto` file messages for both protocols.
 
 | Message                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-|:-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| :--------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Empty`                | Used when no input is required. Can replace `null` with `Empty`.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `BaseInfoResponse`     | Contains:<br/>- `started` (bool): Indicates if the service is started.<br/>- `core_version` (string): Version of the core.<br/>- `node_version` (string): Version of the node.<br/>- `session_id` (string): Session ID.<br/>- `extra` (string): Additional information.                                                                                                                                                                                                                                                 |
 | `Vmess`                | Contains:<br/>- `id` (string): UUID for Vmess configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -154,7 +174,7 @@ The node uses the `common/service.proto` file messages for both protocols.
 | `Proxy`                | Contains:<br/>- `vmess` (Vmess): Vmess configuration.<br/>- `vless` (Vless): Vless configuration.<br/>- `trojan` (Trojan): Trojan configuration.<br/>- `shadowsocks` (Shadowsocks): Shadowsocks configuration.                                                                                                                                                                                                                                                                                                          |
 | `User`                 | Contains:<br/>- `email` (string): User's email.<br/>- `proxies` (Proxy): Proxy configurations.<br/>- `inbounds` ([]string): List of inbounds.                                                                                                                                                                                                                                                                                                                                                                           |
 | `BackendType`          | Enum:<br/>- `XRAY = 0`: Represents the Xray backend type.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `Backend`              | Contains:<br/>- `type` (BackendType): Type of backend.<br/>- `config` (string): Configuration for the backend.<br/>- `users` ([]User): List of users.<br/>- `keepAlive` (uint64): hold backend alive for  `x` second after last connection                                                                                                                                                                                                                                                                              |
+| `Backend`              | Contains:<br/>- `type` (BackendType): Type of backend.<br/>- `config` (string): Configuration for the backend.<br/>- `users` ([]User): List of users.<br/>- `keepAlive` (uint64): hold backend alive for `x` second after last connection                                                                                                                                                                                                                                                                               |
 | `Log`                  | Contains:<br/>- `detail` (string): Log details.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `Stat`                 | Contains:<br/>- `name` (string): Stat name.<br/>- `type` (string): Stat type.<br/>- `link` (string): Link associated with the stat.<br/>- `value` (int64): Stat value.                                                                                                                                                                                                                                                                                                                                                  |
 | `StatResponse`         | Contains:<br/>- `stats` ([]Stat): List of stats.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -170,12 +190,12 @@ The node uses the `common/service.proto` file messages for both protocols.
 
 ### Methods
 
-- Add `address:port` at the beginning of the **REST API** URL.
-- Use `Authorization Bearer <session_id>` in the header for authentication with the **REST API**.
-- Use `authorization Bearer <session_id>` in metadata for authentication with **gRPC**.
+-   Add `address:port` at the beginning of the **REST API** URL.
+-   Use `Authorization Bearer <session_id>` in the header for authentication with the **REST API**.
+-   Use `authorization Bearer <session_id>` in metadata for authentication with **gRPC**.
 
 | gRPC                         | REST                          | Input         | Output                                     | Description                                                                                                                                                                |
-|:-----------------------------|:------------------------------|---------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| :--------------------------- | :---------------------------- | ------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Start()`                    | `POST`,`/start`               | `Backend`     | `BaseInfoResponse`                         | This is the only method called before creating a connection.                                                                                                               |
 | `Stop()`                     | `PUT`,`/stop`                 | `Empty`       | `Empty`                                    | Stops the backend and deactivates the connection with the client.                                                                                                          |
 | `GetBaseInfo()`              | `GET`,`/info`                 | `Empty`       | `BaseInfoResponse`                         | Returns base info; can be used to check the connection between the node and client.                                                                                        |
@@ -189,22 +209,29 @@ The node uses the `common/service.proto` file messages for both protocols.
 | `SyncUsers()`                | `PUT`,`/users/sync`           | `Users`       | `Empty`                                    | Removes all old users and replaces them with the provided users.                                                                                                           |
 
 # Official library
+
 We create some library for you so make your job easier
 
 ## Go
+
 [node-bridge](https://github.com/PasarGuard/node_bridge)
 
 To add `bridge` to your project use:
+
 ```shell
 go get github.com/PasarGuard/node_bridge
 ```
+
 ## Python
+
 [node-bridge-py](https://github.com/PasarGuard/node_bridge_py)
+
 ```shell
 pip install pasarguard-node-bridge
 ```
 
 # Donation
+
 You can help PasarGuard team with your donations, [Click Here](https://donate.pasarguard.org/)
 
 # Contributors
@@ -214,8 +241,9 @@ We ❤️‍🔥 contributors! If you'd like to contribute, please check out our
 Check [open issues](https://github.com/PasarGuard/node/issues) to help the progress of this project.
 
 ## Stargazers over time
+
 [![Stargazers over time](https://starchart.cc/PasarGuard/node.svg?variant=adaptive)](https://starchart.cc/PasarGuard/node)
-                    
+
 <p align="center">
 Thanks to the all contributors who have helped improve PasarGuard Node:
 </p>
