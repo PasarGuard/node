@@ -1,12 +1,12 @@
 package config
 
 import (
-	"github.com/google/uuid"
 	"log"
 	"os"
 	"regexp"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
 
@@ -19,13 +19,13 @@ func init() {
 	ServicePort = GetEnvAsInt("SERVICE_PORT", 62050)
 	XrayExecutablePath = GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray")
 	XrayAssetsPath = GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray")
-	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/pasarguard/certs/ssl_cert.pem")
-	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/pasarguard/certs/ssl_key.pem")
+	SslCertFile = GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem")
+	SslKeyFile = GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem")
 	ApiKey, err = GetEnvAsUUID("API_KEY")
 	if err != nil {
 		log.Printf("[Error] Faild to load API Key, error: %v", err)
 	}
-	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pasarguard/generated/")
+	GeneratedConfigPath = GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/")
 	ServiceProtocol = GetEnv("SERVICE_PROTOCOL", "grpc")
 	Debug = GetEnvAsBool("DEBUG", false)
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")

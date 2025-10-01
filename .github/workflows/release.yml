@@ -116,7 +116,7 @@ jobs:
           echo "BINARY_NAME=pasarguard-node-${_NAME}" >> $GITHUB_ENV
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.gotoolchain || '1.25' }}
           check-latest: true

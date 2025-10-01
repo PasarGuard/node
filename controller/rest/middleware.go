@@ -54,7 +54,7 @@ func LogRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-		log.Println(fmt.Sprintf("[API] New requesrt from %s, %s, %s", r.RemoteAddr, r.Method, r.URL.Path))
+		log.Println(fmt.Sprintf("[API] New request from %s, %s, %s", r.RemoteAddr, r.Method, r.URL.Path))
 
 		next.ServeHTTP(ww, r)
 
