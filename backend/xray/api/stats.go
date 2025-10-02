@@ -139,8 +139,8 @@ func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*commo
 
 		parts := strings.Split(data, ">>>")
 		name := parts[1]
-		statType := parts[2]
-		link := parts[3]
+		link := parts[2]
+		statType := parts[3]
 
 		stats.Stats = append(stats.Stats, &common.Stat{
 			Name:  name,
