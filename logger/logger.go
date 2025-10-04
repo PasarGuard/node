@@ -60,14 +60,14 @@ func (l *Logger) SetLogFile(accessPath, errorPath string) error {
 		return fmt.Errorf("failed to open access log: %w", err)
 	}
 	if l.accessLogFile != nil {
-		l.accessLogger = log.New(l.accessLogFile, "", log.LstdFlags)
+		l.accessLogger = log.New(l.accessLogFile, "", 0)
 	}
 
 	if l.errorLogFile, err = openLogFile(errorPath); err != nil {
 		return fmt.Errorf("failed to open error log: %w", err)
 	}
 	if l.errorLogFile != nil {
-		l.errorLogger = log.New(l.errorLogFile, "", log.LstdFlags)
+		l.errorLogger = log.New(l.errorLogFile, "", 0)
 	}
 
 	return nil
@@ -89,7 +89,7 @@ func (l *Logger) Log(level, message string) {
 	}
 
 	if l.outputLogs {
-		log.Printf("[%s] %s", level, message)
+		fmt.Println(message)
 	}
 }
 
