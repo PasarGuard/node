@@ -10,12 +10,12 @@ services:
       SERVICE_PORT: 62050
       SERVICE_PROTOCOL: "grpc"
 
-      SSL_CERT_FILE: "/var/lib/pasarguard/certs/ssl_cert.pem"
-      SSL_KEY_FILE: "/var/lib/pasarguard/certs/ssl_key.pem"
+      SSL_CERT_FILE: "/var/lib/pg-node/certs/ssl_cert.pem"
+      SSL_KEY_FILE: "/var/lib/pg-node/certs/ssl_key.pem"
       # api key must be a valid uuid (you can use any version you want)
       # API_KEY: xxxxxxxx-yyyy-zzzz-mmmm-aaaaaaaaaaa
 
-      GENERATED_CONFIG_PATH: "/var/lib/pasarguard/generated"
+      GENERATED_CONFIG_PATH: "/var/lib/pg-node/generated"
 
     volumes:
-      - /var/lib/pasarguard:/var/lib/pasarguard
+      - /var/lib/pg-node:/var/lib/pg-node
