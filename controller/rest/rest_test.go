@@ -18,7 +18,7 @@ import (
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
-	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/controller"
 	"github.com/pasarguard/node/tools"
 )
 
@@ -31,27 +31,37 @@ var (
 	generatedConfigPath = "../../generated/"
 	addr                = fmt.Sprintf("%s:%d", nodeHost, servicePort)
 	configPath          = "../../backend/xray/config.json"
+
+	// Shared test context
+	sharedTestCtx *testContext
 )
 
-func TestRESTConnection(t *testing.T) {
-	config.SetEnvForTest(generatedConfigPath, apiKey)
+type testContext struct {
+	client                              *http.Client
+	url                                 string
+	shutdownFunc                        func(ctx context.Context) error
+	service                             controller.Service
+	createAuthenticatedRequest          func(method, endpoint string, data proto.Message, response proto.Message) error
+	createAuthenticatedStreamingRequest func(method, endpoint string) (io.ReadCloser, error)
+}
 
-	nodeLogger.SetOutputMode(true)
+func TestMain(m *testing.M) {
+	// Setup
+	cfg := config.NewTestConfig(generatedConfigPath, apiKey)
 
 	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to load TLS credentials: %v", err)
 	}
 
-	shutdownFunc, s, err := StartHttpListener(tlsConfig, addr)
+	shutdownFunc, s, err := StartHttpListener(tlsConfig, addr, cfg)
 	if err != nil {
-		t.Fatalf("Failed to start HTTP listener: %v", err)
+		log.Fatalf("Failed to start HTTP listener: %v", err)
 	}
-	defer s.Disconnect()
 
 	certPool, err := tools.LoadClientPool(sslCertFile)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to load client pool: %v", err)
 	}
 	client := tools.CreateHTTPClient(certPool, nodeHost)
 
@@ -107,10 +117,10 @@ func TestRESTConnection(t *testing.T) {
 
 	configFile, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to read config file: %v", err)
 	}
 
-	user := &common.User{
+	user1 := &common.User{
 		Email: "test_user1@example.com",
 		Inbounds: []string{
 			"VMESS TCP NOTLS",
@@ -165,17 +175,42 @@ func TestRESTConnection(t *testing.T) {
 	backendStartReq := &common.Backend{
 		Type:   common.BackendType_XRAY,
 		Config: string(configFile),
-		Users:  []*common.User{user, user2},
+		Users:  []*common.User{user1, user2},
 	}
 
 	var baseInfoResp common.BaseInfoResponse
 	if err = createAuthenticatedRequest("POST", "/start", backendStartReq, &baseInfoResp); err != nil {
-		t.Fatalf("Failed to start backend: %v", err)
+		log.Fatalf("Failed to start backend: %v", err)
 	}
 
+	sharedTestCtx = &testContext{
+		client:                              client,
+		url:                                 url,
+		shutdownFunc:                        shutdownFunc,
+		service:                             s,
+		createAuthenticatedRequest:          createAuthenticatedRequest,
+		createAuthenticatedStreamingRequest: createAuthenticatedStreamingRequest,
+	}
+
+	// Run tests
+	code := m.Run()
+
+	// Teardown
+	s.Disconnect()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err = shutdownFunc(ctx); err != nil {
+		log.Printf("Failed to shutdown server: %v", err)
+	}
+
+	os.Exit(code)
+}
+
+func TestREST_GetOutboundsStats(t *testing.T) {
 	var stats common.StatResponse
-	// Try To Get Outbounds Stats
-	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Outbounds}, &stats); err != nil {
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Outbounds}, &stats); err != nil {
 		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
 
@@ -183,8 +218,11 @@ func TestRESTConnection(t *testing.T) {
 		log.Printf("Outbound Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
 			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
+}
 
-	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Inbounds}, &stats); err != nil {
+func TestREST_GetInboundsStats(t *testing.T) {
+	var stats common.StatResponse
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_Inbounds}, &stats); err != nil {
 		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
 
@@ -192,8 +230,11 @@ func TestRESTConnection(t *testing.T) {
 		log.Printf("Inbound Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
 			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
+}
 
-	if err = createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_UsersStat}, &stats); err != nil {
+func TestREST_GetUsersStats(t *testing.T) {
+	var stats common.StatResponse
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats", &common.StatRequest{Reset_: true, Type: common.StatType_UsersStat}, &stats); err != nil {
 		t.Fatalf("Failed to get users stats: %v", err)
 	}
 
@@ -201,18 +242,37 @@ func TestRESTConnection(t *testing.T) {
 		log.Printf("Users Stat - Name: %s, Traffic: %d, Type: %s, Link: %s",
 			stat.GetName(), stat.GetValue(), stat.GetType(), stat.GetLink())
 	}
+}
 
+func TestREST_GetBackendStats(t *testing.T) {
 	var backendStats common.BackendStatsResponse
-	if err = createAuthenticatedRequest("GET", "/stats/backend", &common.Empty{}, &backendStats); err != nil {
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats/backend", &common.Empty{}, &backendStats); err != nil {
 		t.Fatalf("Failed to get backend stats: %v", err)
 	}
 	fmt.Println(backendStats)
+}
 
-	if err = createAuthenticatedRequest("PUT", "/user/sync", user, &common.Empty{}); err != nil {
-		t.Fatalf("Sync user request failed: %v", err)
+func TestREST_SyncUser(t *testing.T) {
+	user := &common.User{
+		Email: "test_user1@example.com",
+		Inbounds: []string{
+			"VMESS TCP NOTLS",
+			"VLESS TCP REALITY",
+		},
+		Proxies: &common.Proxy{
+			Vmess: &common.Vmess{
+				Id: uuid.New().String(),
+			},
+		},
 	}
 
-	reader, err := createAuthenticatedStreamingRequest("GET", "/logs")
+	if err := sharedTestCtx.createAuthenticatedRequest("PUT", "/user/sync", user, &common.Empty{}); err != nil {
+		t.Fatalf("Sync user request failed: %v", err)
+	}
+}
+
+func TestREST_GetLogsStream(t *testing.T) {
+	reader, err := sharedTestCtx.createAuthenticatedStreamingRequest("GET", "/logs")
 	if err != nil {
 		t.Fatalf("Failed to start streaming logs: %v", err)
 	}
@@ -231,23 +291,21 @@ func TestRESTConnection(t *testing.T) {
 		}
 		t.Fatalf("Error reading streaming logs: %v", err)
 	}
+}
 
-	// Try To Get Node Stats
+func TestREST_GetSystemStats(t *testing.T) {
 	var systemStats common.SystemStatsResponse
-	if err = createAuthenticatedRequest("GET", "/stats/system", &common.Empty{}, &systemStats); err != nil {
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats/system", &common.Empty{}, &systemStats); err != nil {
 		t.Fatalf("Node stats request failed: %v", err)
 	}
 
 	fmt.Printf("System Stats: \nMem Total: %d \nMem Used: %d \nCpu Number: %d \nCpu Usage: %f \nIncoming: %d \nOutgoing: %d \n",
 		systemStats.MemTotal, systemStats.MemUsed, systemStats.CpuCores, systemStats.CpuUsage, systemStats.IncomingBandwidthSpeed, systemStats.OutgoingBandwidthSpeed)
+}
 
-	if err = createAuthenticatedRequest("PUT", "/stop", user, &common.Empty{}); err != nil {
-		t.Fatalf("Sync user request failed: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err = shutdownFunc(ctx); err != nil {
-		t.Fatalf("Failed to shutdown server: %v", err)
+func TestREST_StopBackend(t *testing.T) {
+	user := &common.User{}
+	if err := sharedTestCtx.createAuthenticatedRequest("PUT", "/stop", user, &common.Empty{}); err != nil {
+		t.Fatalf("Stop backend request failed: %v", err)
 	}
 }

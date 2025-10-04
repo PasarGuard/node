@@ -10,12 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
 )
 
-func New() *Service {
+func New(cfg *config.Config) *Service {
 	s := &Service{
-		Controller: *controller.New(),
+		Controller: *controller.New(cfg),
 	}
 	s.setRouter()
 	return s
@@ -43,7 +44,7 @@ func (s *Service) setRouter() {
 			statsGroup.Get("/user/online", s.GetUserOnlineStat)
 			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
 			statsGroup.Get("/backend", s.GetBackendStats)
-			router.Get("/system", s.GetSystemStats)
+			statsGroup.Get("/system", s.GetSystemStats)
 		})
 		private.Put("/user/sync", s.SyncUser)
 		private.Put("/users/sync", s.SyncUsers)
@@ -57,8 +58,8 @@ type Service struct {
 	Router chi.Router
 }
 
-func StartHttpListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
-	s := New()
+func StartHttpListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
+	s := New(cfg)
 
 	httpServer := &http.Server{
 		Addr:      addr,

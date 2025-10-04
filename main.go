@@ -13,16 +13,18 @@ import (
 	"github.com/pasarguard/node/controller"
 	"github.com/pasarguard/node/controller/rest"
 	"github.com/pasarguard/node/controller/rpc"
-	nodeLogger "github.com/pasarguard/node/logger"
 	"github.com/pasarguard/node/tools"
 )
 
 func main() {
-	nodeLogger.SetOutputMode(config.Debug)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	addr := fmt.Sprintf("%s:%d", config.NodeHost, config.ServicePort)
+	addr := fmt.Sprintf("%s:%d", cfg.NodeHost, cfg.ServicePort)
 
-	tlsConfig, err := tools.LoadTLSCredentials(config.SslCertFile, config.SslKeyFile)
+	tlsConfig, err := tools.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -32,10 +34,10 @@ func main() {
 	var shutdownFunc func(ctx context.Context) error
 	var service controller.Service
 
-	if config.ServiceProtocol == "rest" {
-		shutdownFunc, service, err = rest.StartHttpListener(tlsConfig, addr)
+	if cfg.ServiceProtocol == "rest" {
+		shutdownFunc, service, err = rest.StartHttpListener(tlsConfig, addr, cfg)
 	} else {
-		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr)
+		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr, cfg)
 	}
 
 	defer service.Disconnect()

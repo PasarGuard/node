@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -17,14 +18,14 @@ type Service struct {
 	controller.Controller
 }
 
-func New() *Service {
+func New(cfg *config.Config) *Service {
 	return &Service{
-		Controller: *controller.New(),
+		Controller: *controller.New(cfg),
 	}
 }
 
-func StartGRPCListener(tlsConfig *tls.Config, addr string) (func(ctx context.Context) error, controller.Service, error) {
-	s := New()
+func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
+	s := New(cfg)
 
 	creds := credentials.NewTLS(tlsConfig)
 

@@ -22,23 +22,33 @@ func init() {
 }
 
 func (c *Core) detectLogType(newLog string) {
-	message := ""
-	level := ""
+	if c.logger == nil {
+		return
+	}
 
-	// Find the matches
+	level := nodeLogger.LogDebug
+
+	// Find the matches to detect log level
 	matches := re.FindStringSubmatch(newLog)
 	if len(matches) > 3 {
-		level = strings.Trim(matches[3], "[]")
-		message = matches[4]
-	} else {
-		message = newLog
+		detectedLevel := strings.Trim(matches[3], "[]")
+		// Map xray log levels to our logger levels
+		switch strings.ToLower(detectedLevel) {
+		case "error":
+			level = nodeLogger.LogError
+		case "warning":
+			level = nodeLogger.LogWarning
+		case "info":
+			level = nodeLogger.LogInfo
+		case "debug":
+			level = nodeLogger.LogDebug
+		default:
+			level = nodeLogger.LogDebug
+		}
 	}
 
-	if level == "" {
-		level = "Debug"
-	}
-
-	nodeLogger.Log(level, message)
+	// Log the complete original message
+	c.logger.Log(level, newLog)
 }
 
 func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {

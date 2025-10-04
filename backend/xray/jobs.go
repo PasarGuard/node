@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
-
-	nodeLogger "github.com/pasarguard/node/logger"
 )
 
 func (x *Xray) checkXrayStatus() error {
@@ -70,9 +69,9 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 
 				// Handle other errors by attempting restart
 				if err = x.Restart(); err != nil {
-					nodeLogger.Log(nodeLogger.LogError, err.Error())
+					log.Println(err.Error())
 				} else {
-					nodeLogger.Log(nodeLogger.LogInfo, "xray restarted")
+					log.Println("xray restarted")
 				}
 			}
 		}

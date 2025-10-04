@@ -8,19 +8,27 @@ import (
 	"sync"
 )
 
-var (
-	outputLogs    = false
+const (
+	LogDebug    = "Debug"
+	LogInfo     = "Info"
+	LogWarning  = "Warning"
+	LogError    = "Error"
+	LogCritical = "Critical"
+)
+
+type Logger struct {
+	outputLogs    bool
 	accessLogFile *os.File
 	errorLogFile  *os.File
 	accessLogger  *log.Logger
 	errorLogger   *log.Logger
-	mutex         sync.Mutex
-)
+	mu            sync.Mutex
+}
 
-func SetOutputMode(mode bool) {
-	mutex.Lock()
-	defer mutex.Unlock()
-	outputLogs = mode
+func New(outputLogs bool) *Logger {
+	return &Logger{
+		outputLogs: outputLogs,
+	}
 }
 
 func openLogFile(path string) (*os.File, error) {
@@ -30,7 +38,7 @@ func openLogFile(path string) (*os.File, error) {
 
 	// Ensure the directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil { // Creates all necessary parent directories
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
 
@@ -42,53 +50,59 @@ func openLogFile(path string) (*os.File, error) {
 	return f, nil
 }
 
-func SetLogFile(accessPath, errorPath string) error {
-	mutex.Lock()
-	defer mutex.Unlock()
+func (l *Logger) SetLogFile(accessPath, errorPath string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
 	var err error
 
-	if accessLogFile, err = openLogFile(accessPath); err != nil {
+	if l.accessLogFile, err = openLogFile(accessPath); err != nil {
 		return fmt.Errorf("failed to open access log: %w", err)
 	}
-	if accessLogFile != nil {
-		accessLogger = log.New(accessLogFile, "", log.LstdFlags)
+	if l.accessLogFile != nil {
+		l.accessLogger = log.New(l.accessLogFile, "", log.LstdFlags)
 	}
 
-	if errorLogFile, err = openLogFile(errorPath); err != nil {
+	if l.errorLogFile, err = openLogFile(errorPath); err != nil {
 		return fmt.Errorf("failed to open error log: %w", err)
 	}
-	if errorLogFile != nil {
-		errorLogger = log.New(errorLogFile, "", log.LstdFlags)
+	if l.errorLogFile != nil {
+		l.errorLogger = log.New(l.errorLogFile, "", log.LstdFlags)
 	}
 
 	return nil
 }
 
-const (
-	LogDebug    = "Debug"
-	LogInfo     = "Info"
-	LogWarning  = "Warning"
-	LogError    = "Error"
-	LogCritical = "Critical"
-)
+func (l *Logger) Log(level, message string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-func logMessage(logger *log.Logger, level, message string) {
-	if logger == nil {
-		return
-	}
-	logger.Printf("[%s] %s\n", level, message)
-}
-
-func Log(level, message string) {
-	formattedMessage := fmt.Sprintf("[%s] %s", level, message)
 	switch level {
 	case LogError, LogCritical:
-		logMessage(errorLogger, level, message)
+		if l.errorLogger != nil {
+			l.errorLogger.Println(message)
+		}
 	default:
-		logMessage(accessLogger, level, message)
+		if l.accessLogger != nil {
+			l.accessLogger.Println(message)
+		}
 	}
-	if outputLogs {
-		log.Println(formattedMessage)
+
+	if l.outputLogs {
+		log.Printf("[%s] %s", level, message)
+	}
+}
+
+func (l *Logger) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.accessLogFile != nil {
+		l.accessLogFile.Close()
+		l.accessLogFile = nil
+	}
+	if l.errorLogFile != nil {
+		l.errorLogFile.Close()
+		l.errorLogFile = nil
 	}
 }

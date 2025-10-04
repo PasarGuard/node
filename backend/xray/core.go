@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/pasarguard/node/config"
 	nodeLogger "github.com/pasarguard/node/logger"
 )
 
@@ -25,16 +24,17 @@ type Core struct {
 	process        *exec.Cmd
 	restarting     bool
 	logsChan       chan string
+	logger         *nodeLogger.Logger
 	cancelFunc     context.CancelFunc
 	mu             sync.Mutex
 }
 
-func NewXRayCore(executablePath, assetsPath, configPath string) (*Core, error) {
+func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize int) (*Core, error) {
 	core := &Core{
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
 		configPath:     configPath,
-		logsChan:       make(chan string, config.LogBufferSize),
+		logsChan:       make(chan string, logBufferSize),
 	}
 
 	version, err := core.refreshVersion()
@@ -104,7 +104,7 @@ func (c *Core) Started() bool {
 	return false
 }
 
-func (c *Core) Start(xConfig *Config) error {
+func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	logConfig := xConfig.LogConfig
 	if logConfig == nil {
 		return errors.New("log config is empty")
@@ -118,7 +118,7 @@ func (c *Core) Start(xConfig *Config) error {
 	accessFile, errorFile := xConfig.RemoveLogFiles()
 
 	bytesConfig, err := xConfig.ToBytes()
-	if config.Debug {
+	if debugMode {
 		if err = c.GenerateConfigFile(bytesConfig); err != nil {
 			return err
 		}
@@ -144,7 +144,9 @@ func (c *Core) Start(xConfig *Config) error {
 		return err
 	}
 
-	if err = nodeLogger.SetLogFile(accessFile, errorFile); err != nil {
+	// Create a new logger for this core instance
+	c.logger = nodeLogger.New(debugMode)
+	if err = c.logger.SetLogFile(accessFile, errorFile); err != nil {
 		return err
 	}
 
@@ -186,10 +188,15 @@ func (c *Core) Stop() {
 		c.cancelFunc()
 	}
 
+	if c.logger != nil {
+		c.logger.Close()
+		c.logger = nil
+	}
+
 	log.Println("xray core stopped")
 }
 
-func (c *Core) Restart(config *Config) error {
+func (c *Core) Restart(config *Config, debugMode bool) error {
 	if c.restarting {
 		return errors.New("xray is already restarted")
 	}
@@ -206,7 +213,7 @@ func (c *Core) Restart(config *Config) error {
 
 	log.Println("restarting Xray core...")
 	c.Stop()
-	if err := c.Start(config); err != nil {
+	if err := c.Start(config, debugMode); err != nil {
 		return err
 	}
 	return nil

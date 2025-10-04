@@ -11,60 +11,65 @@ import (
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
 )
 
 type Xray struct {
 	config     *Config
+	cfg        *config.Config
 	core       *Core
 	handler    *api.XrayHandler
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
 }
 
-func NewXray(ctx context.Context, port int, executablePath, assetsPath, configPath string) (*Xray, error) {
-	executableAbsolutePath, err := filepath.Abs(executablePath)
+func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
+	executableAbsolutePath, err := filepath.Abs(cfg.XrayExecutablePath)
 	if err != nil {
 		return nil, err
 	}
 
-	assetsAbsolutePath, err := filepath.Abs(assetsPath)
+	assetsAbsolutePath, err := filepath.Abs(cfg.XrayAssetsPath)
 	if err != nil {
 		return nil, err
 	}
 
-	configAbsolutePath, err := filepath.Abs(configPath)
+	configAbsolutePath, err := filepath.Abs(cfg.GeneratedConfigPath)
 	if err != nil {
 		return nil, err
 	}
 
 	xCtx, xCancel := context.WithCancel(context.Background())
 
-	xray := &Xray{cancelFunc: xCancel}
+	xray := &Xray{
+		cancelFunc: xCancel,
+		cfg:        cfg,
+	}
 
 	start := time.Now()
 
-	config, ok := ctx.Value(backend.ConfigKey{}).(*Config)
+	xrayConfig, ok := ctx.Value(backend.ConfigKey{}).(*Config)
 	if !ok {
 		return nil, errors.New("xray config has not been initialized")
 	}
 
-	if err = config.ApplyAPI(port); err != nil {
+	if err = xrayConfig.ApplyAPI(port); err != nil {
 		return nil, err
 	}
 
 	users := ctx.Value(backend.UsersKey{}).([]*common.User)
-	config.syncUsers(users)
+	xrayConfig.syncUsers(users)
 
-	xray.config = config
+	xray.config = xrayConfig
 
 	log.Println("config generated in", time.Since(start).Seconds(), "second.")
 
-	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath)
+	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath, cfg.LogBufferSize)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = core.Start(config); err != nil {
+	if err = core.Start(xrayConfig, cfg.Debug); err != nil {
 		return nil, err
 	}
 
@@ -105,7 +110,7 @@ func (x *Xray) Started() bool {
 func (x *Xray) Restart() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if err := x.core.Restart(x.config); err != nil {
+	if err := x.core.Restart(x.config, x.cfg.Debug); err != nil {
 		return err
 	}
 	return nil

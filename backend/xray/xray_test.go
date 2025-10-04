@@ -11,6 +11,7 @@ import (
 
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/tools"
 )
 
@@ -91,10 +92,18 @@ func TestXrayBackend(t *testing.T) {
 		},
 	}
 
+	cfg := &config.Config{
+		XrayExecutablePath:  executablePath,
+		XrayAssetsPath:      assetsPath,
+		GeneratedConfigPath: configPath,
+		Debug:               false,
+		LogBufferSize:       1000,
+	}
+
 	ctx := context.WithValue(context.Background(), backend.ConfigKey{}, newConfig)
 	ctx = context.WithValue(ctx, backend.UsersKey{}, []*common.User{user, user2})
 
-	back, err := NewXray(ctx, tools.FindFreePort(), executablePath, assetsPath, configPath)
+	back, err := NewXray(ctx, tools.FindFreePort(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

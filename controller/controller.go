@@ -24,7 +24,7 @@ type Service interface {
 
 type Controller struct {
 	backend     backend.Backend
-	apiKey      uuid.UUID
+	cfg         *config.Config
 	apiPort     int
 	clientIP    string
 	lastRequest time.Time
@@ -33,10 +33,10 @@ type Controller struct {
 	mu          sync.RWMutex
 }
 
-func New() *Controller {
+func New(cfg *config.Config) *Controller {
 	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
-		apiKey:     config.ApiKey,
+		cfg:        cfg,
 		apiPort:    tools.FindFreePort(),
 		cancelFunc: cancel,
 	}
@@ -45,7 +45,7 @@ func New() *Controller {
 func (c *Controller) ApiKey() uuid.UUID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.apiKey
+	return c.cfg.ApiKey
 }
 
 func (c *Controller) Connect(ip string, keepAlive uint64) {
@@ -94,7 +94,7 @@ func (c *Controller) StartBackend(ctx context.Context, backendType common.Backen
 
 	switch backendType {
 	case common.BackendType_XRAY:
-		newBackend, err := xray.NewXray(ctx, c.apiPort, config.XrayExecutablePath, config.XrayAssetsPath, config.GeneratedConfigPath)
+		newBackend, err := xray.NewXray(ctx, c.apiPort, c.cfg)
 		if err != nil {
 			return err
 		}

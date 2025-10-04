@@ -18,7 +18,7 @@ import (
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
-	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/controller"
 	"github.com/pasarguard/node/tools"
 )
 
@@ -31,27 +31,36 @@ var (
 	generatedConfigPath = "../../generated/"
 	addr                = fmt.Sprintf("%s:%d", nodeHost, servicePort)
 	configPath          = "../../backend/xray/config.json"
+
+	// Shared test context
+	sharedTestCtx *testContext
 )
 
-func TestGRPCConnection(t *testing.T) {
-	config.SetEnvForTest(generatedConfigPath, apiKey)
+type testContext struct {
+	client         common.NodeServiceClient
+	ctxWithSession context.Context
+	shutdownFunc   func(ctx context.Context) error
+	service        controller.Service
+	conn           *grpc.ClientConn
+}
 
-	nodeLogger.SetOutputMode(true)
+func TestMain(m *testing.M) {
+	// Setup
+	cfg := config.NewTestConfig(generatedConfigPath, apiKey)
 
 	tlsConfig, err := tools.LoadTLSCredentials(sslCertFile, sslKeyFile)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to load TLS credentials: %v", err)
 	}
 
-	shutdownFunc, s, err := StartGRPCListener(tlsConfig, addr)
-	defer s.Disconnect()
+	shutdownFunc, s, err := StartGRPCListener(tlsConfig, addr, cfg)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to start gRPC listener: %v", err)
 	}
 
 	certPool, err := tools.LoadClientPool(sslCertFile)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to load client pool: %v", err)
 	}
 
 	creds := credentials.NewClientTLSFromCert(certPool, "")
@@ -61,50 +70,70 @@ func TestGRPCConnection(t *testing.T) {
 
 	conn, err := grpc.NewClient(addr, opts...)
 	if err != nil {
-		t.Fatalf("Failed to connect to gRPC server: %v", err)
+		log.Fatalf("Failed to connect to gRPC server: %v", err)
 	}
-	defer conn.Close()
 
 	client := common.NewNodeServiceClient(conn)
-
-	configFile, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Add SessionId to the metadata
 	md := metadata.Pairs("x-api-key", apiKey.String())
 	ctxWithSession := metadata.NewOutgoingContext(context.Background(), md)
 
-	ctx, cancel := context.WithTimeout(ctxWithSession, 5*time.Second)
-	defer cancel()
-
-	_, err = client.Start(ctx,
-		&common.Backend{
-			Type:      common.BackendType_XRAY,
-			Config:    string(configFile),
-			KeepAlive: 10,
-		})
+	configFile, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatalf("Failed to read config file: %v", err)
 	}
 
-	// test all methods
+	ctx, cancel := context.WithTimeout(ctxWithSession, 5*time.Second)
+	_, err = client.Start(ctx, &common.Backend{
+		Type:      common.BackendType_XRAY,
+		Config:    string(configFile),
+		KeepAlive: 10,
+	})
+	cancel()
+	if err != nil {
+		log.Fatalf("Failed to start backend: %v", err)
+	}
+
+	sharedTestCtx = &testContext{
+		client:         client,
+		ctxWithSession: ctxWithSession,
+		shutdownFunc:   shutdownFunc,
+		service:        s,
+		conn:           conn,
+	}
+
+	// Run tests
+	code := m.Run()
+
+	// Teardown
+	conn.Close()
+	s.Disconnect()
+
 	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetBackendStats
-	backStats, err := client.GetBackendStats(ctx, &common.Empty{})
+	if err := shutdownFunc(ctx); err != nil {
+		log.Printf("Failed to shutdown server: %v", err)
+	}
+
+	os.Exit(code)
+}
+
+func TestGRPC_GetBackendStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
+	defer cancel()
+
+	backStats, err := sharedTestCtx.client.GetBackendStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get backend stats: %v", err)
 	}
 	log.Println(backStats)
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetOutboundsStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetOutboundsStats
-	stats, err := client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_Outbounds})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_Outbounds})
 	if err != nil {
 		t.Fatalf("Failed to get outbounds stats: %v", err)
 	}
@@ -112,12 +141,13 @@ func TestGRPCConnection(t *testing.T) {
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetInboundsStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetInboundsStats
-	stats, err = client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_Inbounds})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_Inbounds})
 	if err != nil {
 		t.Fatalf("Failed to get inbounds stats: %v", err)
 	}
@@ -125,12 +155,13 @@ func TestGRPCConnection(t *testing.T) {
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetUsersStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetUsersStats
-	stats, err = client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_UsersStat})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Reset_: true, Type: common.StatType_UsersStat})
 	if err != nil {
 		t.Fatalf("Failed to get users stats: %v", err)
 	}
@@ -138,33 +169,37 @@ func TestGRPCConnection(t *testing.T) {
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetUserOnlineStats_NotFound(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetUserOnlineStats
-	_, err = client.GetUserOnlineStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
+	_, err := sharedTestCtx.client.GetUserOnlineStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
 	st, _ := status.FromError(err)
 	if st.Code() != codes.NotFound {
-		t.Fatalf("Failed to get users stats: %v", err)
+		t.Fatalf("Expected NotFound error, got: %v", err)
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetUserOnlineIpListStats_NotFound(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetUserOnlineStats
-	_, err = client.GetUserOnlineIpListStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
-	st, _ = status.FromError(err)
+	_, err := sharedTestCtx.client.GetUserOnlineIpListStats(ctx, &common.StatRequest{Name: "does-not-exist@example.com"})
+	st, _ := status.FromError(err)
 	if st.Code() != codes.NotFound {
-		t.Fatalf("Failed to get users stats: %v", err)
+		t.Fatalf("Expected NotFound error, got: %v", err)
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 10*time.Second)
+func TestGRPC_SyncUsers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 10*time.Second)
 	defer cancel()
 
-	syncUser, _ := client.SyncUser(ctx)
+	syncUser, _ := sharedTestCtx.client.SyncUser(ctx)
 
-	user := &common.User{
+	user1 := &common.User{
 		Email: "test_user1@example.com",
 		Inbounds: []string{
 			"VMESS TCP NOTLS",
@@ -190,11 +225,11 @@ func TestGRPCConnection(t *testing.T) {
 		},
 	}
 
-	if err = syncUser.Send(user); err != nil {
-		t.Fatalf("Failed to sync user: %v", err)
+	if err := syncUser.Send(user1); err != nil {
+		t.Fatalf("Failed to sync user1: %v", err)
 	}
 
-	user = &common.User{
+	user2 := &common.User{
 		Email: "test_user2@example.com",
 		Inbounds: []string{
 			"VMESS TCP NOTLS",
@@ -220,48 +255,55 @@ func TestGRPCConnection(t *testing.T) {
 		},
 	}
 
-	if err = syncUser.Send(user); err != nil {
-		t.Fatalf("Failed to sync user: %v", err)
+	if err := syncUser.Send(user2); err != nil {
+		t.Fatalf("Failed to sync user2: %v", err)
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetSpecificUserStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetStats(ctx, &common.StatRequest{Name: user.GetEmail(), Reset_: true, Type: common.StatType_UsersStat})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Name: "test_user2@example.com", Reset_: true, Type: common.StatType_UsersStat})
 	if err != nil {
 		t.Fatalf("Failed to get user stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetSpecificOutboundStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetStats(ctx, &common.StatRequest{Name: "direct", Reset_: true, Type: common.StatType_Outbound})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Name: "direct", Reset_: true, Type: common.StatType_Outbound})
 	if err != nil {
 		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetSpecificInboundStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	stats, err = client.GetStats(ctx, &common.StatRequest{Name: "Shadowsocks TCP", Reset_: true, Type: common.StatType_Inbounds})
+	stats, err := sharedTestCtx.client.GetStats(ctx, &common.StatRequest{Name: "Shadowsocks TCP", Reset_: true, Type: common.StatType_Inbounds})
 	if err != nil {
 		t.Fatalf("Failed to get inbound stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
 		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetLogsStream(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test Logs Stream
-	logs, _ := client.GetLogs(ctx, &common.Empty{})
+	logs, _ := sharedTestCtx.client.GetLogs(ctx, &common.Empty{})
 loop:
 	for {
 		newLog, err := logs.Recv()
@@ -288,12 +330,13 @@ loop:
 			fmt.Println("Log detail:", newLog.Detail)
 		}
 	}
+}
 
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
+func TestGRPC_GetSystemStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
 
-	// test GetNodeStats
-	nodeStats, err := client.GetSystemStats(ctx, &common.Empty{})
+	nodeStats, err := sharedTestCtx.client.GetSystemStats(ctx, &common.Empty{})
 	if err != nil {
 		t.Fatalf("Failed to get node stats: %v", err)
 	}
@@ -303,24 +346,19 @@ loop:
 	log.Println("cpu_cores:", nodeStats.GetCpuCores())
 	log.Println("incoming_bandwidth:", nodeStats.GetIncomingBandwidthSpeed())
 	log.Println("outgoing_bandwidth:", nodeStats.GetOutgoingBandwidthSpeed())
+}
 
-	// test keep alive
+func TestGRPC_KeepAliveTimeout(t *testing.T) {
+	// Wait for keep alive to timeout (10 seconds + buffer)
 	time.Sleep(16 * time.Second)
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = client.GetBaseInfo(ctx, &common.Empty{})
+	_, err := sharedTestCtx.client.GetBaseInfo(ctx, &common.Empty{})
 	if err != nil {
 		log.Println("info error: ", err)
 	} else {
 		t.Fatal("expected session ID error")
-	}
-
-	ctx, cancel = context.WithTimeout(ctxWithSession, 5*time.Second)
-	defer cancel()
-
-	if err = shutdownFunc(ctx); err != nil {
-		t.Fatalf("Failed to shutdown server: %v", err)
 	}
 }
