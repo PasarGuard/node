@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,7 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 		}
 
 		if err = s.Backend().SyncUser(stream.Context(), user); err != nil {
+			log.Printf("Error syncing user: %v", err)
 			return status.Errorf(codes.Internal, "failed to update user: %v", err)
 		}
 	}
