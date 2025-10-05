@@ -36,8 +36,8 @@ func (s *Service) setRouter() {
 	router.Group(func(private chi.Router) {
 		private.Use(s.checkBackendMiddleware)
 
-		router.Put("/stop", s.Stop)
-		router.Get("/logs", s.GetLogs)
+		private.Put("/stop", s.Stop)
+		private.Get("/logs", s.GetLogs)
 		// stats api
 		private.Route("/stats", func(statsGroup chi.Router) {
 			statsGroup.Get("/", s.GetStats)
