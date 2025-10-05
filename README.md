@@ -59,7 +59,7 @@ We plan to expand supported cores after the testing stage, allowing you to use a
 ### One Click
 run the following command in your shell and use node
 ```shell
-sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/node-cli.sh)" @ install
+sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
 ```
 
 ### Docker
