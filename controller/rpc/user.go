@@ -23,6 +23,8 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 			return errors.New("email is required")
 		}
 
+		log.Printf("Got user: %v", user.GetEmail())
+
 		if err = s.Backend().SyncUser(stream.Context(), user); err != nil {
 			log.Printf("Error syncing user: %v", err)
 			return status.Errorf(codes.Internal, "failed to update user: %v", err)

@@ -29,6 +29,8 @@ func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Got user: %v", user.GetEmail())
+
 	if err = s.Backend().SyncUser(r.Context(), user); err != nil {
 		log.Printf("Error syncing user: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
