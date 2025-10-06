@@ -165,8 +165,8 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	c.cancelFunc = cancel
 
 	// Start capturing process logs
-	go c.captureProcessLogs(ctxCore, stdout)
-	go c.captureProcessLogs(ctxCore, stderr)
+	go c.captureProcessLogs(ctxCore, stdout, nodeLogger.LogInfo)
+	go c.captureProcessLogs(ctxCore, stderr, nodeLogger.LogError)
 
 	return nil
 }
