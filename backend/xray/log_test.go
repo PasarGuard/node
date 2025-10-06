@@ -13,7 +13,7 @@ func TestDetectLogType(t *testing.T) {
 	tests := []struct {
 		name          string
 		logMessage    string
-		expectedLevel string
+		expectedLevel nodeLogger.LogLevel
 		expectInError bool // true if should be in error log, false if in access log
 	}{
 		{

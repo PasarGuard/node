@@ -8,12 +8,14 @@ import (
 	"sync"
 )
 
+type LogLevel string
+
 const (
-	LogDebug    = "Debug"
-	LogInfo     = "Info"
-	LogWarning  = "Warning"
-	LogError    = "Error"
-	LogCritical = "Critical"
+	LogDebug    LogLevel = "Debug"
+	LogInfo     LogLevel = "Info"
+	LogWarning  LogLevel = "Warning"
+	LogError    LogLevel = "Error"
+	LogCritical LogLevel = "Critical"
 )
 
 type Logger struct {
@@ -73,7 +75,7 @@ func (l *Logger) SetLogFile(accessPath, errorPath string) error {
 	return nil
 }
 
-func (l *Logger) Log(level, message string) {
+func (l *Logger) Log(level LogLevel, message string) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
