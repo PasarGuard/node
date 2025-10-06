@@ -22,7 +22,7 @@ type Logger struct {
 	errorLogFile  *os.File
 	accessLogger  *log.Logger
 	errorLogger   *log.Logger
-	mu            sync.Mutex
+	mu            sync.RWMutex
 }
 
 func New(outputLogs bool) *Logger {
@@ -74,8 +74,8 @@ func (l *Logger) SetLogFile(accessPath, errorPath string) error {
 }
 
 func (l *Logger) Log(level, message string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
 	switch level {
 	case LogError, LogCritical:

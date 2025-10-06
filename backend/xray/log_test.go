@@ -18,25 +18,25 @@ func TestDetectLogType(t *testing.T) {
 	}{
 		{
 			name:          "Error log",
-			logMessage:    "2024/01/15 10:30:45 [Error] failed to connect to server",
+			logMessage:    "2024/01/15 10:30:45.123456 [Error] failed to connect to server",
 			expectedLevel: nodeLogger.LogError,
 			expectInError: true,
 		},
 		{
 			name:          "Warning log",
-			logMessage:    "2024/01/15 10:30:45 [Warning] connection timeout",
+			logMessage:    "2024/01/15 10:30:45.654321 [Warning] connection timeout",
 			expectedLevel: nodeLogger.LogWarning,
 			expectInError: false,
 		},
 		{
 			name:          "Info log",
-			logMessage:    "2024/01/15 10:30:45 [Info] server started successfully",
+			logMessage:    "2024/01/15 10:30:45.789012 [Info] server started successfully",
 			expectedLevel: nodeLogger.LogInfo,
 			expectInError: false,
 		},
 		{
 			name:          "Debug log",
-			logMessage:    "2024/01/15 10:30:45 [Debug] processing request",
+			logMessage:    "2024/01/15 10:30:45.345678 [Debug] processing request",
 			expectedLevel: nodeLogger.LogDebug,
 			expectInError: false,
 		},
@@ -48,20 +48,32 @@ func TestDetectLogType(t *testing.T) {
 		},
 		{
 			name:          "Unknown level",
-			logMessage:    "2024/01/15 10:30:45 [Unknown] some message",
+			logMessage:    "2024/01/15 10:30:45.901234 [Unknown] some message",
 			expectedLevel: nodeLogger.LogDebug,
 			expectInError: false,
 		},
 		{
 			name:          "Case insensitive - ERROR",
-			logMessage:    "2024/01/15 10:30:45 [ERROR] critical failure",
+			logMessage:    "2024/01/15 10:30:45.567890 [ERROR] critical failure",
 			expectedLevel: nodeLogger.LogError,
 			expectInError: true,
 		},
 		{
 			name:          "Case insensitive - warning",
-			logMessage:    "2024/01/15 10:30:45 [warning] deprecated API used",
+			logMessage:    "2024/01/15 10:30:45.234567 [warning] deprecated API used",
 			expectedLevel: nodeLogger.LogWarning,
+			expectInError: false,
+		},
+		{
+			name:          "Real world Info log with ID",
+			logMessage:    "2025/10/06 09:07:45.488514 [Info] [1562064288] app/proxyman/inbound: connection ends > proxy/vmess/encoding: failed to read request header > EOF",
+			expectedLevel: nodeLogger.LogInfo,
+			expectInError: false,
+		},
+		{
+			name:          "Real world log with domain sniffing",
+			logMessage:    "2025/10/04 14:38:31.673612 [Info] [798316497] app/dispatcher: sniffed domain: i.instagram.com",
+			expectedLevel: nodeLogger.LogInfo,
 			expectInError: false,
 		},
 	}

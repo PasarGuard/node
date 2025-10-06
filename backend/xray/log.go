@@ -15,7 +15,7 @@ var (
 )
 
 func init() {
-	pattern := `^(\d{4}/\d{2}/\d{2}) (\d{2}:\d{2}:\d{2}) (\[.*?\]) (.*)$`
+	pattern := `^(\d{4}/\d{2}/\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?) (\[.*?\]) (.*)$`
 
 	// Compile the regex
 	re = regexp.MustCompile(pattern)
@@ -59,8 +59,8 @@ func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 			return // Exit gracefully if stop signal received
 		default:
 			output := scanner.Text()
-			c.detectLogType(output)
 			c.logsChan <- output
+			c.detectLogType(output)
 		}
 	}
 }
