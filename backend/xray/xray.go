@@ -88,7 +88,7 @@ func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
 	xray.handler = handler
 	go xray.checkXrayHealth(xCtx)
 
-	log.Println("xray started, Version:", c.Version())
+	log.Println("xray started, Version:", xray.Version())
 
 	return xray, nil
 }
