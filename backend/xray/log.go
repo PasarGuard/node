@@ -4,11 +4,28 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"regexp"
 
 	nodeLogger "github.com/pasarguard/node/logger"
 )
 
-func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader, level nodeLogger.LogLevel) {
+var (
+	// Pattern for access logs: contains "accepted" (tcp/udp) and "email:"
+	accessLogPattern = regexp.MustCompile(`from .+:\d+ accepted (tcp|udp):.+:\d+ \[.+\] email: .+`)
+)
+
+func (c *Core) detectLogType(log string) {
+	// Check if it's an access log (contains accepted + email pattern)
+	if accessLogPattern.MatchString(log) {
+		c.logger.Log(nodeLogger.LogInfo, log)
+		return
+	}
+
+	// All other logs go to error file
+	c.logger.Log(nodeLogger.LogError, log)
+}
+
+func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
 		select {
@@ -17,9 +34,7 @@ func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader, level nod
 		default:
 			output := scanner.Text()
 			c.logsChan <- output
-			if c.logger != nil {
-				c.logger.Log(level, output)
-			}
+			c.detectLogType(output)
 		}
 	}
 }

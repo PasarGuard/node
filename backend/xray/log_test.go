@@ -13,68 +13,57 @@ func TestDetectLogType(t *testing.T) {
 	tests := []struct {
 		name          string
 		logMessage    string
-		expectedLevel nodeLogger.LogLevel
 		expectInError bool // true if should be in error log, false if in access log
 	}{
 		{
-			name:          "Error log",
-			logMessage:    "2024/01/15 10:30:45.123456 [Error] failed to connect to server",
-			expectedLevel: nodeLogger.LogError,
+			name:          "Access log - TCP connection",
+			logMessage:    "2025/10/06 11:28:38.624743 from 2.187.120.79:48394 accepted tcp:www.gstatic.com:443 [REALITY_GRPC_1 -> DIRECT] email: 7.Family",
+			expectInError: false,
+		},
+		{
+			name:          "Access log - UDP connection",
+			logMessage:    "2025/10/06 11:28:38.624743 from 5.117.22.146:16425 accepted udp:dns.google.com:53 [REALITY_GRPC_1 -> DIRECT] email: 1.Myself",
+			expectInError: false,
+		},
+		{
+			name:          "Error log - Debug level",
+			logMessage:    "2025/10/06 11:28:34.717774 [Debug] app/log: Logger started",
 			expectInError: true,
 		},
 		{
-			name:          "Warning log",
+			name:          "Error log - Info level",
+			logMessage:    "2025/10/06 11:28:38.623664 [Info] [673738803] proxy/vless/inbound: firstLen = 983",
+			expectInError: true,
+		},
+		{
+			name:          "Error log - Warning level",
 			logMessage:    "2024/01/15 10:30:45.654321 [Warning] connection timeout",
-			expectedLevel: nodeLogger.LogWarning,
-			expectInError: false,
-		},
-		{
-			name:          "Info log",
-			logMessage:    "2024/01/15 10:30:45.789012 [Info] server started successfully",
-			expectedLevel: nodeLogger.LogInfo,
-			expectInError: false,
-		},
-		{
-			name:          "Debug log",
-			logMessage:    "2024/01/15 10:30:45.345678 [Debug] processing request",
-			expectedLevel: nodeLogger.LogDebug,
-			expectInError: false,
-		},
-		{
-			name:          "No level specified",
-			logMessage:    "some random log without level",
-			expectedLevel: nodeLogger.LogDebug,
-			expectInError: false,
-		},
-		{
-			name:          "Unknown level",
-			logMessage:    "2024/01/15 10:30:45.901234 [Unknown] some message",
-			expectedLevel: nodeLogger.LogDebug,
-			expectInError: false,
-		},
-		{
-			name:          "Case insensitive - ERROR",
-			logMessage:    "2024/01/15 10:30:45.567890 [ERROR] critical failure",
-			expectedLevel: nodeLogger.LogError,
 			expectInError: true,
 		},
 		{
-			name:          "Case insensitive - warning",
-			logMessage:    "2024/01/15 10:30:45.234567 [warning] deprecated API used",
-			expectedLevel: nodeLogger.LogWarning,
-			expectInError: false,
+			name:          "Error log - Error level",
+			logMessage:    "2024/01/15 10:30:45.123456 [Error] failed to connect to server",
+			expectInError: true,
 		},
 		{
-			name:          "Real world Info log with ID",
-			logMessage:    "2025/10/06 09:07:45.488514 [Info] [1562064288] app/proxyman/inbound: connection ends > proxy/vmess/encoding: failed to read request header > EOF",
-			expectedLevel: nodeLogger.LogInfo,
-			expectInError: false,
+			name:          "Error log - No level specified",
+			logMessage:    "some random log without level",
+			expectInError: true,
 		},
 		{
-			name:          "Real world log with domain sniffing",
-			logMessage:    "2025/10/04 14:38:31.673612 [Info] [798316497] app/dispatcher: sniffed domain: i.instagram.com",
-			expectedLevel: nodeLogger.LogInfo,
-			expectInError: false,
+			name:          "Error log - Unknown level",
+			logMessage:    "2024/01/15 10:30:45.901234 [Unknown] some message",
+			expectInError: true,
+		},
+		{
+			name:          "Error log - Router matcher",
+			logMessage:    "2025/10/06 11:28:34.717852 [Debug] app/router: MphDomainMatcher is enabled for 24 domain rule(s)",
+			expectInError: true,
+		},
+		{
+			name:          "Error log - Stats counter",
+			logMessage:    "2025/10/06 11:28:34.723790 [Debug] app/stats: create new counter outbound>>>DIRECT>>>traffic>>>uplink",
+			expectInError: true,
 		},
 	}
 
