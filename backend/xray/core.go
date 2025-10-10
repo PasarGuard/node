@@ -93,8 +93,6 @@ func (c *Core) Version() string {
 }
 
 func (c *Core) Started() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.process == nil || c.process.Process == nil {
 		return false
 	}
@@ -124,15 +122,24 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		}
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if already started after acquiring lock to prevent race condition
 	if c.Started() {
 		return errors.New("xray is started already")
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	// Force kill any orphaned process before starting new one
+	if c.process != nil && c.process.Process != nil {
+		_ = c.process.Process.Kill()
+		c.process = nil
+	}
 
 	cmd := exec.Command(c.executablePath, "-c", "stdin:")
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
+	// Set process attributes for proper process management
+	setProcAttributes(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -172,12 +179,12 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 }
 
 func (c *Core) Stop() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if !c.Started() {
 		return
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if c.process != nil && c.process.Process != nil {
 		_ = c.process.Process.Kill()
@@ -197,11 +204,11 @@ func (c *Core) Stop() {
 }
 
 func (c *Core) Restart(config *Config, debugMode bool) error {
-	if c.restarting {
-		return errors.New("xray is already restarted")
-	}
-
 	c.mu.Lock()
+	if c.restarting {
+		c.mu.Unlock()
+		return errors.New("xray is already restarting")
+	}
 	c.restarting = true
 	c.mu.Unlock()
 
