@@ -67,10 +67,16 @@ func StartHttpListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (
 		Handler:   s.Router,
 	}
 
+	// Test if we can listen on the port before starting the goroutine
+	listener, err := tls.Listen("tcp", addr, tlsConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	go func() {
 		log.Println("HTTP Server listening on", addr)
 		log.Println("Press Ctrl+C to stop")
-		if err := httpServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()

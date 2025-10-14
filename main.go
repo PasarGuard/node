@@ -39,6 +39,9 @@ func main() {
 	} else {
 		shutdownFunc, service, err = rpc.StartGRPCListener(tlsConfig, addr, cfg)
 	}
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	defer service.Disconnect()
 
