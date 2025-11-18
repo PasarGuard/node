@@ -29,7 +29,6 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 			return
 		}
 
-		s.NewRequest()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -59,5 +58,18 @@ func LogRequest(next http.Handler) http.Handler {
 		next.ServeHTTP(ww, r)
 
 		log.Println(fmt.Sprintf("[API] %s, %s, %s, %d", r.RemoteAddr, r.Method, r.URL.Path, ww.Status()))
+	})
+}
+
+func (s *Service) trackSuccessfulRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		next.ServeHTTP(ww, r)
+
+		// Only track successful requests (status codes 200-299)
+		if status := ww.Status(); status >= 200 && status < 300 {
+			s.NewRequest()
+		}
 	})
 }

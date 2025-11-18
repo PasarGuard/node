@@ -28,6 +28,7 @@ func (s *Service) setRouter() {
 	// Api Handlers
 	router.Use(LogRequest)
 	router.Use(s.validateApiKey)
+	router.Use(s.trackSuccessfulRequest)
 	router.Use(middleware.Recoverer)
 
 	router.Post("/start", s.Start)

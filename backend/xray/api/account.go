@@ -61,7 +61,7 @@ type VlessAccount struct {
 }
 
 func (va *VlessAccount) Message() (*serial.TypedMessage, error) {
-	return ToTypedMessage(&vless.Account{Id: va.ID.String(), Flow: va.Flow})
+	return ToTypedMessage(&vless.Account{Id: va.ID.String(), Flow: va.Flow, Reverse: nil})
 }
 
 func NewVlessAccount(user *common.User) (*VlessAccount, error) {
