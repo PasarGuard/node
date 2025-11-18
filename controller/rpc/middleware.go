@@ -40,7 +40,6 @@ func validateApiKey(ctx context.Context, s *Service) error {
 		return status.Errorf(codes.PermissionDenied, "api key mismatch")
 	}
 
-	s.NewRequest()
 	return nil
 }
 
@@ -135,22 +134,29 @@ func logRequest(ctx context.Context, method string, err error) {
 	}
 }
 
-func LoggingInterceptor(
-	ctx context.Context,
-	req interface{},
-	info *grpc.UnaryServerInfo,
-	handler grpc.UnaryHandler,
-) (interface{}, error) {
-	// Handle the request
-	resp, err := handler(ctx, req)
+func LoggingInterceptor(s *Service) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		// Handle the request
+		resp, err := handler(ctx, req)
 
-	// Log the request
-	logRequest(ctx, info.FullMethod, err)
+		// Log the request
+		logRequest(ctx, info.FullMethod, err)
 
-	return resp, err
+		// Track successful requests
+		if err == nil {
+			s.NewRequest()
+		}
+
+		return resp, err
+	}
 }
 
-func LoggingStreamInterceptor() grpc.StreamServerInterceptor {
+func LoggingStreamInterceptor(s *Service) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{},
 		ss grpc.ServerStream,
@@ -168,6 +174,11 @@ func LoggingStreamInterceptor() grpc.StreamServerInterceptor {
 
 		// Log the request
 		logRequest(ss.Context(), info.FullMethod, err)
+
+		// Track successful requests
+		if err == nil {
+			s.NewRequest()
+		}
 
 		return err
 	}
@@ -194,7 +205,7 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	) (interface{}, error) {
 		var interceptors []grpc.UnaryServerInterceptor
 
-		interceptors = append(interceptors, LoggingInterceptor)
+		interceptors = append(interceptors, LoggingInterceptor(s))
 
 		interceptors = append(interceptors, validateApiKeyMiddleware(s))
 
@@ -216,7 +227,7 @@ func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	) error {
 		var interceptors []grpc.StreamServerInterceptor
 
-		interceptors = append(interceptors, LoggingStreamInterceptor())
+		interceptors = append(interceptors, LoggingStreamInterceptor(s))
 
 		interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
 

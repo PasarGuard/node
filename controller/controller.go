@@ -113,11 +113,14 @@ func (c *Controller) Backend() backend.Backend {
 }
 
 func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Duration) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-ticker.C:
 			c.mu.RLock()
 			lastRequest := c.lastRequest
 			c.mu.RUnlock()
@@ -125,7 +128,6 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 				log.Println("disconnect automatically due to keep alive timeout")
 				c.Disconnect()
 			}
-			time.Sleep(5 * time.Second)
 		}
 	}
 }
