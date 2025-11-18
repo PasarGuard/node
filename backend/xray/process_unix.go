@@ -1,0 +1,205 @@
+//go:build !windows
+
+package xray
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+)
+
+// findXrayProcesses finds all running xray processes by executable path
+// Returns process information including PID, PPID, and zombie state
+func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
+	absPath, err := filepath.Abs(executablePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use ps to find processes with PID, PPID, state, and command
+	cmd := exec.Command("ps", "-eo", "pid,ppid,state,comm")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list processes: %w", err)
+	}
+
+	var processes []ProcessInfo
+	lines := strings.Split(string(output), "\n")
+	executableName := filepath.Base(absPath)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "PID") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		pidStr := fields[0]
+		ppidStr := fields[1]
+		state := fields[2]
+		comm := fields[3]
+
+		// Check if this is an xray process
+		if comm != executableName {
+			continue
+		}
+
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+
+		ppid, err := strconv.Atoi(ppidStr)
+		if err != nil {
+			continue
+		}
+
+		// Verify it's actually the same executable by checking full path
+		procPath, err := getProcessPath(pid)
+		if err != nil {
+			continue
+		}
+
+		procAbsPath, err := filepath.Abs(procPath)
+		if err != nil {
+			continue
+		}
+
+		if procAbsPath == absPath {
+			// Check if process is zombie (state 'Z' in ps output)
+			isZombie := state == "Z" || state == "z"
+
+			processes = append(processes, ProcessInfo{
+				PID:      pid,
+				PPID:     ppid,
+				IsZombie: isZombie,
+			})
+		}
+	}
+
+	return processes, nil
+}
+
+// getProcessPath gets the full path of a process by PID on Unix
+func getProcessPath(pid int) (string, error) {
+	// Read from /proc/PID/exe symlink
+	procPath := fmt.Sprintf("/proc/%d/exe", pid)
+	path, err := os.Readlink(procPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read process path: %w", err)
+	}
+	return path, nil
+}
+
+// killProcessTree kills a process and all its children on Unix
+func killProcessTree(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find process %d: %w", pid, err)
+	}
+
+	// Try graceful termination first (SIGTERM)
+	err = proc.Signal(syscall.SIGTERM)
+	if err != nil {
+		// Process might already be dead
+	}
+
+	// Wait a bit for graceful shutdown
+	// Note: We can't easily wait here without blocking, so we'll just try SIGKILL after
+
+	// Get process group ID and kill the whole group
+	// First, try to get the pgid
+	pgid, err := getProcessGroupID(pid)
+	if err == nil && pgid != 0 {
+		// Kill the entire process group
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		// Give it a moment
+		// Then force kill
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	}
+
+	// Also kill the specific process
+	_ = proc.Signal(syscall.SIGKILL)
+
+	// Verify it's dead
+	if !isProcessRunning(pid) {
+		return nil
+	}
+
+	return fmt.Errorf("process %d is still running after kill attempt", pid)
+}
+
+// getProcessGroupID gets the process group ID for a process
+func getProcessGroupID(pid int) (int, error) {
+	// Read from /proc/PID/stat
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	data, err := os.ReadFile(statPath)
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse stat file - format: pid comm state ppid pgrp ...
+	fields := strings.Fields(string(data))
+	if len(fields) < 5 {
+		return 0, fmt.Errorf("invalid stat format")
+	}
+
+	pgid, err := strconv.Atoi(fields[4])
+	if err != nil {
+		return 0, err
+	}
+
+	return pgid, nil
+}
+
+// verifyProcessDead checks if a process is actually dead
+func verifyProcessDead(pid int) error {
+	if !isProcessRunning(pid) {
+		return nil
+	}
+	return fmt.Errorf("process %d is still running", pid)
+}
+
+// isProcessRunning checks if a process is still running
+func isProcessRunning(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+
+	// Try to signal the process - if it fails, it's likely dead
+	err = proc.Signal(syscall.Signal(0))
+	return err == nil
+}
+
+// isProcessZombie checks if a process is a zombie on Unix
+// This is already handled in findXrayProcesses by checking the state field
+// But we provide this function for consistency
+func isProcessZombie(pid int) bool {
+	// Read from /proc/PID/stat to get process state
+	statPath := fmt.Sprintf("/proc/%d/stat", pid)
+	data, err := os.ReadFile(statPath)
+	if err != nil {
+		return false
+	}
+
+	// Parse stat file - format: pid comm state ppid ...
+	fields := strings.Fields(string(data))
+	if len(fields) < 3 {
+		return false
+	}
+
+	// State is the 3rd field (index 2)
+	// 'Z' means zombie process
+	state := fields[2]
+	return state == "Z" || state == "z"
+}
+

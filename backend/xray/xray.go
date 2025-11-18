@@ -124,12 +124,18 @@ func (x *Xray) Shutdown() {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 
+	// Cancel context first to stop health checks and other goroutines
 	x.cancelFunc()
 
+	// Stop core (this now waits for process termination)
 	if x.core != nil {
 		x.core.Stop()
 	}
+
+	// Close API handler
 	if x.handler != nil {
 		x.handler.Close()
 	}
+
+	// Shutdown is now complete - all resources are cleaned up
 }

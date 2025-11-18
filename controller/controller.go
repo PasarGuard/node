@@ -66,11 +66,18 @@ func (c *Controller) Disconnect() {
 	c.cancelFunc()
 
 	c.mu.Lock()
+	backend := c.backend
+	c.mu.Unlock()
+
+	// Shutdown backend outside of lock to avoid deadlock
+	// Shutdown() will wait for process termination to complete
+	if backend != nil {
+		backend.Shutdown()
+	}
+
+	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.backend != nil {
-		c.backend.Shutdown()
-	}
 	c.backend = nil
 	c.apiPort = tools.FindFreePort()
 	c.clientIP = ""

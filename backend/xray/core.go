@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"time"
 
 	nodeLogger "github.com/pasarguard/node/logger"
 )
@@ -22,6 +23,7 @@ type Core struct {
 	configPath     string
 	version        string
 	process        *exec.Cmd
+	processPID     int
 	restarting     bool
 	logsChan       chan string
 	logger         *nodeLogger.Logger
@@ -130,10 +132,18 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		return errors.New("xray is started already")
 	}
 
-	// Force kill any orphaned process before starting new one
+	// Clean up any orphaned xray processes before starting new one
+	if err := c.cleanupOrphanedProcesses(); err != nil {
+		log.Printf("warning: failed to cleanup orphaned processes: %v", err)
+	}
+
+	// Force kill any orphaned process in this Core instance before starting new one
 	if c.process != nil && c.process.Process != nil {
+		pid := c.process.Process.Pid
 		_ = c.process.Process.Kill()
+		_ = killProcessTree(pid)
 		c.process = nil
+		c.processPID = 0
 	}
 
 	cmd := exec.Command(c.executablePath, "-c", "stdin:")
@@ -162,6 +172,7 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		return err
 	}
 	c.process = cmd
+	c.processPID = cmd.Process.Pid
 
 	// Wait for the process to exit to prevent zombie processes
 	go func() {
@@ -187,9 +198,36 @@ func (c *Core) Stop() {
 	}
 
 	if c.process != nil && c.process.Process != nil {
+		pid := c.process.Process.Pid
+		c.processPID = pid
+
+		// Kill the process
 		_ = c.process.Process.Kill()
+
+		// Wait for process to terminate with timeout
+		done := make(chan error, 1)
+		go func() {
+			done <- c.process.Wait()
+		}()
+
+		select {
+		case <-done:
+			// Process terminated
+		case <-time.After(5 * time.Second):
+			// Timeout - try force kill
+			log.Printf("xray process %d did not terminate within timeout, force killing", pid)
+			_ = killProcessTree(pid)
+		}
+
+		// Verify process is actually dead
+		if err := verifyProcessDead(pid); err != nil {
+			log.Printf("warning: xray process %d may still be running: %v", pid, err)
+			// Try one more time to kill it
+			_ = killProcessTree(pid)
+		}
 	}
 	c.process = nil
+	c.processPID = 0
 
 	if c.cancelFunc != nil {
 		c.cancelFunc()
@@ -230,4 +268,63 @@ func (c *Core) Logs() chan string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.logsChan
+}
+
+// ProcessInfo holds information about a process
+type ProcessInfo struct {
+	PID      int
+	PPID     int
+	IsZombie bool
+}
+
+// cleanupOrphanedProcesses finds and kills xray processes that are:
+// 1. Zombie processes (orphaned from their parent)
+// 2. Processes where the node itself is the parent (PPID matches node PID)
+func (c *Core) cleanupOrphanedProcesses() error {
+	processes, err := findXrayProcesses(c.executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to find xray processes: %w", err)
+	}
+
+	currentPID := 0
+	if c.process != nil && c.process.Process != nil {
+		currentPID = c.process.Process.Pid
+	}
+
+	// Get current node process PID
+	nodePID := os.Getpid()
+
+	killedCount := 0
+	for _, procInfo := range processes {
+		// Skip current process if it exists
+		if procInfo.PID == currentPID {
+			continue
+		}
+
+		// Only kill processes that are:
+		// 1. Zombie processes
+		// 2. Processes where node is the parent (PPID matches node PID)
+		shouldKill := false
+		if procInfo.IsZombie {
+			log.Printf("found zombie xray process %d (PPID: %d), killing it", procInfo.PID, procInfo.PPID)
+			shouldKill = true
+		} else if procInfo.PPID == nodePID {
+			log.Printf("found orphaned xray process %d with node as parent (PPID: %d), killing it", procInfo.PID, procInfo.PPID)
+			shouldKill = true
+		}
+
+		if shouldKill {
+			if err := killProcessTree(procInfo.PID); err != nil {
+				log.Printf("warning: failed to kill orphaned process %d: %v", procInfo.PID, err)
+			} else {
+				killedCount++
+			}
+		}
+	}
+
+	if killedCount > 0 {
+		log.Printf("cleaned up %d orphaned xray process(es)", killedCount)
+	}
+
+	return nil
 }
