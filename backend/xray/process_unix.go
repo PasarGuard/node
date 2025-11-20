@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // findXrayProcesses finds all running xray processes by executable path
@@ -23,7 +24,7 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 
 	// Prefer /proc on Linux (works on Alpine/busybox) to avoid relying on ps flags
 	if runtime.GOOS == "linux" {
-		if procs, perr := findXrayProcessesFromProc(absPath); perr == nil {
+		if procs, perr := findXrayProcessesFromProc(absPath); perr == nil && len(procs) > 0 {
 			return procs, nil
 		}
 	}
@@ -69,20 +70,12 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 		// Verify it's actually the same executable by checking full path when possible
 		match := false
 		if procPath, err := getProcessPath(pid); err == nil {
-			if procAbsPath, err := filepath.Abs(procPath); err == nil && procAbsPath == absPath {
-				match = true
-			}
+			match = pathsMatch(procPath, absPath)
 		}
 
 		// Fallback: compare first token of the command/args
 		if !match {
-			cmdAbs, err := filepath.Abs(cmdPath)
-			if err == nil {
-				match = cmdAbs == absPath
-			}
-			if !match {
-				match = filepath.Base(cmdPath) == executableName
-			}
+			match = pathsMatch(cmdPath, absPath) || filepath.Base(cmdPath) == executableName
 		}
 
 		if !match {
@@ -124,8 +117,7 @@ func findXrayProcessesFromProc(absPath string) ([]ProcessInfo, error) {
 		if err != nil {
 			continue
 		}
-		exeAbs, err := filepath.Abs(exePath)
-		if err != nil || exeAbs != absPath {
+		if !pathsMatch(exePath, absPath) {
 			continue
 		}
 
@@ -212,9 +204,12 @@ func killProcessTree(pid int) error {
 	// Also kill the specific process
 	_ = proc.Signal(syscall.SIGKILL)
 
-	// Verify it's dead
-	if !isProcessRunning(pid) {
-		return nil
+	// Wait briefly for the process to exit
+	for i := 0; i < 10; i++ {
+		if !isProcessRunning(pid) {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return fmt.Errorf("process %d is still running after kill attempt", pid)
@@ -293,4 +288,32 @@ func isProcessZombie(pid int) bool {
 	// 'Z' means zombie process
 	state := fields[2]
 	return state == "Z" || state == "z"
+}
+
+// pathsMatch compares two executable paths, resolving symlinks and absolutizing both
+func pathsMatch(candidate, target string) bool {
+	if candidate == "" || target == "" {
+		return false
+	}
+
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+
+	if candidateAbs == targetAbs {
+		return true
+	}
+
+	candidateReal, errA := filepath.EvalSymlinks(candidateAbs)
+	targetReal, errB := filepath.EvalSymlinks(targetAbs)
+	if errA == nil && errB == nil && candidateReal == targetReal {
+		return true
+	}
+
+	return false
 }
