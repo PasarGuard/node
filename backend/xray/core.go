@@ -296,29 +296,22 @@ func (c *Core) cleanupOrphanedProcesses() error {
 
 	killedCount := 0
 	for _, procInfo := range processes {
-		// Skip current process if it exists
 		if procInfo.PID == currentPID {
 			continue
 		}
 
-		// Only kill processes that are:
-		// 1. Zombie processes
-		// 2. Processes where node is the parent (PPID matches node PID)
-		shouldKill := false
+		reason := "stale xray process from previous run"
 		if procInfo.IsZombie {
-			log.Printf("found zombie xray process %d (PPID: %d), killing it", procInfo.PID, procInfo.PPID)
-			shouldKill = true
+			reason = "zombie xray process"
 		} else if procInfo.PPID == nodePID {
-			log.Printf("found orphaned xray process %d with node as parent (PPID: %d), killing it", procInfo.PID, procInfo.PPID)
-			shouldKill = true
+			reason = fmt.Sprintf("orphaned xray process with node as parent (PPID: %d)", procInfo.PPID)
 		}
 
-		if shouldKill {
-			if err := killProcessTree(procInfo.PID); err != nil {
-				log.Printf("warning: failed to kill orphaned process %d: %v", procInfo.PID, err)
-			} else {
-				killedCount++
-			}
+		log.Printf("%s %d (PPID: %d), killing it", reason, procInfo.PID, procInfo.PPID)
+		if err := killProcessTree(procInfo.PID); err != nil {
+			log.Printf("warning: failed to kill orphaned process %d: %v", procInfo.PID, err)
+		} else {
+			killedCount++
 		}
 	}
 

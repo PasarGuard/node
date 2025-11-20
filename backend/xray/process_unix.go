@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,8 +21,15 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 		return nil, err
 	}
 
+	// Prefer /proc on Linux (works on Alpine/busybox) to avoid relying on ps flags
+	if runtime.GOOS == "linux" {
+		if procs, perr := findXrayProcessesFromProc(absPath); perr == nil {
+			return procs, nil
+		}
+	}
+
 	// Use ps to find processes with PID, PPID, state, and command
-	cmd := exec.Command("ps", "-eo", "pid,ppid,state,comm")
+	cmd := exec.Command("ps", "-eo", "pid,ppid,state,command")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list processes: %w", err)
@@ -45,12 +53,8 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 		pidStr := fields[0]
 		ppidStr := fields[1]
 		state := fields[2]
-		comm := fields[3]
 
-		// Check if this is an xray process
-		if comm != executableName {
-			continue
-		}
+		cmdPath := fields[3]
 
 		pid, err := strconv.Atoi(pidStr)
 		if err != nil {
@@ -62,27 +66,89 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 			continue
 		}
 
-		// Verify it's actually the same executable by checking full path
-		procPath, err := getProcessPath(pid)
+		// Verify it's actually the same executable by checking full path when possible
+		match := false
+		if procPath, err := getProcessPath(pid); err == nil {
+			if procAbsPath, err := filepath.Abs(procPath); err == nil && procAbsPath == absPath {
+				match = true
+			}
+		}
+
+		// Fallback: compare first token of the command/args
+		if !match {
+			cmdAbs, err := filepath.Abs(cmdPath)
+			if err == nil {
+				match = cmdAbs == absPath
+			}
+			if !match {
+				match = filepath.Base(cmdPath) == executableName
+			}
+		}
+
+		if !match {
+			continue
+		}
+
+		// Check if process is zombie (state 'Z' in ps output)
+		isZombie := state == "Z" || state == "z"
+
+		processes = append(processes, ProcessInfo{
+			PID:      pid,
+			PPID:     ppid,
+			IsZombie: isZombie,
+		})
+	}
+
+	return processes, nil
+}
+
+// findXrayProcessesFromProc scans /proc directly (Linux-only)
+func findXrayProcessesFromProc(absPath string) ([]ProcessInfo, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+
+	var processes []ProcessInfo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+
+		// Check executable path
+		exePath, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+		if err != nil {
+			continue
+		}
+		exeAbs, err := filepath.Abs(exePath)
+		if err != nil || exeAbs != absPath {
+			continue
+		}
+
+		statPath := fmt.Sprintf("/proc/%d/stat", pid)
+		data, err := os.ReadFile(statPath)
+		if err != nil {
+			continue
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) < 4 {
+			continue
+		}
+		state := fields[2]
+		ppid, err := strconv.Atoi(fields[3])
 		if err != nil {
 			continue
 		}
 
-		procAbsPath, err := filepath.Abs(procPath)
-		if err != nil {
-			continue
-		}
-
-		if procAbsPath == absPath {
-			// Check if process is zombie (state 'Z' in ps output)
-			isZombie := state == "Z" || state == "z"
-
-			processes = append(processes, ProcessInfo{
-				PID:      pid,
-				PPID:     ppid,
-				IsZombie: isZombie,
-			})
-		}
+		processes = append(processes, ProcessInfo{
+			PID:      pid,
+			PPID:     ppid,
+			IsZombie: state == "Z" || state == "z",
+		})
 	}
 
 	return processes, nil
@@ -93,10 +159,27 @@ func getProcessPath(pid int) (string, error) {
 	// Read from /proc/PID/exe symlink
 	procPath := fmt.Sprintf("/proc/%d/exe", pid)
 	path, err := os.Readlink(procPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read process path: %w", err)
+	if err == nil {
+		return path, nil
 	}
-	return path, nil
+
+	// Fallback for systems without /proc (e.g., macOS)
+	psOutput, psErr := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	if psErr != nil {
+		return "", fmt.Errorf("failed to read process path: %w (ps fallback error: %v)", err, psErr)
+	}
+
+	cmdline := strings.TrimSpace(string(psOutput))
+	if cmdline == "" {
+		return "", fmt.Errorf("failed to read process path: empty command for pid %d", pid)
+	}
+
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("failed to read process path: empty command for pid %d", pid)
+	}
+
+	return fields[0], nil
 }
 
 // killProcessTree kills a process and all its children on Unix
@@ -188,7 +271,16 @@ func isProcessZombie(pid int) bool {
 	statPath := fmt.Sprintf("/proc/%d/stat", pid)
 	data, err := os.ReadFile(statPath)
 	if err != nil {
-		return false
+		// Fallback to ps for systems without /proc
+		out, psErr := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "state=").Output()
+		if psErr != nil {
+			return false
+		}
+		state := strings.TrimSpace(string(out))
+		if state == "" {
+			return false
+		}
+		return strings.HasPrefix(state, "Z") || strings.HasPrefix(state, "z")
 	}
 
 	// Parse stat file - format: pid comm state ppid ...
@@ -202,4 +294,3 @@ func isProcessZombie(pid int) bool {
 	state := fields[2]
 	return state == "Z" || state == "z"
 }
-
