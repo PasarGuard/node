@@ -21,6 +21,6 @@
 
 # Go workspace file
 go.work
-
+xray-core/
 *.env
 *.temp
