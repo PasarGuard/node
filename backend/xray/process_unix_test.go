@@ -77,7 +77,7 @@ func resolveXrayBinary(t *testing.T) string {
 		}
 	}
 
-	t.Skip("real xray binary not found; set XRAY_EXECUTABLE_PATH to a valid xray executable")
+	t.Skip("xray binary not found; set XRAY_EXECUTABLE_PATH to a valid xray executable")
 	return ""
 }
 
