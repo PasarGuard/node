@@ -1,25 +1,26 @@
-FROM golang:1.25.1 as base
+FROM --platform=$BUILDPLATFORM golang:1.25.1-alpine AS builder
 
-WORKDIR /app
-COPY go.mod .
-COPY go.sum .
-RUN go mod download
-COPY . .
-
-FROM base as builder
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o main -ldflags="-w -s" .
-
-FROM alpine:latest
 
 RUN apk update && apk add --no-cache make
 
-RUN mkdir /app
-WORKDIR /app
-COPY --from=builder /app/main .
-COPY Makefile .
+WORKDIR /src
 
+COPY go* .
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 RUN make install_xray
+
+FROM gcr.io/distroless/static-debian12
+
+LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
+
+WORKDIR /app
+COPY --from=builder /src /app
+COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
+COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 
 ENTRYPOINT ["./main"]
