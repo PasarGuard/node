@@ -93,13 +93,14 @@ endif
 
 install_xray: update_os
 ifeq ($(UNAME_S),Linux)
+	chmod +x ./scripts/install_xray.sh
 	# Debian/Ubuntu, CentOS, Fedora, Arch → Use sudo
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		sudo bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"; \
+		sudo bash ./scripts/install_xray.sh; \
 	else \
-		bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"; \
+		bash ./scripts/install_xray.sh; \
 	fi
 
 else
