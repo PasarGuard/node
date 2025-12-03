@@ -27,7 +27,11 @@ func (x *Xray) checkXrayStatus() error {
 	for {
 		select {
 		case lastLog := <-logChan:
-			if strings.Contains(lastLog, "Xray "+version) {
+			// Check for the actual "started" message - this is more reliable
+			// Xray outputs: [Warning] core: Xray {version} started
+			if strings.Contains(lastLog, "core:") &&
+				strings.Contains(lastLog, "Xray "+version) &&
+				strings.Contains(lastLog, "started") {
 				return nil
 			}
 
@@ -52,6 +56,9 @@ func (x *Xray) checkXrayStatus() error {
 }
 
 func (x *Xray) checkXrayHealth(baseCtx context.Context) {
+	consecutiveFailures := 0
+	maxFailures := 3 // Allow a few failures before restarting
+
 	for {
 		select {
 		case <-baseCtx.Done():
@@ -59,20 +66,26 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 		default:
 			ctx, cancel := context.WithTimeout(baseCtx, time.Second*3)
 			_, err := x.GetSysStats(ctx)
-			cancel() // Always call cancel to avoid context leak
+			cancel()
 
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
-					// Context was canceled due to x.ctx cancellation
-					return // Exit gracefully
+					return
 				}
 
-				// Handle other errors by attempting restart
-				if err = x.Restart(); err != nil {
-					log.Println(err.Error())
-				} else {
-					log.Println("xray restarted")
+				consecutiveFailures++
+				// Only restart after multiple consecutive failures
+				if consecutiveFailures >= maxFailures {
+					log.Printf("xray health check failed %d times, restarting...", consecutiveFailures)
+					if err = x.Restart(); err != nil {
+						log.Println(err.Error())
+					} else {
+						log.Println("xray restarted")
+						consecutiveFailures = 0 // Reset counter after restart
+					}
 				}
+			} else {
+				consecutiveFailures = 0 // Reset on success
 			}
 		}
 		time.Sleep(time.Second * 5)
