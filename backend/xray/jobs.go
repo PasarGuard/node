@@ -27,7 +27,7 @@ func (x *Xray) checkXrayStatus() error {
 	for {
 		select {
 		case lastLog := <-logChan:
-			if strings.Contains(lastLog, "Xray "+version+" started") {
+			if strings.Contains(lastLog, "Xray "+version) {
 				return nil
 			}
 

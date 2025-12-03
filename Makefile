@@ -97,9 +97,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		sudo bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"; \
+		sudo bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh)"; \
 	else \
-		bash -c "$$(curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh)"; \
+		bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh)"; \
 	fi
 
 else
