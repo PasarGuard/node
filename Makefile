@@ -93,7 +93,6 @@ endif
 
 install_xray: update_os
 ifeq ($(UNAME_S),Linux)
-	chmod +x ./scripts/install_xray.sh
 	# Debian/Ubuntu, CentOS, Fedora, Arch → Use sudo
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
