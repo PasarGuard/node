@@ -208,3 +208,14 @@ func waitForProcesses(exe string, children []struct {
 		t.Fatalf("missing xray PIDs in process list after wait: %v", keys(want))
 	}
 }
+
+func TestFindXrayProcessesReturnsEmptyWhenNoMatch(t *testing.T) {
+	// Use a clearly non-existent executable path; expect empty results, no error.
+	procs, err := findXrayProcesses("/nonexistent/xray/path/doesnotexist")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(procs) != 0 {
+		t.Fatalf("expected zero processes, got %d", len(procs))
+	}
+}

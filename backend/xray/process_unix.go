@@ -24,7 +24,8 @@ func findXrayProcesses(executablePath string) ([]ProcessInfo, error) {
 
 	// Prefer /proc on Linux (works on Alpine/busybox) to avoid relying on ps flags
 	if runtime.GOOS == "linux" {
-		if procs, perr := findXrayProcessesFromProc(absPath); perr == nil && len(procs) > 0 {
+		if procs, perr := findXrayProcessesFromProc(absPath); perr == nil {
+			// /proc is authoritative; even if empty, that's a valid result
 			return procs, nil
 		}
 	}
