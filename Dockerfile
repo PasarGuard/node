@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_xray
 
-FROM gcr.io/distroless/static-debian12
+FROM alpine:latest
 
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
