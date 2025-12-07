@@ -4,25 +4,9 @@ LDFLAGS = -s -w -buildid=
 PARAMS = -trimpath -ldflags "$(LDFLAGS)" -v
 MAIN = ./main.go
 PREFIX ?= $(shell go env GOPATH)
-XRAY_OS ?= $(GOOS)
-XRAY_ARCH ?= $(shell \
-	case "$(GOARCH)" in \
-		amd64) echo "64" ;; \
-		386) echo "32" ;; \
-		arm64) echo "arm64-v8a" ;; \
-		armv7|arm) echo "arm32-v7a" ;; \
-		armv6) echo "arm32-v6" ;; \
-		armv5) echo "arm32-v5" ;; \
-		mips) echo "mips32" ;; \
-		mipsle) echo "mips32le" ;; \
-		mips64) echo "mips64" ;; \
-		mips64le) echo "mips64le" ;; \
-		ppc64) echo "ppc64" ;; \
-		ppc64le) echo "ppc64le" ;; \
-		riscv64) echo "riscv64" ;; \
-		s390x) echo "s390x" ;; \
-		*) echo "" ;; \
-	esac)
+XRAY_OS ?=
+XRAY_ARCH ?=
+XRAY_INSTALL_ARGS := $(strip $(if $(XRAY_OS),--os $(XRAY_OS)) $(if $(XRAY_ARCH),--arch $(XRAY_ARCH)))
 
 ifeq ($(GOOS),windows)
 OUTPUT = $(NAME).exe
@@ -116,9 +100,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		sudo XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) --os $${XRAY_OS} --arch $${XRAY_ARCH}"; \
+		sudo XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
 	else \
-		XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) --os $${XRAY_OS} --arch $${XRAY_ARCH}"; \
+		XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
 	fi
 
 else
