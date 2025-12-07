@@ -6,28 +6,25 @@ MAIN = ./main.go
 PREFIX ?= $(shell go env GOPATH)
 XRAY_OS ?=
 XRAY_ARCH ?=
-# Derive arch flag from GOARCH when not explicitly provided (helps cross-builds)
-XRAY_ARCH_DERIVED := $(shell \
-	case "$(GOARCH)" in \
-		amd64) echo "64" ;; \
-		386) echo "32" ;; \
-		arm64) echo "arm64-v8a" ;; \
-		armv7|arm) echo "arm32-v7a" ;; \
-		armv6) echo "arm32-v6" ;; \
-		armv5) echo "arm32-v5" ;; \
-		mips) echo "mips32" ;; \
-		mipsle) echo "mips32le" ;; \
-		mips64) echo "mips64" ;; \
-		mips64le) echo "mips64le" ;; \
-		ppc64) echo "ppc64" ;; \
-		ppc64le) echo "ppc64le" ;; \
-		riscv64) echo "riscv64" ;; \
-		s390x) echo "s390x" ;; \
-		*) echo "" ;; \
-	esac)
+# Map GOARCH to installer arch flag (pure make vars to avoid shell leakage)
+XRAY_ARCH_MAP_amd64   = 64
+XRAY_ARCH_MAP_386     = 32
+XRAY_ARCH_MAP_arm64   = arm64-v8a
+XRAY_ARCH_MAP_armv7   = arm32-v7a
+XRAY_ARCH_MAP_arm     = arm32-v7a
+XRAY_ARCH_MAP_armv6   = arm32-v6
+XRAY_ARCH_MAP_armv5   = arm32-v5
+XRAY_ARCH_MAP_mips    = mips32
+XRAY_ARCH_MAP_mipsle  = mips32le
+XRAY_ARCH_MAP_mips64  = mips64
+XRAY_ARCH_MAP_mips64le= mips64le
+XRAY_ARCH_MAP_ppc64   = ppc64
+XRAY_ARCH_MAP_ppc64le = ppc64le
+XRAY_ARCH_MAP_riscv64 = riscv64
+XRAY_ARCH_MAP_s390x   = s390x
 
 XRAY_OS_EFFECTIVE   := $(if $(XRAY_OS),$(XRAY_OS),$(GOOS))
-XRAY_ARCH_EFFECTIVE := $(if $(XRAY_ARCH),$(XRAY_ARCH),$(XRAY_ARCH_DERIVED))
+XRAY_ARCH_EFFECTIVE := $(if $(XRAY_ARCH),$(XRAY_ARCH),$(XRAY_ARCH_MAP_$(GOARCH)))
 XRAY_INSTALL_ARGS   := $(strip $(if $(XRAY_OS_EFFECTIVE),--os $(XRAY_OS_EFFECTIVE)) $(if $(XRAY_ARCH_EFFECTIVE),--arch $(XRAY_ARCH_EFFECTIVE)))
 
 ifeq ($(GOOS),windows)
@@ -122,9 +119,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		sudo bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
+		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | sudo bash -s -- $(XRAY_INSTALL_ARGS); \
 	else \
-		bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
+		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- $(XRAY_INSTALL_ARGS); \
 	fi
 
 else
