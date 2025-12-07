@@ -6,7 +6,29 @@ MAIN = ./main.go
 PREFIX ?= $(shell go env GOPATH)
 XRAY_OS ?=
 XRAY_ARCH ?=
-XRAY_INSTALL_ARGS := $(strip $(if $(XRAY_OS),--os $(XRAY_OS)) $(if $(XRAY_ARCH),--arch $(XRAY_ARCH)))
+# Derive arch flag from GOARCH when not explicitly provided (helps cross-builds)
+XRAY_ARCH_DERIVED := $(shell \
+	case "$(GOARCH)" in \
+		amd64) echo "64" ;; \
+		386) echo "32" ;; \
+		arm64) echo "arm64-v8a" ;; \
+		armv7|arm) echo "arm32-v7a" ;; \
+		armv6) echo "arm32-v6" ;; \
+		armv5) echo "arm32-v5" ;; \
+		mips) echo "mips32" ;; \
+		mipsle) echo "mips32le" ;; \
+		mips64) echo "mips64" ;; \
+		mips64le) echo "mips64le" ;; \
+		ppc64) echo "ppc64" ;; \
+		ppc64le) echo "ppc64le" ;; \
+		riscv64) echo "riscv64" ;; \
+		s390x) echo "s390x" ;; \
+		*) echo "" ;; \
+	esac)
+
+XRAY_OS_EFFECTIVE   := $(if $(XRAY_OS),$(XRAY_OS),$(GOOS))
+XRAY_ARCH_EFFECTIVE := $(if $(XRAY_ARCH),$(XRAY_ARCH),$(XRAY_ARCH_DERIVED))
+XRAY_INSTALL_ARGS   := $(strip $(if $(XRAY_OS_EFFECTIVE),--os $(XRAY_OS_EFFECTIVE)) $(if $(XRAY_ARCH_EFFECTIVE),--arch $(XRAY_ARCH_EFFECTIVE)))
 
 ifeq ($(GOOS),windows)
 OUTPUT = $(NAME).exe
@@ -100,9 +122,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		sudo XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
+		sudo bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
 	else \
-		XRAY_OS=$(XRAY_OS) XRAY_ARCH=$(XRAY_ARCH) bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
+		bash -c "$$(curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh) $(XRAY_INSTALL_ARGS)"; \
 	fi
 
 else
