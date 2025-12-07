@@ -12,7 +12,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
-RUN make install_xray
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_xray
 
 FROM gcr.io/distroless/static-debian12
 
