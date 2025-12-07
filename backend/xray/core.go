@@ -300,11 +300,20 @@ func (c *Core) cleanupOrphanedProcesses() error {
 			continue
 		}
 
-		reason := "stale xray process from previous run"
-		if procInfo.IsZombie {
-			reason = "zombie xray process"
+		// Only clean up processes we own (parented by this node process)
+		// or zombies that have been reparented to init (no real parent).
+		kill := false
+		reason := ""
+		if procInfo.IsZombie && (procInfo.PPID == 0 || procInfo.PPID == 1) {
+			kill = true
+			reason = "zombie xray process without parent"
 		} else if procInfo.PPID == nodePID {
+			kill = true
 			reason = fmt.Sprintf("orphaned xray process with node as parent (PPID: %d)", procInfo.PPID)
+		}
+
+		if !kill {
+			continue
 		}
 
 		log.Printf("%s %d (PPID: %d), killing it", reason, procInfo.PID, procInfo.PPID)
