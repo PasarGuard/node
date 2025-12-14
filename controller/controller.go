@@ -16,7 +16,7 @@ import (
 	"github.com/pasarguard/node/tools"
 )
 
-const NodeVersion = "0.1.3"
+const NodeVersion = "0.1.4"
 
 type Service interface {
 	Disconnect()
