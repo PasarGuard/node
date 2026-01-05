@@ -29,11 +29,15 @@ func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (
 
 	creds := credentials.NewTLS(tlsConfig)
 
+	const maxGRPCMessageSize = 64 * 1024 * 1024 // 64MB to support large Backend and Users payloads
+
 	// Create the gRPC server with conditional middleware
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(ConditionalMiddleware(s)),
 		grpc.StreamInterceptor(ConditionalStreamMiddleware(s)),
+		grpc.MaxRecvMsgSize(maxGRPCMessageSize),
+		grpc.MaxSendMsgSize(maxGRPCMessageSize),
 	)
 
 	// Register the service

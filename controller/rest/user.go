@@ -1,6 +1,9 @@
 package rest
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -10,66 +13,94 @@ import (
 	"github.com/pasarguard/node/common"
 )
 
-func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
+const (
+	requestChunkSize = 64 * 1024 // 64KB streaming chunks
+)
 
+func readRequestBody(body io.ReadCloser) ([]byte, error) {
+	defer body.Close()
+
+	var buf bytes.Buffer
+	tmp := make([]byte, requestChunkSize)
+	for {
+		n, err := body.Read(tmp)
+		if n > 0 {
+			if _, werr := buf.Write(tmp[:n]); werr != nil {
+				return nil, werr
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if buf.Len() == 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+
+	return buf.Bytes(), nil
+}
+
+func decodeUsersPayload(data []byte) ([]*common.User, error) {
+	if len(data) == 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+
+	// First try a Users envelope for batch updates.
+	users := &common.Users{}
+	if err := proto.Unmarshal(data, users); err == nil && len(users.GetUsers()) > 0 {
+		return users.GetUsers(), nil
+	}
+
+	// Fallback to single user payload.
 	user := &common.User{}
-	if err = proto.Unmarshal(body, user); err != nil {
-		http.Error(w, "Failed to decode user", http.StatusBadRequest)
+	if err := proto.Unmarshal(data, user); err == nil && user.GetEmail() != "" {
+		return []*common.User{user}, nil
+	}
+
+	return nil, fmt.Errorf("failed to decode user payload")
+}
+
+func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
+	body, err := readRequestBody(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	if user == nil {
-		http.Error(w, "no user received", http.StatusBadRequest)
+	users, err := decodeUsersPayload(body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to decode user payload: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Got user: %v", user.GetEmail())
+	for _, user := range users {
+		log.Printf("Got user: %v", user.GetEmail())
 
-	if err = s.Backend().SyncUser(r.Context(), user); err != nil {
-		log.Printf("Error syncing user: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		if err = s.Backend().SyncUser(r.Context(), user); err != nil {
+			log.Printf("Error syncing user: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	response, _ := proto.Marshal(&common.Empty{})
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	if _, err = w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
+	common.SendProtoResponse(w, &common.Empty{})
 }
 
 func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
 	users := &common.Users{}
-	if err = proto.Unmarshal(body, users); err != nil {
-		http.Error(w, "Failed to decode user", http.StatusBadRequest)
+	if err := common.ReadProtoBody(r.Body, users); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to decode user payload: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	if err = s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
+	if err := s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	response, _ := proto.Marshal(&common.Empty{})
-
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	if _, err = w.Write(response); err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
+	common.SendProtoResponse(w, &common.Empty{})
 }

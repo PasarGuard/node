@@ -1,8 +1,10 @@
 package common
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -13,17 +15,31 @@ import (
 )
 
 func ReadProtoBody(body io.ReadCloser, message proto.Message) error {
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return err
-	}
 	defer body.Close()
 
-	// Decode into a map
-	if err = proto.Unmarshal(data, message); err != nil {
-		return err
+	// Stream read into a buffer to support chunked uploads without requiring Content-Length.
+	var buf bytes.Buffer
+	tmp := make([]byte, 64*1024) // 64KB chunks to avoid large allocations
+	for {
+		n, err := body.Read(tmp)
+		if n > 0 {
+			if _, werr := buf.Write(tmp[:n]); werr != nil {
+				return werr
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+
+	if buf.Len() == 0 {
+		return io.ErrUnexpectedEOF
+	}
+
+	return proto.Unmarshal(buf.Bytes(), message)
 }
 
 func SendProtoResponse(w http.ResponseWriter, data proto.Message) {
