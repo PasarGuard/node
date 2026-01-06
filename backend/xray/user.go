@@ -168,5 +168,8 @@ func (x *Xray) SyncUsers(_ context.Context, users []*common.User) error {
 	if err := x.Restart(); err != nil {
 		return err
 	}
+	if err := x.checkXrayStatus(); err != nil {
+		return err
+	}
 	return nil
 }
