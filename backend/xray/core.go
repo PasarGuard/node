@@ -118,10 +118,15 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	accessFile, errorFile := xConfig.RemoveLogFiles()
 
 	bytesConfig, err := xConfig.ToBytes()
-	if debugMode {
-		if err = c.GenerateConfigFile(bytesConfig); err != nil {
-			return err
-		}
+	if err != nil {
+		return fmt.Errorf("failed to serialize config: %w", err)
+	}
+	
+	// Always write config file for debugging, not just in debug mode
+	// This helps diagnose issues when users are missing
+	if err = c.GenerateConfigFile(bytesConfig); err != nil {
+		log.Printf("warning: failed to write config file: %v", err)
+		// Don't fail startup if config file write fails, Xray reads from stdin anyway
 	}
 
 	c.mu.Lock()
@@ -167,6 +172,14 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		return err
 	}
 
+	// Verify config has content before starting
+	if len(bytesConfig) == 0 {
+		return errors.New("config is empty, cannot start xray")
+	}
+	
+	// Log config size for debugging
+	log.Printf("starting xray with config size: %d bytes", len(bytesConfig))
+	
 	cmd.Stdin = bytes.NewBuffer(bytesConfig)
 	if err = cmd.Start(); err != nil {
 		return err
@@ -258,6 +271,10 @@ func (c *Core) Restart(config *Config, debugMode bool) error {
 
 	log.Println("restarting Xray core...")
 	c.Stop()
+	
+	// Small delay to ensure previous process is fully terminated
+	time.Sleep(time.Millisecond * 100)
+	
 	if err := c.Start(config, debugMode); err != nil {
 		return err
 	}

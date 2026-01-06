@@ -165,6 +165,16 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 
 func (x *Xray) SyncUsers(_ context.Context, users []*common.User) error {
 	x.config.syncUsers(users)
+
+	// Verify users were synced before restarting
+	totalClients := 0
+	for _, inbound := range x.config.InboundConfigs {
+		if !inbound.exclude && inbound.clients != nil {
+			totalClients += len(inbound.clients)
+		}
+	}
+	log.Printf("syncing %d users, total clients in config: %d", len(users), totalClients)
+
 	if err := x.Restart(); err != nil {
 		return err
 	}
@@ -210,6 +220,16 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 func (x *Xray) UpdateUsersAndRestart(_ context.Context, users []*common.User) error {
 	x.config.updateUsers(users)
+
+	// Verify users were updated before restarting
+	totalClients := 0
+	for _, inbound := range x.config.InboundConfigs {
+		if !inbound.exclude && inbound.clients != nil {
+			totalClients += len(inbound.clients)
+		}
+	}
+	log.Printf("updating %d users, total clients in config: %d", len(users), totalClients)
+
 	if err := x.Restart(); err != nil {
 		return err
 	}

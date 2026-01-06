@@ -130,12 +130,13 @@ func (i *Inbound) syncUsers(users []*common.User) {
 			if slices.Contains(user.Inbounds, i.Tag) {
 				account, err := api.NewVmessAccount(user)
 				if err != nil {
-					log.Println("error for user", user.GetEmail(), ":", err)
+					log.Printf("error creating vmess account for user %s in inbound %s: %v", user.GetEmail(), i.Tag, err)
 					continue
 				}
 				i.clients[user.GetEmail()] = account
 			}
 		}
+		log.Printf("inbound %s (%s): synced %d users", i.Tag, i.Protocol, len(i.clients))
 
 	case Vless:
 		for _, user := range users {
@@ -145,13 +146,14 @@ func (i *Inbound) syncUsers(users []*common.User) {
 			if slices.Contains(user.Inbounds, i.Tag) {
 				account, err := api.NewVlessAccount(user)
 				if err != nil {
-					log.Println("error for user", user.GetEmail(), ":", err)
+					log.Printf("error creating vless account for user %s in inbound %s: %v", user.GetEmail(), i.Tag, err)
 					continue
 				}
 				newAccount := checkVless(i, *account)
 				i.clients[user.GetEmail()] = &newAccount
 			}
 		}
+		log.Printf("inbound %s (%s): synced %d users", i.Tag, i.Protocol, len(i.clients))
 
 	case Trojan:
 		for _, user := range users {
@@ -162,6 +164,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				i.clients[user.GetEmail()] = api.NewTrojanAccount(user)
 			}
 		}
+		log.Printf("inbound %s (%s): synced %d users", i.Tag, i.Protocol, len(i.clients))
 
 	case Shadowsocks:
 		method, methodOk := i.Settings["method"].(string)
@@ -186,6 +189,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				}
 			}
 		}
+		log.Printf("inbound %s (%s): synced %d users", i.Tag, i.Protocol, len(i.clients))
 	}
 }
 
