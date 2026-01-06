@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -268,6 +269,88 @@ func TestREST_SyncUser(t *testing.T) {
 
 	if err := sharedTestCtx.createAuthenticatedRequest("PUT", "/user/sync", user, &common.Empty{}); err != nil {
 		t.Fatalf("Sync user request failed: %v", err)
+	}
+}
+
+func TestREST_SyncUsersChunked(t *testing.T) {
+	firstChunk := &common.UsersChunk{
+		Index: 0,
+		Users: []*common.User{
+			{
+				Email: "chunk_rest_user1@example.com",
+				Inbounds: []string{
+					"VMESS TCP NOTLS",
+					"TROJAN TCP NOTLS",
+				},
+				Proxies: &common.Proxy{
+					Vmess: &common.Vmess{
+						Id: uuid.New().String(),
+					},
+					Trojan: &common.Trojan{
+						Password: "try a random string",
+					},
+				},
+			},
+		},
+	}
+
+	secondChunk := &common.UsersChunk{
+		Index: 1,
+		Users: []*common.User{
+			{
+				Email: "chunk_rest_user2@example.com",
+				Inbounds: []string{
+					"Shadowsocks TCP",
+					"Shadowsocks UDP",
+				},
+				Proxies: &common.Proxy{
+					Shadowsocks: &common.Shadowsocks{
+						Password: "try a random string",
+						Method:   "aes-256-gcm",
+					},
+				},
+			},
+		},
+		Last: true,
+	}
+
+	var body bytes.Buffer
+	appendChunk := func(chunk *common.UsersChunk) {
+		data, err := proto.Marshal(chunk)
+		if err != nil {
+			t.Fatalf("failed to marshal chunk: %v", err)
+		}
+
+		var lenBuf [binary.MaxVarintLen64]byte
+		n := binary.PutUvarint(lenBuf[:], uint64(len(data)))
+		body.Write(lenBuf[:n])
+		body.Write(data)
+	}
+
+	appendChunk(firstChunk)
+	appendChunk(secondChunk)
+
+	req, err := http.NewRequest("PUT", sharedTestCtx.url+"/users/sync/chunked", bytes.NewReader(body.Bytes()))
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("x-api-key", apiKey.String())
+	req.Header.Set("Content-Type", "application/x-protobuf")
+
+	resp, err := sharedTestCtx.client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to send chunked request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var empty common.Empty
+	if err = proto.Unmarshal(respBody, &empty); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
 	}
 }
 

@@ -193,6 +193,7 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/Stop":                     true,
 	"/service.NodeService/SyncUser":                 true,
 	"/service.NodeService/SyncUsers":                true,
+	"/service.NodeService/SyncUsersChunked":         true,
 	"/service.NodeService/GetLogs":                  true,
 }
 

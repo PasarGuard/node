@@ -125,6 +125,12 @@ message Users {
   repeated User users = 1;
 }
 
+message UsersChunk {
+  repeated User users = 1;
+  uint64 index = 2;
+  bool last = 3;
+}
+
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
@@ -143,4 +149,5 @@ service NodeService {
 
   rpc SyncUser (stream User) returns (Empty) {}
   rpc SyncUsers (Users) returns (Empty) {}
+  rpc SyncUsersChunked (stream UsersChunk) returns (Empty) {}
 }

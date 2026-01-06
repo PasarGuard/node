@@ -49,6 +49,7 @@ func (s *Service) setRouter() {
 		})
 		private.Put("/user/sync", s.SyncUser)
 		private.Put("/users/sync", s.SyncUsers)
+		private.Put("/users/sync/chunked", s.SyncUsersChunked)
 	})
 
 	s.Router = router

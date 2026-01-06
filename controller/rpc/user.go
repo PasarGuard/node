@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 
 	"google.golang.org/grpc"
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/controller"
 )
 
 func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common.Empty]) error {
@@ -38,4 +40,41 @@ func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.E
 	}
 
 	return nil, nil
+}
+
+func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.UsersChunk, common.Empty]) error {
+	chunks := make(map[uint64][]*common.User)
+	var (
+		lastIndex uint64
+		sawLast   bool
+	)
+
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to receive chunk: %v", err)
+		}
+
+		chunks[chunk.GetIndex()] = append(chunks[chunk.GetIndex()], chunk.GetUsers()...)
+
+		if chunk.GetLast() {
+			sawLast = true
+			lastIndex = chunk.GetIndex()
+			break
+		}
+	}
+
+	users, err := controller.BuildUsersFromChunks(chunks, lastIndex, sawLast)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	if err := s.Backend().SyncUsers(stream.Context(), users); err != nil {
+		return status.Errorf(codes.Internal, "failed to sync users: %v", err)
+	}
+
+	return stream.SendAndClose(&common.Empty{})
 }

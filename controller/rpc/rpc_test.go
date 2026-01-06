@@ -260,6 +260,69 @@ func TestGRPC_SyncUsers(t *testing.T) {
 	}
 }
 
+func TestGRPC_SyncUsersChunked(t *testing.T) {
+	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 10*time.Second)
+	defer cancel()
+
+	stream, err := sharedTestCtx.client.SyncUsersChunked(ctx)
+	if err != nil {
+		t.Fatalf("Failed to open chunked sync stream: %v", err)
+	}
+
+	firstChunk := &common.UsersChunk{
+		Index: 0,
+		Users: []*common.User{
+			{
+				Email: "chunk_user1@example.com",
+				Inbounds: []string{
+					"VMESS TCP NOTLS",
+					"VLESS TCP REALITY",
+				},
+				Proxies: &common.Proxy{
+					Vmess: &common.Vmess{
+						Id: uuid.New().String(),
+					},
+					Vless: &common.Vless{
+						Id: uuid.New().String(),
+					},
+				},
+			},
+		},
+	}
+
+	secondChunk := &common.UsersChunk{
+		Index: 1,
+		Users: []*common.User{
+			{
+				Email: "chunk_user2@example.com",
+				Inbounds: []string{
+					"Shadowsocks TCP",
+					"Shadowsocks UDP",
+				},
+				Proxies: &common.Proxy{
+					Shadowsocks: &common.Shadowsocks{
+						Password: "try a random string",
+						Method:   "aes-256-gcm",
+					},
+				},
+			},
+		},
+		Last: true,
+	}
+
+	if err = stream.Send(firstChunk); err != nil {
+		t.Fatalf("Failed to send first chunk: %v", err)
+	}
+
+	if err = stream.Send(secondChunk); err != nil {
+		t.Fatalf("Failed to send final chunk: %v", err)
+	}
+
+	if _, err = stream.CloseAndRecv(); err != nil {
+		t.Fatalf("Failed to complete chunked sync: %v", err)
+	}
+}
+
 func TestGRPC_GetSpecificUserStats(t *testing.T) {
 	ctx, cancel := context.WithTimeout(sharedTestCtx.ctxWithSession, 5*time.Second)
 	defer cancel()
