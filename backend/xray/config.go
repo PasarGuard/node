@@ -67,13 +67,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 	defer i.mu.Unlock()
 
 	// Clear existing clients map
-	if i.clients == nil {
-		i.clients = make(map[string]api.Account)
-	} else {
-		for k := range i.clients {
-			delete(i.clients, k)
-		}
-	}
+	i.clients = make(map[string]api.Account)
 
 	switch i.Protocol {
 	case Vmess:
@@ -185,29 +179,43 @@ func (i *Inbound) updateUsers(accounts []api.Account) {
 		i.clients = make(map[string]api.Account)
 	}
 
-	for _, account := range accounts {
-		email := account.GetEmail()
-		switch a := account.(type) {
-		case *api.VmessAccount:
-			i.clients[email] = a
+	switch i.Protocol {
+	case Vmess:
+		for _, account := range accounts {
+			if a, ok := account.(*api.VmessAccount); ok {
+				i.clients[account.GetEmail()] = a
+			}
+		}
 
-		case *api.VlessAccount:
-			newAccount := checkVless(i, *a)
-			i.clients[email] = &newAccount
+	case Vless:
+		for _, account := range accounts {
+			if a, ok := account.(*api.VlessAccount); ok {
+				newAccount := checkVless(i, *a)
+				i.clients[account.GetEmail()] = &newAccount
+			}
+		}
 
-		case *api.TrojanAccount:
-			i.clients[email] = a
+	case Trojan:
+		for _, account := range accounts {
+			if a, ok := account.(*api.TrojanAccount); ok {
+				i.clients[account.GetEmail()] = a
+			}
+		}
 
-		case *api.ShadowsocksTcpAccount:
-			i.clients[email] = a
-
-		case *api.ShadowsocksAccount:
-			method, ok := i.Settings["method"].(string)
-			if ok {
-				na := checkShadowsocks2022(method, *a)
-				i.clients[email] = &na
-			} else {
-				i.clients[email] = a
+	case Shadowsocks:
+		method, methodOk := i.Settings["method"].(string)
+		if methodOk && strings.HasPrefix(method, "2022-blake3") {
+			for _, account := range accounts {
+				if a, ok := account.(*api.ShadowsocksAccount); ok {
+					newAccount := checkShadowsocks2022(method, *a)
+					i.clients[account.GetEmail()] = &newAccount
+				}
+			}
+		} else {
+			for _, account := range accounts {
+				if a, ok := account.(*api.ShadowsocksTcpAccount); ok {
+					i.clients[account.GetEmail()] = a
+				}
 			}
 		}
 	}
