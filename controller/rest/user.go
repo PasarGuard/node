@@ -65,7 +65,13 @@ func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
+	userList := users.GetUsers()
+	log.Printf("SyncUsers: received %d users from panel", len(userList))
+	if len(userList) == 0 {
+		log.Printf("WARNING: SyncUsers received 0 users - panel may not be sending users correctly")
+	}
+
+	if err = s.Backend().SyncUsers(r.Context(), userList); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -35,7 +35,13 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 }
 
 func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.Empty, error) {
-	if err := s.Backend().SyncUsers(ctx, users.GetUsers()); err != nil {
+	userList := users.GetUsers()
+	log.Printf("SyncUsers: received %d users from panel", len(userList))
+	if len(userList) == 0 {
+		log.Printf("WARNING: SyncUsers received 0 users - panel may not be sending users correctly")
+	}
+
+	if err := s.Backend().SyncUsers(ctx, userList); err != nil {
 		return nil, err
 	}
 
