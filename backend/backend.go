@@ -25,3 +25,11 @@ type Backend interface {
 type ConfigKey struct{}
 
 type UsersKey struct{}
+
+// LimitEnforcer interface for traffic limit enforcement
+type LimitEnforcer interface {
+	Start(ctx context.Context, refreshInterval interface{})
+	Stop()
+	ResetUserTraffic(userID int)
+	ResetAllTraffic()
+}

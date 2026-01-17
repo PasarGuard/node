@@ -9,6 +9,7 @@ import (
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray"
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/controller"
 	"google.golang.org/grpc/peer"
 )
 
@@ -45,6 +46,14 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 	}
 
 	s.Connect(clientIP, detail.GetKeepAlive())
+
+	// Start limit enforcer if panel provided configuration
+	s.StartLimitEnforcer(controller.LimitEnforcerParams{
+		NodeID:               detail.GetNodeId(),
+		PanelAPIURL:          detail.GetPanelApiUrl(),
+		LimitCheckInterval:   detail.GetLimitCheckInterval(),
+		LimitRefreshInterval: detail.GetLimitRefreshInterval(),
+	})
 
 	return s.BaseInfoResponse(), nil
 }

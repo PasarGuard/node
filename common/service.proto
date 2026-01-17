@@ -23,6 +23,12 @@ message Backend {
   repeated User users = 3;
   uint64 keep_alive = 4;
   repeated string exclude_inbounds = 5;
+  
+  // Limit enforcer configuration (sent from panel)
+  int32 node_id = 6;
+  string panel_api_url = 7;
+  int32 limit_check_interval = 8;   // seconds, default 30
+  int32 limit_refresh_interval = 9; // seconds, default 60
 }
 
 // log

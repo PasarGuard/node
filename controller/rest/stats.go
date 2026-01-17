@@ -1,8 +1,10 @@
 package rest
 
 import (
-	"google.golang.org/grpc/status"
+	"encoding/json"
 	"net/http"
+
+	"google.golang.org/grpc/status"
 
 	"github.com/pasarguard/node/common"
 )
@@ -76,4 +78,23 @@ func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) GetSystemStats(w http.ResponseWriter, _ *http.Request) {
 	common.SendProtoResponse(w, s.SystemStats())
+}
+
+// GetLimitEnforcerMetrics returns limit enforcer metrics as JSON
+func (s *Service) GetLimitEnforcerMetrics(w http.ResponseWriter, _ *http.Request) {
+	enforcer := s.Controller.GetLimitEnforcer()
+	if enforcer == nil {
+		http.Error(w, "limit enforcer not enabled", http.StatusNotFound)
+		return
+	}
+
+	metrics := enforcer.GetMetrics()
+
+	w.Header().Set("Content-Type", "application/json")
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(data)
 }

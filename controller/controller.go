@@ -23,14 +23,15 @@ type Service interface {
 }
 
 type Controller struct {
-	backend     backend.Backend
-	cfg         *config.Config
-	apiPort     int
-	clientIP    string
-	lastRequest time.Time
-	stats       *common.SystemStatsResponse
-	cancelFunc  context.CancelFunc
-	mu          sync.RWMutex
+	backend       backend.Backend
+	cfg           *config.Config
+	apiPort       int
+	clientIP      string
+	lastRequest   time.Time
+	stats         *common.SystemStatsResponse
+	cancelFunc    context.CancelFunc
+	limitEnforcer *LimitEnforcer
+	mu            sync.RWMutex
 }
 
 func New(cfg *config.Config) *Controller {
@@ -62,12 +63,67 @@ func (c *Controller) Connect(ip string, keepAlive uint64) {
 	}
 }
 
+// LimitEnforcerParams contains parameters for starting the limit enforcer
+// These are passed from the panel via the Backend message
+type LimitEnforcerParams struct {
+	NodeID               int32
+	PanelAPIURL          string
+	LimitCheckInterval   int32 // seconds
+	LimitRefreshInterval int32 // seconds
+}
+
+// StartLimitEnforcer starts the limit enforcer with config from panel
+// Should be called after Connect() with params from Backend message
+func (c *Controller) StartLimitEnforcer(params LimitEnforcerParams) {
+	if params.PanelAPIURL == "" || params.NodeID <= 0 {
+		return // Limit enforcer not configured by panel
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Use defaults if not specified
+	checkInterval := time.Duration(params.LimitCheckInterval) * time.Second
+	if checkInterval == 0 {
+		checkInterval = 30 * time.Second
+	}
+	refreshInterval := time.Duration(params.LimitRefreshInterval) * time.Second
+	if refreshInterval == 0 {
+		refreshInterval = 60 * time.Second
+	}
+
+	// Create context that will be cancelled when controller disconnects
+	ctx := context.Background()
+
+	c.limitEnforcer = NewLimitEnforcer(c, LimitEnforcerConfig{
+		NodeID:        int(params.NodeID),
+		PanelAPIURL:   params.PanelAPIURL,
+		APIKey:        c.cfg.ApiKey.String(),
+		CheckInterval: checkInterval,
+	})
+	c.limitEnforcer.Start(ctx, refreshInterval)
+	log.Printf("Limit enforcer started for node %d (panel: %s)", params.NodeID, params.PanelAPIURL)
+}
+
+// GetLimitEnforcer returns the limit enforcer (nil if not enabled)
+func (c *Controller) GetLimitEnforcer() *LimitEnforcer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.limitEnforcer
+}
+
 func (c *Controller) Disconnect() {
 	c.cancelFunc()
 
 	c.mu.Lock()
 	backend := c.backend
+	limitEnforcer := c.limitEnforcer
 	c.mu.Unlock()
+
+	// Stop limit enforcer first (it uses backend)
+	if limitEnforcer != nil {
+		limitEnforcer.Stop()
+	}
 
 	// Shutdown backend outside of lock to avoid deadlock
 	// Shutdown() will wait for process termination to complete
@@ -79,6 +135,7 @@ func (c *Controller) Disconnect() {
 	defer c.mu.Unlock()
 
 	c.backend = nil
+	c.limitEnforcer = nil
 	c.apiPort = tools.FindFreePort()
 	c.clientIP = ""
 }
