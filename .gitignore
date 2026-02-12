@@ -24,3 +24,5 @@ go.work
 xray-core/
 *.env
 *.temp
+
+.AI

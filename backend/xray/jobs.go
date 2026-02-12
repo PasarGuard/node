@@ -9,45 +9,56 @@ import (
 	"time"
 )
 
-func (x *Xray) extractError() error {
+func (x *Xray) extractError(ctx context.Context) error {
 	logChan := x.core.Logs()
 
-	var lastLog string
 	for {
 		select {
-		case lastLog = <-logChan:
-			if strings.Contains(lastLog, "Failed to start") {
-				return fmt.Errorf("failed to start xray: %s", lastLog)
+		case <-ctx.Done():
+			return nil
+
+		case log := <-logChan:
+			if strings.Contains(log, "Failed to start") {
+				return fmt.Errorf("failed to start xray: %s", log)
 			}
-		default:
-			if lastLog == "" {
-				return errors.New("xray process failed with no error logs")
-			}
-			return fmt.Errorf("xray process failed: %s", lastLog)
 		}
 	}
 }
 
 func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
+	apiTicker := time.NewTicker(1 * time.Second)
+	defer apiTicker.Stop()
+	errorTicker := time.NewTicker(2 * time.Second)
+	defer errorTicker.Stop()
+
 	for {
 		select {
 		case <-baseCtx.Done():
-			return x.extractError()
-		default:
-			// Check if the xray process is still alive FIRST
-			// This provides immediate detection of process death
-			if !x.core.Started() {
-				return x.extractError()
+			return errors.New("context cancelled")
+
+		case <-errorTicker.C:
+			// Check logs every 3 seconds with 1 second timeout
+			ctx, cancel := context.WithTimeout(baseCtx, 1*time.Second)
+			err := x.extractError(ctx)
+			cancel()
+
+			if err != nil {
+				return err // Error found in logs
 			}
 
-			ctx, cancel := context.WithTimeout(baseCtx, time.Millisecond*500)
+		case <-apiTicker.C:
+			ctx, cancel := context.WithTimeout(baseCtx, 400*time.Millisecond)
 			_, err := x.GetSysStats(ctx)
 			cancel()
 
 			if err == nil {
-				return nil
+				return nil // API check successful
 			}
-			time.Sleep(500 * time.Millisecond)
+
+			// No error in logs, check API
+			if !x.core.Started() {
+				return errors.New("xray process stopped")
+			}
 		}
 	}
 }
