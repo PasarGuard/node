@@ -57,6 +57,14 @@ func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
 
 			// No error in logs, check API
 			if !x.core.Started() {
+				ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
+				err := x.extractError(ctx)
+				cancel()
+
+				if err != nil {
+					return err // Error found in logs
+				}
+
 				return errors.New("xray process stopped")
 			}
 		}
