@@ -34,12 +34,12 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 		s.Disconnect()
 	}
 
-	s.Connect(ip, keepAlive)
-
 	if err = s.StartBackend(ctx, backendType); err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+
+	s.Connect(ip, keepAlive)
 
 	common.SendProtoResponse(w, s.BaseInfoResponse())
 }
