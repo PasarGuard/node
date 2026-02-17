@@ -407,6 +407,95 @@ func filterRules(rules []json.RawMessage, apiTag string) ([]json.RawMessage, err
 	return filtered, nil
 }
 
+var privateCIDRs = []string{
+	"0.0.0.0/8",
+	"10.0.0.0/8",
+	"100.64.0.0/10",
+	"127.0.0.0/8",
+	"169.254.0.0/16",
+	"172.16.0.0/12",
+	"192.0.0.0/24",
+	"192.168.0.0/16",
+	"198.18.0.0/15",
+	"224.0.0.0/4",
+	"240.0.0.0/4",
+	"::/128",
+	"::1/128",
+	"fc00::/7",
+	"fe80::/10",
+}
+
+func replaceGeoIPPrivate(values any) (any, bool) {
+	list, ok := values.([]any)
+	if !ok {
+		return values, false
+	}
+
+	updated := make([]any, 0, len(list)+len(privateCIDRs))
+	changed := false
+	for _, entry := range list {
+		s, strOK := entry.(string)
+		if strOK && strings.EqualFold(s, "geoip:private") {
+			for _, cidr := range privateCIDRs {
+				updated = append(updated, cidr)
+			}
+			changed = true
+			continue
+		}
+		updated = append(updated, entry)
+	}
+
+	if !changed {
+		return values, false
+	}
+
+	return updated, true
+}
+
+func normalizeGeoIPPrivateRules(rules []json.RawMessage) ([]json.RawMessage, error) {
+	if rules == nil {
+		return []json.RawMessage{}, nil
+	}
+
+	normalized := make([]json.RawMessage, 0, len(rules))
+	for _, raw := range rules {
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return nil, fmt.Errorf("invalid JSON in rule: %w", err)
+		}
+
+		ruleChanged := false
+		if ip, ok := obj["ip"]; ok {
+			newIP, changed := replaceGeoIPPrivate(ip)
+			if changed {
+				obj["ip"] = newIP
+				ruleChanged = true
+			}
+		}
+
+		if source, ok := obj["source"]; ok {
+			newSource, changed := replaceGeoIPPrivate(source)
+			if changed {
+				obj["source"] = newSource
+				ruleChanged = true
+			}
+		}
+
+		if !ruleChanged {
+			normalized = append(normalized, raw)
+			continue
+		}
+
+		rawBytes, err := json.Marshal(obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal normalized rule: %w", err)
+		}
+		normalized = append(normalized, json.RawMessage(rawBytes))
+	}
+
+	return normalized, nil
+}
+
 func apiRuleSources() []string {
 	seen := map[string]struct{}{
 		"127.0.0.1": {},
@@ -476,7 +565,14 @@ func (c *Config) ApplyAPI(apiPort int) (err error) {
 	}
 
 	rules := c.RouterConfig.RuleList
+	rules, err = normalizeGeoIPPrivateRules(rules)
+	if err != nil {
+		return err
+	}
 	c.RouterConfig.RuleList, err = filterRules(rules, apiTag)
+	if err != nil {
+		return err
+	}
 
 	c.checkPolicy()
 
