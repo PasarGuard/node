@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -405,6 +407,55 @@ func filterRules(rules []json.RawMessage, apiTag string) ([]json.RawMessage, err
 	return filtered, nil
 }
 
+func apiRuleSources() []string {
+	seen := map[string]struct{}{
+		"127.0.0.1": {},
+		"::1":       {},
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return []string{"127.0.0.1", "::1"}
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+
+			if ip == nil || ip.IsUnspecified() {
+				continue
+			}
+
+			seen[ip.String()] = struct{}{}
+		}
+	}
+
+	sources := make([]string, 0, len(seen))
+	for source := range seen {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+
+	return sources
+}
+
 func (c *Config) ApplyAPI(apiPort int) (err error) {
 	// Remove the existing inbound with the API_INBOUND tag
 	for i, inbound := range c.InboundConfigs {
@@ -442,7 +493,7 @@ func (c *Config) ApplyAPI(apiPort int) (err error) {
 
 	rule := map[string]any{
 		"inboundTag":  []string{"API_INBOUND"},
-		"source":      []string{"127.0.0.1"},
+		"source":      apiRuleSources(),
 		"outboundTag": "API",
 		"type":        "field",
 	}
