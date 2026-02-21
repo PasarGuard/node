@@ -71,7 +71,7 @@ func (x *XrayHandler) GetUserOnlineIpListStats(ctx context.Context, email string
 }
 
 func (x *XrayHandler) GetUsersStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	resp, err := x.QueryStats(ctx, fmt.Sprintf("user>>>"), reset)
+	resp, err := x.QueryStats(ctx, "user>>>", reset)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (x *XrayHandler) GetUsersStats(ctx context.Context, reset bool) (*common.St
 }
 
 func (x *XrayHandler) GetInboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	resp, err := x.QueryStats(ctx, fmt.Sprintf("inbound>>>"), reset)
+	resp, err := x.QueryStats(ctx, "inbound>>>", reset)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (x *XrayHandler) GetInboundsStats(ctx context.Context, reset bool) (*common
 }
 
 func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
-	resp, err := x.QueryStats(ctx, fmt.Sprintf("outbound>>>"), reset)
+	resp, err := x.QueryStats(ctx, "outbound>>>", reset)
 	if err != nil {
 		return nil, err
 	}

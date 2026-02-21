@@ -77,7 +77,7 @@ func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
 
 	log.Println("config generated in", time.Since(start).Seconds(), "second.")
 
-	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath, cfg.LogBufferSize)
+	core, err := NewXRayCore(executableAbsolutePath, assetsAbsolutePath, configAbsolutePath, cfg.LogBufferSize, cfg.StartupLogTailSize)
 	if err != nil {
 		return nil, err
 	}

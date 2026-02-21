@@ -18,25 +18,37 @@ import (
 )
 
 type Core struct {
-	executablePath string
-	assetsPath     string
-	configPath     string
-	version        string
-	process        *exec.Cmd
-	processPID     int
-	restarting     bool
-	logsChan       chan string
-	logger         *nodeLogger.Logger
-	cancelFunc     context.CancelFunc
-	mu             sync.Mutex
+	executablePath            string
+	assetsPath                string
+	configPath                string
+	version                   string
+	process                   *exec.Cmd
+	processPID                int
+	restarting                bool
+	logsChan                  chan string
+	logPhase                  uint32
+	startupLogs               *startupLogRing
+	startupLogSize            int
+	startupFailure            string
+	startupDiagnosticsEnabled bool
+	logger                    *nodeLogger.Logger
+	cancelFunc                context.CancelFunc
+	mu                        sync.Mutex
+	startupMu                 sync.RWMutex
 }
 
-func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize int) (*Core, error) {
+func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize, startupLogTailSize int) (*Core, error) {
+	if startupLogTailSize <= 0 {
+		startupLogTailSize = 200
+	}
+
 	core := &Core{
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
 		configPath:     configPath,
 		logsChan:       make(chan string, logBufferSize),
+		logPhase:       logPhaseRuntime,
+		startupLogSize: startupLogTailSize,
 	}
 
 	version, err := core.refreshVersion()
@@ -122,6 +134,9 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		return errors.New("xray is started already")
 	}
 
+	c.EnableStartupDiagnostics(c.startupLogSize)
+	c.setStartupLogPhase()
+
 	// Clean up any orphaned xray processes before starting new one
 	if err := c.cleanupOrphanedProcesses(); err != nil {
 		log.Printf("warning: failed to cleanup orphaned processes: %v", err)
@@ -142,11 +157,6 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	setProcAttributes(cmd)
 
 	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-
-	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
@@ -174,7 +184,6 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 
 	// Start capturing process logs
 	go c.captureProcessLogs(ctxCore, stdout)
-	go c.captureProcessLogs(ctxCore, stderr)
 
 	return nil
 }
@@ -227,6 +236,7 @@ func (c *Core) Stop() {
 		c.logger.Close()
 		c.logger = nil
 	}
+	c.SwitchToRuntimeLogPhase()
 
 	log.Println("xray core stopped")
 }

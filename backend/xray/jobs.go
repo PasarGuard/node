@@ -9,20 +9,35 @@ import (
 	"time"
 )
 
-func (x *Xray) extractError(ctx context.Context) error {
-	logChan := x.core.Logs()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-
-		case log := <-logChan:
-			if strings.Contains(log, "Failed to start") {
-				return fmt.Errorf("failed to start xray: %s", log)
-			}
-		}
+func (x *Xray) startupLogTailSize() int {
+	if x.cfg != nil && x.cfg.StartupLogTailSize > 0 {
+		return x.cfg.StartupLogTailSize
 	}
+
+	return 200
+}
+
+func (x *Xray) extractStartupError() error {
+	failure := x.core.LatestStartupFailure()
+	if failure == "" {
+		return nil
+	}
+
+	return fmt.Errorf("failed to start xray: %s", failure)
+}
+
+func startupErrorWithTail(core *Core, tailSize int, reason string) error {
+	failure := core.LatestStartupFailure()
+	if failure != "" {
+		return fmt.Errorf("failed to start xray: %s", failure)
+	}
+
+	tail := core.StartupLogTail(tailSize)
+	if len(tail) == 0 {
+		return errors.New(reason)
+	}
+
+	return fmt.Errorf("%s; recent xray logs:\n%s", reason, strings.Join(tail, "\n"))
 }
 
 func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
@@ -37,35 +52,27 @@ func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
 			return errors.New("context cancelled")
 
 		case <-errorTicker.C:
-			// Check logs every 3 seconds with 1 second timeout
-			ctx, cancel := context.WithTimeout(baseCtx, 1*time.Second)
-			err := x.extractError(ctx)
-			cancel()
-
-			if err != nil {
+			if err := x.extractStartupError(); err != nil {
 				return err // Error found in logs
 			}
 
 		case <-apiTicker.C:
-			ctx, cancel := context.WithTimeout(baseCtx, 400*time.Millisecond)
+			ctx, cancel := context.WithTimeout(baseCtx, 1*time.Second)
 			_, err := x.GetSysStats(ctx)
 			cancel()
 
 			if err == nil {
+				x.core.SwitchToRuntimeLogPhase()
 				return nil // API check successful
+			}
+
+			if err := x.extractStartupError(); err != nil {
+				return err // Error found in logs
 			}
 
 			// No error in logs, check API
 			if !x.core.Started() {
-				ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
-				err := x.extractError(ctx)
-				cancel()
-
-				if err != nil {
-					return err // Error found in logs
-				}
-
-				return errors.New("xray process stopped")
+				return startupErrorWithTail(x.core, x.startupLogTailSize(), "xray process stopped before API became ready")
 			}
 		}
 	}

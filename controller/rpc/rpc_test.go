@@ -145,7 +145,7 @@ func TestGRPC_GetOutboundsStats(t *testing.T) {
 	}
 
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 
@@ -159,7 +159,7 @@ func TestGRPC_GetInboundsStats(t *testing.T) {
 	}
 
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 
@@ -173,7 +173,7 @@ func TestGRPC_GetUsersStats(t *testing.T) {
 	}
 
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 
@@ -338,7 +338,7 @@ func TestGRPC_GetSpecificUserStats(t *testing.T) {
 		t.Fatalf("Failed to get user stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 
@@ -351,7 +351,7 @@ func TestGRPC_GetSpecificOutboundStats(t *testing.T) {
 		t.Fatalf("Failed to get outbound stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 
@@ -364,7 +364,7 @@ func TestGRPC_GetSpecificInboundStats(t *testing.T) {
 		t.Fatalf("Failed to get inbound stats: %v", err)
 	}
 	for _, stat := range stats.GetStats() {
-		log.Println(fmt.Sprintf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link))
+		log.Printf("Name: %s , Traffic: %d , Type: %s , Link: %s", stat.Name, stat.Value, stat.Type, stat.Link)
 	}
 }
 

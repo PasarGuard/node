@@ -22,6 +22,7 @@ type Config struct {
 	Debug               bool
 	GeneratedConfigPath string
 	LogBufferSize       int
+	StartupLogTailSize  int
 }
 
 func Load() (*Config, error) {
@@ -39,7 +40,8 @@ func Load() (*Config, error) {
 		GeneratedConfigPath: GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
 		ServiceProtocol:     GetEnv("SERVICE_PROTOCOL", "grpc"),
 		Debug:               GetEnvAsBool("DEBUG", false),
-		LogBufferSize:       GetEnvAsInt("LOG_BUFFER_SIZE", 1000),
+		LogBufferSize:       GetEnvAsInt("LOG_BUFFER_SIZE", 10000),
+		StartupLogTailSize:  GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
 	}
 
 	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")

@@ -33,14 +33,35 @@ func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 			return // Exit gracefully if stop signal received
 		default:
 			output := scanner.Text()
-			// Non-blocking send: skip if channel is full to prevent deadlock
-			select {
-			case c.logsChan <- output:
-				// Log sent successfully
-			default:
-				// Channel full, skip this log (prevents blocking xray process)
+			if c.isStartupLogPhase() {
+				c.captureStartupLogLine(output)
+				continue
 			}
-			c.detectLogType(output)
+			c.captureRuntimeLogLine(output)
 		}
 	}
+}
+
+func (c *Core) captureStartupLogLine(output string) {
+	c.RecordStartupLog(output)
+
+	// Non-blocking send: skip if channel is full to prevent deadlock
+	select {
+	case c.logsChan <- output:
+		// Log sent successfully
+	default:
+		// Channel full, skip this log (prevents blocking xray process)
+	}
+	c.detectLogType(output)
+}
+
+func (c *Core) captureRuntimeLogLine(output string) {
+	// Non-blocking send: skip if channel is full to prevent deadlock
+	select {
+	case c.logsChan <- output:
+		// Log sent successfully
+	default:
+		// Channel full, skip this log (prevents blocking xray process)
+	}
+	c.detectLogType(output)
 }
