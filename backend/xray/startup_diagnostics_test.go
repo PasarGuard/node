@@ -101,6 +101,7 @@ func TestIsStartupFailureLog(t *testing.T) {
 	}{
 		{line: "2026/02/21 [Error] Failed to start app/proxyman", want: true},
 		{line: "panic: runtime error", want: true},
+		{line: "2026/02/23 07:13:42.313765 from 5.250.114.189:0 rejected proxy/vless/encoding: invalid request user id: 1ffca7fc-4bb6-4701-9cfc-b046a28c569a", want: false},
 		{line: "accepted tcp:www.gstatic.com:443 [TAG -> DIRECT] email: a@b.com", want: false},
 		{line: "2026/02/21 [Info] app/stats: create new counter", want: false},
 	}
