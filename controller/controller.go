@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -123,6 +124,21 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	// OFFLINE_GRACE_PERIOD extends the disconnect timeout on top of keepAlive.
+	// This allows the node to keep running if the panel goes temporarily offline.
+	// Format: Go duration string, e.g. "1h", "30m", "24h".
+	// Default: 0 (original behavior preserved).
+	effectiveTimeout := keepAlive
+	if gp := os.Getenv("OFFLINE_GRACE_PERIOD"); gp != "" {
+		if d, err := time.ParseDuration(gp); err == nil {
+			effectiveTimeout = keepAlive + d
+			log.Printf("offline grace period enabled: keepAlive=%s grace=%s effectiveTimeout=%s",
+				keepAlive, d, effectiveTimeout)
+		} else {
+			log.Printf("warning: invalid OFFLINE_GRACE_PERIOD value %q: %v", gp, err)
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -131,7 +147,7 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 			c.mu.RLock()
 			lastRequest := c.lastRequest
 			c.mu.RUnlock()
-			if time.Since(lastRequest) >= keepAlive {
+			if time.Since(lastRequest) >= effectiveTimeout {
 				log.Println("disconnect automatically due to keep alive timeout")
 				c.Disconnect()
 			}
