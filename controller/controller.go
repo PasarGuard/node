@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/wireguard"
 	"github.com/pasarguard/node/backend/xray"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
@@ -95,13 +96,29 @@ func (c *Controller) NewRequest() {
 	c.lastRequest = time.Now()
 }
 
-func (c *Controller) StartBackend(ctx context.Context, backendType common.BackendType) error {
+func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	switch backendType {
+	switch backend.GetType() {
 	case common.BackendType_XRAY:
-		newBackend, err := xray.NewXray(ctx, c.apiPort, c.cfg)
+		config, err := xray.NewConfig(backend.GetConfig(), backend.GetExcludeInbounds())
+		if err != nil {
+			return err
+		}
+
+		newBackend, err := xray.New(ctx, config, backend.GetUsers(), c.apiPort, c.cfg)
+		if err != nil {
+			return err
+		}
+		c.backend = newBackend
+
+	case common.BackendType_WIREGUARD:
+		config, err := wireguard.NewConfig(backend.GetConfig())
+		if err != nil {
+			return err
+		}
+		newBackend, err := wireguard.New(c.cfg, config, backend.GetUsers())
 		if err != nil {
 			return err
 		}

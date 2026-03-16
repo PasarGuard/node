@@ -27,4 +27,5 @@ xray-core/
 *.env
 *.temp
 
+# AI
 .AI

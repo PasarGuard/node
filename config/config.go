@@ -11,18 +11,20 @@ import (
 )
 
 type Config struct {
-	ServicePort         int
-	NodeHost            string
-	XrayExecutablePath  string
-	XrayAssetsPath      string
-	SslCertFile         string
-	SslKeyFile          string
-	ApiKey              uuid.UUID
-	ServiceProtocol     string
-	Debug               bool
-	GeneratedConfigPath string
-	LogBufferSize       int
-	StartupLogTailSize  int
+	ServicePort                 int
+	NodeHost                    string
+	XrayExecutablePath          string
+	XrayAssetsPath              string
+	SslCertFile                 string
+	SslKeyFile                  string
+	ApiKey                      uuid.UUID
+	ServiceProtocol             string
+	Debug                       bool
+	GeneratedConfigPath         string
+	LogBufferSize               int
+	StartupLogTailSize          int
+	StatsUpdateIntervalSeconds  int
+	StatsCleanupIntervalSeconds int
 }
 
 func Load() (*Config, error) {
@@ -32,16 +34,23 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		ServicePort:         GetEnvAsInt("SERVICE_PORT", 62050),
-		XrayExecutablePath:  GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
-		XrayAssetsPath:      GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
-		SslCertFile:         GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
-		SslKeyFile:          GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),
-		GeneratedConfigPath: GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
-		ServiceProtocol:     GetEnv("SERVICE_PROTOCOL", "grpc"),
-		Debug:               GetEnvAsBool("DEBUG", false),
-		LogBufferSize:       GetEnvAsInt("LOG_BUFFER_SIZE", 10000),
-		StartupLogTailSize:  GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
+		ServicePort:                 GetEnvAsInt("SERVICE_PORT", 62050),
+		XrayExecutablePath:          GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
+		XrayAssetsPath:              GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
+		SslCertFile:                 GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
+		SslKeyFile:                  GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),
+		GeneratedConfigPath:         GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
+		ServiceProtocol:             GetEnv("SERVICE_PROTOCOL", "grpc"),
+		Debug:                       GetEnvAsBool("DEBUG", false),
+		LogBufferSize:               GetEnvAsInt("LOG_BUFFER_SIZE", 10000),
+		StartupLogTailSize:          GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
+		StatsUpdateIntervalSeconds:  GetEnvAsInt("STATS_UPDATE_INTERVAL_SECONDS", 10),
+		StatsCleanupIntervalSeconds: GetEnvAsInt("STATS_CLEANUP_INTERVAL_SECONDS", 300),
+	}
+
+	if cfg.LogBufferSize <= 0 {
+		log.Printf("[Warning] LOG_BUFFER_SIZE must be greater than 0, got %d. Falling back to 1.", cfg.LogBufferSize)
+		cfg.LogBufferSize = 1
 	}
 
 	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")

@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/tools"
@@ -29,7 +28,7 @@ func TestXrayBackend(t *testing.T) {
 	}
 
 	//test creating config
-	newConfig, err := NewXRayConfig(xrayFile, nil)
+	newConfig, err := NewConfig(xrayFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +99,7 @@ func TestXrayBackend(t *testing.T) {
 		LogBufferSize:       1000,
 	}
 
-	ctx := context.WithValue(context.Background(), backend.ConfigKey{}, newConfig)
-	ctx = context.WithValue(ctx, backend.UsersKey{}, []*common.User{user, user2})
-
-	back, err := NewXray(ctx, tools.FindFreePort(), cfg)
+	back, err := New(context.Background(), newConfig, []*common.User{user, user2}, tools.FindFreePort(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

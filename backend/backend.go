@@ -9,7 +9,7 @@ import (
 type Backend interface {
 	Started() bool
 	Version() string
-	Logs() chan string
+	Logs() <-chan string
 	Restart() error
 	Shutdown()
 	SyncUser(context.Context, *common.User) error
