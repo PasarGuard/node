@@ -3,14 +3,17 @@ name: Test Modules
 on:
   pull_request:
     branches:
-      - '*'
+      - "**"
   push:
     branches:
-      - 'dev'
+      - "dev"
+      - "wg"
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
 
     steps:
       - name: Checkout codebase
@@ -19,7 +22,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25.7'
+          go-version: "1.25.7"
           check-latest: true
 
       - name: Get project dependencies
@@ -28,11 +31,17 @@ jobs:
       - name: Install xray-core
         run: make install_xray
 
+      - name: install wg
+        run: make install_wg
+
       - name: Create certificate
         run: |
-          mkdir certs
+          mkdir -p certs
           make generate_server_cert
           make generate_client_cert
 
-      - name: Run tests
-        run: make test
+      - name: Run regular test suite
+        run: TEST_INTEGRATION=true go test ./... -v -p 1
+
+      - name: Run wireguard integration tests
+        run: sudo -E make test-integration-wireguard

@@ -38,7 +38,7 @@ ifeq ($(shell echo "$(GOARCH)" | grep -Eq "(mips|mipsle)" && echo true),true)
 ADDITION = GOMIPS=softfloat go build -o $(NAME)_softfloat -trimpath -ldflags "$(LDFLAGS)" -v $(MAIN)
 endif
 
-.PHONY: clean build
+.PHONY: clean build test test-race-wireguard test-integration test-integration-full test-integration-wireguard
 
 build:
 	CGO_ENABLED=0 go build -o $(OUTPUT) $(PARAMS) $(MAIN)
@@ -129,11 +129,47 @@ else
 	@exit 1
 endif
 
+install_wg: update_os
+ifeq ($(UNAME_S),Linux)
+	@echo "Installing WireGuard for $(DISTRO)..."
+	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ]; then \
+		sudo apt-get update && sudo apt-get install -y wireguard wireguard-tools; \
+	elif [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ]; then \
+		sudo yum install -y epel-release && sudo yum install -y wireguard-tools; \
+	elif [ "$(DISTRO)" = "fedora" ]; then \
+		sudo dnf install -y wireguard-tools; \
+	elif [ "$(DISTRO)" = "arch" ] || [ "$(DISTRO)" = "manjaro" ]; then \
+		sudo pacman -Sy --noconfirm wireguard-tools; \
+	elif [ "$(DISTRO)" = "alpine" ]; then \
+		apk add --no-cache wireguard-tools; \
+	elif [ "$(DISTRO)" = "opensuse" ] || [ "$(DISTRO)" = "opensuse-leap" ] || [ "$(DISTRO)" = "opensuse-tumbleweed" ]; then \
+		sudo zypper install -y wireguard-tools; \
+	else \
+		echo "Unsupported distribution: $(DISTRO)"; \
+		exit 1; \
+	fi
+	@echo "WireGuard installed successfully"
+	@wg --version
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
 test-integration:
-	TEST_INTEGRATION=true go test ./... -v -p 1
+	$(MAKE) test-integration-full
+
+test-integration-full:
+	GOTOOLCHAIN=auto TEST_INTEGRATION=true go test ./... -v -p 1
+	GOTOOLCHAIN=auto go test -tags=integration -v -p 1 ./backend/wireguard
+
+test-integration-wireguard:
+	GOTOOLCHAIN=auto go test -tags=integration -v -p 1 ./backend/wireguard
 
 test:
-	TEST_INTEGRATION=false go test ./... -v -p 1
+	GOTOOLCHAIN=auto TEST_INTEGRATION=false go test ./... -v -p 1
+
+test-race-wireguard:
+	GOTOOLCHAIN=auto CGO_ENABLED=1 go test -race -v -p 1 ./backend/wireguard
 
 serve:
 	go run main.go serve

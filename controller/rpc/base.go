@@ -2,22 +2,14 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net"
 
-	"github.com/pasarguard/node/backend"
-	"github.com/pasarguard/node/backend/xray"
 	"github.com/pasarguard/node/common"
 	"google.golang.org/grpc/peer"
 )
 
-func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.BaseInfoResponse, error) {
-	ctx, err := s.detectBackend(ctx, detail)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *Service) Start(ctx context.Context, data *common.Backend) (*common.BaseInfoResponse, error) {
 	clientIP := ""
 	if p, ok := peer.FromContext(ctx); ok {
 		// Extract IP address from peer address
@@ -40,11 +32,11 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 		s.Disconnect()
 	}
 
-	if err = s.StartBackend(ctx, detail.GetType()); err != nil {
+	if err := s.StartBackend(ctx, data); err != nil {
 		return nil, err
 	}
 
-	s.Connect(clientIP, detail.GetKeepAlive())
+	s.Connect(clientIP, data.GetKeepAlive())
 
 	return s.BaseInfoResponse(), nil
 }
@@ -52,22 +44,6 @@ func (s *Service) Start(ctx context.Context, detail *common.Backend) (*common.Ba
 func (s *Service) Stop(_ context.Context, _ *common.Empty) (*common.Empty, error) {
 	s.Disconnect()
 	return nil, nil
-}
-
-func (s *Service) detectBackend(ctx context.Context, detail *common.Backend) (context.Context, error) {
-	if detail.GetType() == common.BackendType_XRAY {
-		config, err := xray.NewXRayConfig(detail.GetConfig(), detail.GetExcludeInbounds())
-		if err != nil {
-			return nil, err
-		}
-		ctx = context.WithValue(ctx, backend.ConfigKey{}, config)
-	} else {
-		return nil, errors.New("unknown backend type")
-	}
-
-	ctx = context.WithValue(ctx, backend.UsersKey{}, detail.GetUsers())
-
-	return ctx, nil
 }
 
 func (s *Service) GetBaseInfo(_ context.Context, _ *common.Empty) (*common.BaseInfoResponse, error) {

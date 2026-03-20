@@ -18,8 +18,6 @@ FROM alpine:latest
 
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
-RUN apk update && apk add --no-cache wireguard-tools
-
 WORKDIR /app
 COPY --from=builder /src /app
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray

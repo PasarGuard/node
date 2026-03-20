@@ -649,7 +649,7 @@ func (c *Config) GetLogFiles() (accessFile, errorFile string) {
 	return c.LogConfig.AccessLog, c.LogConfig.ErrorLog
 }
 
-func NewXRayConfig(config string, exclude []string) (*Config, error) {
+func NewConfig(config string, exclude []string) (*Config, error) {
 	var xrayConfig Config
 	err := json.Unmarshal([]byte(config), &xrayConfig)
 	if err != nil {

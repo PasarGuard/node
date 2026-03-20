@@ -264,7 +264,7 @@ func (c *Core) Restart(config *Config, debugMode bool) error {
 	return nil
 }
 
-func (c *Core) Logs() chan string {
+func (c *Core) Logs() <-chan string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.logsChan

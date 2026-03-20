@@ -2,13 +2,11 @@ package xray
 
 import (
 	"context"
-	"errors"
 	"log"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
@@ -23,7 +21,7 @@ type Xray struct {
 	mu         sync.RWMutex
 }
 
-func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
+func New(ctx context.Context, xrayConfig *Config, users []*common.User, port int, cfg *config.Config) (*Xray, error) {
 	executableAbsolutePath, err := filepath.Abs(cfg.XrayExecutablePath)
 	if err != nil {
 		return nil, err
@@ -48,16 +46,10 @@ func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
 
 	start := time.Now()
 
-	xrayConfig, ok := ctx.Value(backend.ConfigKey{}).(*Config)
-	if !ok {
-		return nil, errors.New("xray config has not been initialized")
-	}
-
 	if err = xrayConfig.ApplyAPI(port); err != nil {
 		return nil, err
 	}
 
-	users := ctx.Value(backend.UsersKey{}).([]*common.User)
 	if len(users) > 0 {
 		log.Printf("syncing %d users on startup", len(users))
 		xrayConfig.syncUsers(users)
@@ -109,7 +101,7 @@ func NewXray(ctx context.Context, port int, cfg *config.Config) (*Xray, error) {
 	return xray, nil
 }
 
-func (x *Xray) Logs() chan string {
+func (x *Xray) Logs() <-chan string {
 	x.mu.RLock()
 	defer x.mu.RUnlock()
 	return x.core.Logs()

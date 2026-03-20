@@ -12,7 +12,6 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_xray
 
 FROM alpine:latest
 
@@ -22,7 +21,5 @@ RUN apk update && apk add --no-cache wireguard-tools
 
 WORKDIR /app
 COPY --from=builder /src /app
-COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
-COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 
 ENTRYPOINT ["./main"]

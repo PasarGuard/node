@@ -169,11 +169,15 @@ func (c *Core) StartupLogTail(n int) []string {
 func isStartupFailureLog(line string) bool {
 	lower := strings.ToLower(line)
 
+	// Client authentication/rejection logs can include "invalid" and are not startup-fatal.
+	if strings.Contains(lower, "invalid request user id") || strings.Contains(lower, "rejected proxy/") {
+		return false
+	}
+
 	keywords := [...]string{
 		"failed to start",
 		"panic",
 		"fatal",
-		"invalid",
 		"permission denied",
 		"no such file or directory",
 		"cannot find",

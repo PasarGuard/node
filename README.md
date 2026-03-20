@@ -4,7 +4,7 @@
         <img src="https://img.shields.io/github/actions/workflow/status/PasarGuard/node/docker-build.yml?style=flat-square" />
     </a>
     <a href="https://hub.docker.com/r/pasarguard/node" target="_blank">
-        <img src="https://img.shields.io/docker/pulls/PasarGuard/node?style=flat-square&logo=docker" />
+        <img src="https://img.shields.io/docker/pulls/pasarguard/node?style=flat-square&logo=docker" />
     </a>
     <a href="#">
         <img src="https://img.shields.io/github/license/PasarGuard/node?style=flat-square" />
@@ -16,6 +16,13 @@
 
 # Documentation
 You can find a full guide in docs https://docs.pasarguard.org/en/node/
+
+# One-Click Installation (Recommended)
+The easiest way to install PasarGuard Node is using our automated installation script:
+
+```bash
+sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
+```
 
 # Donation
 You can help PasarGuard team with your donations, [Click Here](https://donate.pasarguard.org/)

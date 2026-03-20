@@ -15,6 +15,7 @@ message BaseInfoResponse {
 
 enum BackendType {
   XRAY = 0;
+  WIREGUARD = 1;
 }
 
 message Backend {
@@ -108,11 +109,17 @@ message Shadowsocks {
     string method = 2;
 }
 
+message Wireguard {
+    string public_key = 1;
+    repeated string peer_ips = 2;
+}
+
 message Proxy {
     Vmess vmess = 1;
     Vless vless = 2;
     Trojan trojan = 3;
     Shadowsocks shadowsocks = 4;
+    Wireguard wireguard = 5;
 }
 
 message User {
