@@ -10,8 +10,8 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.1
 	github.com/vishvananda/netlink v1.3.1
 	github.com/xtls/xray-core v1.260204.0
-	google.golang.org/grpc v1.79.3
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 )
 
