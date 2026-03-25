@@ -114,12 +114,17 @@ message Wireguard {
     repeated string peer_ips = 2;
 }
 
+message Hysteria {
+    string auth = 1;
+}
+
 message Proxy {
     Vmess vmess = 1;
     Vless vless = 2;
     Trojan trojan = 3;
     Shadowsocks shadowsocks = 4;
     Wireguard wireguard = 5;
+    Hysteria hysteria = 6;
 }
 
 message User {

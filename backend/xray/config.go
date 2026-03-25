@@ -23,6 +23,7 @@ const (
 	Vless       = "vless"
 	Trojan      = "trojan"
 	Shadowsocks = "shadowsocks"
+	Hysteria    = "hysteria"
 )
 
 type Config struct {
@@ -188,6 +189,16 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				}
 			}
 		}
+
+	case Hysteria:
+		for _, user := range users {
+			if user.GetProxies().GetHysteria() == nil {
+				continue
+			}
+			if slices.Contains(user.Inbounds, i.Tag) {
+				i.clients[user.GetEmail()] = api.NewHysteriaAccount(user)
+			}
+		}
 	}
 }
 
@@ -222,6 +233,9 @@ func (i *Inbound) updateUser(account api.Account) {
 		} else {
 			i.clients[email] = a
 		}
+
+	case *api.HysteriaAccount:
+		i.clients[email] = a
 	}
 }
 
@@ -270,6 +284,13 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 				if a, ok := account.(*api.ShadowsocksTcpAccount); ok {
 					i.clients[account.GetEmail()] = a
 				}
+			}
+		}
+
+	case Hysteria:
+		for _, account := range accounts {
+			if a, ok := account.(*api.HysteriaAccount); ok {
+				i.clients[account.GetEmail()] = a
 			}
 		}
 	}
@@ -358,6 +379,15 @@ func (c *Config) ToBytes() ([]byte, error) {
 				}
 				i.Settings["clients"] = clients
 			}
+
+		case Hysteria:
+			clients := make([]*api.HysteriaAccount, 0, len(i.clients))
+			for _, account := range i.clients {
+				if hyAccount, ok := account.(*api.HysteriaAccount); ok {
+					clients = append(clients, hyAccount)
+				}
+			}
+			i.Settings["clients"] = clients
 		}
 	}
 
