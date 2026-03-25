@@ -3,7 +3,7 @@ package api
 import (
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/serial"
-	hysteriaAccount "github.com/xtls/xray-core/proxy/hysteria/account"
+	hysteria "github.com/xtls/xray-core/proxy/hysteria/account"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -185,7 +185,7 @@ type HysteriaAccount struct {
 }
 
 func (ha *HysteriaAccount) Message() (*serial.TypedMessage, error) {
-	return ToTypedMessage(&hysteriaAccount.Account{Auth: ha.Auth})
+	return ToTypedMessage(&hysteria.Account{Auth: ha.Auth})
 }
 
 func NewHysteriaAccount(user *common.User) *HysteriaAccount {
