@@ -131,8 +131,8 @@ github.com/vishvananda/netns v0.0.5 h1:DfiHV+j8bA32MFM7bfEunvT8IAqQ/NzSJHtcmW5zd
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f h1:iy2JRioxmUpoJ3SzbFPyTxHZMbR/rSHP7dOOgYaq1O8=
 github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f/go.mod h1:DsJblcWDGt76+FVqBVwbwRhxyyNJsGV48gJLch0OOWI=
-github.com/xtls/xray-core v1.260206.1-0.20260323102121-cb7bfeb54c79 h1:vbtDlO98sECqvk4twVT7TCCSrADrUl+jwUIlyFZs2Sk=
-github.com/xtls/xray-core v1.260206.1-0.20260323102121-cb7bfeb54c79/go.mod h1:OXMlhBloFry8mw0KwWLWLd3RQyXJzEYsCGlgsX36h60=
+github.com/xtls/xray-core v1.260327.0 h1:g4TzxMwyPrxslZh6uD+FiG3lXKTrnNO+b4ky2OhogHE=
+github.com/xtls/xray-core v1.260327.0/go.mod h1:OXMlhBloFry8mw0KwWLWLd3RQyXJzEYsCGlgsX36h60=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
