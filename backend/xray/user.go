@@ -34,6 +34,10 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 		settings.Shadowsocks2022 = api.NewShadowsocksAccount(user)
 	}
 
+	if user.GetProxies().GetHysteria() != nil {
+		settings.Hysteria = api.NewHysteriaAccount(user)
+	}
+
 	return settings, nil
 }
 
@@ -120,6 +124,12 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Shadowsocks, true
+
+		case Hysteria:
+			if settings.Hysteria == nil {
+				return nil, false
+			}
+			return settings.Hysteria, true
 		}
 	}
 	return nil, false

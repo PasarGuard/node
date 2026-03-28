@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/serial"
+	hysteria "github.com/xtls/xray-core/proxy/hysteria/account"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -178,10 +179,30 @@ func NewShadowsocksTcpAccount(user *common.User) *ShadowsocksTcpAccount {
 	}
 }
 
+type HysteriaAccount struct {
+	BaseAccount
+	Auth string `json:"auth"`
+}
+
+func (ha *HysteriaAccount) Message() (*serial.TypedMessage, error) {
+	return ToTypedMessage(&hysteria.Account{Auth: ha.Auth})
+}
+
+func NewHysteriaAccount(user *common.User) *HysteriaAccount {
+	return &HysteriaAccount{
+		BaseAccount: BaseAccount{
+			Email: user.GetEmail(),
+			Level: 0,
+		},
+		Auth: user.GetProxies().GetHysteria().GetAuth(),
+	}
+}
+
 type ProxySettings struct {
 	Vmess           *VmessAccount
 	Vless           *VlessAccount
 	Trojan          *TrojanAccount
 	Shadowsocks     *ShadowsocksTcpAccount
 	Shadowsocks2022 *ShadowsocksAccount
+	Hysteria        *HysteriaAccount
 }
