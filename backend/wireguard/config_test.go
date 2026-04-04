@@ -47,6 +47,41 @@ func TestNewWireGuardConfigDefaults(t *testing.T) {
 		t.Errorf("Expected default listen_port 51820, got: %d", config.ListenPort)
 	}
 
+	if config.PeerKeepaliveSeconds != 0 {
+		t.Errorf("Expected default peer_keepalive_seconds 0, got: %d", config.PeerKeepaliveSeconds)
+	}
+
+}
+
+func TestNewWireGuardConfigPreservesZeroKeepalive(t *testing.T) {
+	configJSON := `{
+		"peer_keepalive_seconds": 0
+	}`
+
+	config, err := NewConfig(configJSON)
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if config.PeerKeepaliveSeconds != 0 {
+		t.Fatalf("Expected peer_keepalive_seconds 0, got: %d", config.PeerKeepaliveSeconds)
+	}
+}
+
+func TestNewWireGuardConfigClampsNegativeKeepaliveToZero(t *testing.T) {
+	configJSON := `{
+		"peer_keepalive_seconds": -1
+	}`
+
+	config, err := NewConfig(configJSON)
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if config.PeerKeepaliveSeconds != 0 {
+		t.Fatalf("Expected peer_keepalive_seconds 0, got: %d", config.PeerKeepaliveSeconds)
+	}
+
 }
 
 func TestNewWireGuardConfigInvalidJSON(t *testing.T) {

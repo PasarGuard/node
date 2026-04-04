@@ -66,9 +66,9 @@ func NewConfig(config string) (*Config, error) {
 		wgConfig.ListenPort = 51820
 	}
 
-	// Set default peer keepalive
-	if wgConfig.PeerKeepaliveSeconds <= 0 {
-		wgConfig.PeerKeepaliveSeconds = 25
+	// Preserve explicit 0 as "off"; only clamp invalid negative values.
+	if wgConfig.PeerKeepaliveSeconds < 0 {
+		wgConfig.PeerKeepaliveSeconds = 0
 	}
 
 	return &wgConfig, nil

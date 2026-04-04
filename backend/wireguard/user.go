@@ -36,7 +36,15 @@ func (wg *WireGuard) UpdateUsers(_ context.Context, users []*common.User) error 
 	return wg.syncUsersPartialReconcile(users)
 }
 
-// UpdateUsersAndRestart is kept for backend interface compatibility.
-func (wg *WireGuard) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
-	return wg.UpdateUsers(ctx, users)
+// UpdateUsersAndRestart applies targeted user updates, then rebuilds the full
+// peer snapshot so interface-wide settings like keepalive are reapplied to all peers.
+func (wg *WireGuard) UpdateUsersAndRestart(_ context.Context, users []*common.User) error {
+	wg.syncMu.Lock()
+	defer wg.syncMu.Unlock()
+
+	if err := wg.syncUsersPartialReconcile(users); err != nil {
+		return err
+	}
+
+	return wg.restartLocked()
 }

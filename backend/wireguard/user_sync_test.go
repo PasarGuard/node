@@ -777,6 +777,105 @@ func TestUpdateUsersChangesAllowedIP(t *testing.T) {
 	}
 }
 
+func TestUpdateUsersAndRestartReappliesKeepaliveToAllPeers(t *testing.T) {
+	privateKey, _, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate interface key: %v", err)
+	}
+
+	cfg, err := NewConfig(`{
+		"interface_name":"wg-test",
+		"listen_port":51820,
+		"address":["10.71.0.1/24"],
+		"peer_keepalive_seconds": 0,
+		"private_key":"` + privateKey + `"
+	}`)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	_, touchedKey, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate touched key: %v", err)
+	}
+	_, untouchedKey, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate untouched key: %v", err)
+	}
+
+	ps := NewPeerStore()
+	ps.ReplaceAll([]*PeerInfo{
+		mustPeerInfo("touched@example.com", touchedKey, []string{"10.71.0.2/32"}),
+		mustPeerInfo("untouched@example.com", untouchedKey, []string{"10.71.0.3/32"}),
+	})
+
+	var configureCalls []wgtypes.Config
+	wg := &WireGuard{
+		config:       cfg,
+		peerStore:    ps,
+		statsTracker: stats.New(),
+		manager: &Manager{
+			iFaceName: "wg-test",
+			client: &fakeWGClient{
+				configureDeviceFn: func(interfaceName string, cfg wgtypes.Config) error {
+					if interfaceName != "wg-test" {
+						t.Fatalf("unexpected interface name: %s", interfaceName)
+					}
+					configureCalls = append(configureCalls, cfg)
+					return nil
+				},
+			},
+		},
+		state: lifecycleRunning,
+	}
+
+	users := []*common.User{
+		{
+			Email:    "touched@example.com",
+			Inbounds: []string{"wg-test"},
+			Proxies: &common.Proxy{
+				Wireguard: &common.Wireguard{
+					PublicKey: touchedKey, PeerIps: []string{"10.71.0.2/32"},
+				},
+			},
+		},
+	}
+
+	if err := wg.UpdateUsersAndRestart(context.Background(), users); err != nil {
+		t.Fatalf("UpdateUsersAndRestart failed: %v", err)
+	}
+
+	if len(configureCalls) != 1 {
+		t.Fatalf("expected one restart ConfigureDevice call, got %d", len(configureCalls))
+	}
+
+	restartConfig := configureCalls[0]
+	if !restartConfig.ReplacePeers {
+		t.Fatal("expected restart path to replace peers")
+	}
+	if len(restartConfig.Peers) != 2 {
+		t.Fatalf("expected restart to include both peers, got %d", len(restartConfig.Peers))
+	}
+
+	keys := map[string]wgtypes.PeerConfig{}
+	for _, peer := range restartConfig.Peers {
+		keys[peer.PublicKey.String()] = peer
+		if peer.PersistentKeepaliveInterval == nil {
+			t.Fatal("expected persistent keepalive interval to be set explicitly")
+		}
+		if *peer.PersistentKeepaliveInterval != 0 {
+			t.Fatalf("expected keepalive 0, got %v", *peer.PersistentKeepaliveInterval)
+		}
+	}
+
+	if _, ok := keys[touchedKey]; !ok {
+		t.Fatal("expected touched peer in restart config")
+	}
+	if _, ok := keys[untouchedKey]; !ok {
+		t.Fatal("expected untouched peer in restart config")
+	}
+}
+
 func dummyKey(s string) wgtypes.Key {
 	k, err := wgtypes.ParseKey(s)
 	if err == nil {

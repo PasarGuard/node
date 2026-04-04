@@ -229,6 +229,10 @@ func (wg *WireGuard) Restart() error {
 	wg.syncMu.Lock()
 	defer wg.syncMu.Unlock()
 
+	return wg.restartLocked()
+}
+
+func (wg *WireGuard) restartLocked() error {
 	wg.mu.RLock()
 	cfg := wg.config
 	if cfg == nil {
