@@ -107,6 +107,7 @@ func (wg *WireGuard) logStatsDeviceReadError(err error) {
 	wg.mu.Unlock()
 
 	log.Printf("wireguard stats update skipped: failed to read device: %v", err)
+	wg.emitWarningLogf("wireguard stats update skipped: failed to read device: %v", err)
 }
 
 // cleanupOfflineUsers removes deleted stats entries once their traffic has been reported.

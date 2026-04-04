@@ -195,7 +195,7 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 	wg.mu.Unlock()
 
 	log.Println("wireguard started, Version:", wg.Version())
-	wg.logChan <- fmt.Sprintf("WireGuard interface %s initialized successfully", wgConfig.InterfaceName)
+	wg.emitInfoLogf("WireGuard interface %s initialized successfully", wgConfig.InterfaceName)
 
 	return wg, nil
 }
@@ -266,6 +266,7 @@ func (wg *WireGuard) restartLocked() error {
 	wg.mu.Unlock()
 
 	log.Println("dynamically reconfiguring wireguard interface")
+	wg.emitInfoLogf("dynamically reconfiguring wireguard interface")
 
 	config := wgtypes.Config{
 		PrivateKey:   &privateKey,
@@ -279,6 +280,7 @@ func (wg *WireGuard) restartLocked() error {
 	}
 
 	log.Println("wireguard interface reconfigured successfully without downtime")
+	wg.emitInfoLogf("wireguard interface reconfigured successfully without downtime")
 	return nil
 }
 
@@ -327,12 +329,14 @@ func (wg *WireGuard) shutdownLocked() {
 	if wg.manager != nil {
 		if err := wg.manager.Close(); err != nil {
 			log.Printf("error closing manager: %v", err)
+			wg.emitLogLocked(logSeverityError, fmt.Sprintf("error closing manager: %v", err))
 		}
 		wg.manager = nil
 	}
 
 	wg.state = lifecycleStopped
 	wg.version = ""
+	wg.emitLogLocked(logSeverityInfo, "wireguard shutdown complete")
 	if wg.logChan != nil {
 		close(wg.logChan)
 		wg.logChan = nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -158,6 +159,16 @@ func TestWireGuardNewInitializesWithSingleConfigureCallIncludingPeers(t *testing
 	}
 	if len(configured.Peers) != 1 {
 		t.Fatalf("expected one peer in startup configure call, got %d", len(configured.Peers))
+	}
+
+	select {
+	case startupLog := <-wg.Logs():
+		pattern := regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{6} \[Info\] wireguard: WireGuard interface wg-test initialized successfully$`)
+		if !pattern.MatchString(startupLog) {
+			t.Fatalf("expected startup log with timestamp prefix, got %q", startupLog)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected startup log to be emitted")
 	}
 
 	parsedPublicKey, err := wgtypes.ParseKey(publicKey)
