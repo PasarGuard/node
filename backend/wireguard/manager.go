@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"syscall"
 
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -55,6 +56,20 @@ type configureDeviceFunc func(client wgClient, interfaceName string, config wgty
 
 func defaultConfigureDevice(client wgClient, interfaceName string, config wgtypes.Config) error {
 	return client.ConfigureDevice(interfaceName, config)
+}
+
+func wrapPermissionDeniedError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		return fmt.Errorf(
+			"%s: permission denied; WireGuard requires CAP_NET_ADMIN and kernel support on the host (if running in Docker, add NET_ADMIN and ensure the wireguard kernel module is available on the host): %w",
+			action,
+			err,
+		)
+	}
+	return err
 }
 
 // Manager handles WireGuard interface management using wgctrl
@@ -138,7 +153,7 @@ func (m *Manager) InitializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 	// Create WireGuard interface
 	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: m.iFaceName}}
 	if err := nl.LinkAdd(link); err != nil {
-		return fmt.Errorf("failed to add link: %w", err)
+		return fmt.Errorf("failed to add link: %w", wrapPermissionDeniedError("creating wireguard interface", err))
 	}
 	cleanupOnError := true
 	defer func() {
@@ -151,7 +166,7 @@ func (m *Manager) InitializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 	config := buildInitialWGConfig(privateKey, listenPort, peers)
 
 	if err := configure(m.client, m.iFaceName, config); err != nil {
-		return fmt.Errorf("failed to configure device: %w", err)
+		return fmt.Errorf("failed to configure device: %w", wrapPermissionDeniedError("configuring wireguard device", err))
 	}
 
 	link2, err := nl.LinkByName(m.iFaceName)
@@ -161,13 +176,17 @@ func (m *Manager) InitializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 
 	for _, addr := range parsedAddrs {
 		if err := nl.AddrAdd(link2, addr); err != nil {
-			return fmt.Errorf("failed to add address %s: %w", addr.IPNet.String(), err)
+			return fmt.Errorf(
+				"failed to add address %s: %w",
+				addr.IPNet.String(),
+				wrapPermissionDeniedError("assigning wireguard interface address", err),
+			)
 		}
 	}
 
 	// Bring interface up
 	if err := nl.LinkSetUp(link2); err != nil {
-		return fmt.Errorf("failed to bring up interface: %w", err)
+		return fmt.Errorf("failed to bring up interface: %w", wrapPermissionDeniedError("bringing wireguard interface up", err))
 	}
 
 	cleanupOnError = false
@@ -272,7 +291,7 @@ func (m *Manager) cleanupExistingInterface() error {
 	}
 
 	if err := nl.LinkDel(link); err != nil {
-		return fmt.Errorf("link delete: %w", err)
+		return fmt.Errorf("link delete: %w", wrapPermissionDeniedError("deleting wireguard interface", err))
 	}
 
 	return nil

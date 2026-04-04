@@ -5,6 +5,10 @@ services:
     # image: ghcr.io/pasarguard/node:latest
     restart: always
     network_mode: host
+    cap_add:
+      - NET_ADMIN
+    # WireGuard in this image uses the Linux kernel interface.
+    # The host must have WireGuard kernel support available (for example: modprobe wireguard).
 
     environment:
       SERVICE_PORT: 62050
