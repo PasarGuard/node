@@ -17,7 +17,7 @@ const (
 
 func formatWireGuardLogLine(severity logSeverity, message string) string {
 	timestamp := time.Now().Format(wireGuardLogTimestampFormat)
-	return fmt.Sprintf("%s [%s] wireguard: %s", timestamp, severity, message)
+	return fmt.Sprintf("%s [%s] %s", timestamp, severity, message)
 }
 
 func (wg *WireGuard) emitInfoLogf(format string, args ...any) {
