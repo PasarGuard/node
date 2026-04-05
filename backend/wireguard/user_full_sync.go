@@ -15,7 +15,7 @@ func (wg *WireGuard) syncUsersFull(users []*common.User) error {
 		return err
 	}
 
-	diff, err := wg.buildSyncDiff(existingByKey, desiredPeers, wg.config.GetKeepalive())
+	diff, err := wg.buildSyncDiff(existingByKey, desiredPeers)
 	if err != nil {
 		return err
 	}
@@ -25,7 +25,7 @@ func (wg *WireGuard) syncUsersFull(users []*common.User) error {
 	}
 
 	psk, _ := wg.config.GetPreSharedKey()
-	peerConfigs, appliedKeys := buildTargetPeerConfigs(diff.TargetPeers, wg.config.GetKeepalive(), psk)
+	peerConfigs, appliedKeys := buildTargetPeerConfigs(diff.TargetPeers, psk)
 
 	wg.mu.RLock()
 	if err := wg.ensureRunningWithManagerLocked(); err != nil {

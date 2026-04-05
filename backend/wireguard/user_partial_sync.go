@@ -44,7 +44,7 @@ func (wg *WireGuard) syncUsersPartialReconcile(users []*common.User) error {
 		}
 	}
 
-	diff, err := wg.buildSyncDiff(existingSubset, desiredPeers, wg.config.GetKeepalive())
+	diff, err := wg.buildSyncDiff(existingSubset, desiredPeers)
 	if err != nil {
 		return err
 	}

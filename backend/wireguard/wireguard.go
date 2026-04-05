@@ -163,12 +163,12 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 		return nil, fmt.Errorf("failed to collect desired peers: %w", err)
 	}
 
-	startupDiff, err := wg.buildSyncDiff(startupExistingByKey, startupDesiredPeers, wg.config.GetKeepalive())
+	startupDiff, err := wg.buildSyncDiff(startupExistingByKey, startupDesiredPeers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build sync diff: %w", err)
 	}
 	psk, _ := wgConfig.GetPreSharedKey()
-	startupPeerConfigs, appliedKeys := buildTargetPeerConfigs(startupDiff.TargetPeers, wgConfig.GetKeepalive(), psk)
+	startupPeerConfigs, appliedKeys := buildTargetPeerConfigs(startupDiff.TargetPeers, psk)
 
 	manager, err := wg.newManager(wgConfig.InterfaceName)
 	if err != nil {
@@ -247,12 +247,11 @@ func (wg *WireGuard) restartLocked() error {
 	}
 
 	listenPort := cfg.ListenPort
-	keepalive := cfg.GetKeepalive()
 	allPeers := wg.peerStore.GetAll()
 	wg.mu.RUnlock()
 
 	psk, _ := wg.config.GetPreSharedKey()
-	peerConfigs, err := buildPeerConfigsForRestart(allPeers, keepalive, psk)
+	peerConfigs, err := buildPeerConfigsForRestart(allPeers, psk)
 	if err != nil {
 		return fmt.Errorf("failed to build restart peer configs: %w", err)
 	}
@@ -295,7 +294,7 @@ func (wg *WireGuard) Shutdown() {
 	})
 }
 
-func buildPeerConfigsForRestart(peers []*PeerInfo, keepalive time.Duration, presharedKey *wgtypes.Key) ([]wgtypes.PeerConfig, error) {
+func buildPeerConfigsForRestart(peers []*PeerInfo, presharedKey *wgtypes.Key) ([]wgtypes.PeerConfig, error) {
 	orderedPeers := append([]*PeerInfo(nil), peers...)
 	sort.Slice(orderedPeers, func(i, j int) bool {
 		return orderedPeers[i].PublicKey.String() < orderedPeers[j].PublicKey.String()
@@ -307,7 +306,7 @@ func buildPeerConfigsForRestart(peers []*PeerInfo, keepalive time.Duration, pres
 			return nil, fmt.Errorf("peer %s has no allowed IPs", peer.Email)
 		}
 
-		peerConfigs = append(peerConfigs, buildAddConfig(peer.PublicKey, peer.AllowedIPs, keepalive, presharedKey))
+		peerConfigs = append(peerConfigs, buildAddConfig(peer.PublicKey, peer.AllowedIPs, presharedKey))
 	}
 
 	return peerConfigs, nil

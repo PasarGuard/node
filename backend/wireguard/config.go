@@ -19,9 +19,6 @@ type Config struct {
 	ListenPort    int      `json:"listen_port"`
 	Address       []string `json:"address"`
 
-	// Peer keepalive configuration
-	PeerKeepaliveSeconds int `json:"peer_keepalive_seconds"`
-
 	privateKeyValue   wgtypes.Key
 	privateKeySet     bool
 	presharedKeyValue *wgtypes.Key
@@ -64,11 +61,6 @@ func NewConfig(config string) (*Config, error) {
 
 	if wgConfig.ListenPort <= 0 {
 		wgConfig.ListenPort = 51820
-	}
-
-	// Preserve explicit 0 as "off"; only clamp invalid negative values.
-	if wgConfig.PeerKeepaliveSeconds < 0 {
-		wgConfig.PeerKeepaliveSeconds = 0
 	}
 
 	return &wgConfig, nil
@@ -135,12 +127,6 @@ func (c *Config) GetPreSharedKey() (*wgtypes.Key, error) {
 	c.presharedKeyValue = &key
 	c.presharedKeySet = true
 	return &key, nil
-}
-
-// GetKeepalive returns the configured peer keepalive interval as a time.Duration.
-// Int reads are atomic on all supported platforms, so no lock is needed.
-func (c *Config) GetKeepalive() time.Duration {
-	return time.Duration(c.PeerKeepaliveSeconds) * time.Second
 }
 
 // GenerateKeyPair generates a new WireGuard key pair

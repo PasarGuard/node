@@ -227,7 +227,7 @@ func TestBuildPeerConfigsForRestartRejectsPeersWithoutValidAllowedIPs(t *testing
 		mustPeerInfo("invalid@example.com", invalidKey, []string{"not-a-cidr"}),
 	}
 
-	if _, err := buildPeerConfigsForRestart(peers, 25*time.Second, nil); err == nil {
+	if _, err := buildPeerConfigsForRestart(peers, nil); err == nil {
 		t.Fatal("expected error for peer with invalid allowed IP")
 	}
 }
@@ -246,7 +246,7 @@ func TestBuildPeerConfigsForRestartOrdersPeersDeterministically(t *testing.T) {
 		mustPeerInfo("b@example.com", keyB, []string{"10.78.0.4/32"}),
 	}
 
-	cfgs, err := buildPeerConfigsForRestart(peers, 25*time.Second, nil)
+	cfgs, err := buildPeerConfigsForRestart(peers, nil)
 	if err != nil {
 		t.Fatalf("buildPeerConfigsForRestart failed: %v", err)
 	}
