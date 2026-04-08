@@ -13,6 +13,7 @@ import (
 const (
 	envHostRouting        = "PG_NODE_WG_HOST_ROUTING"
 	envNATOutputInterface = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
+	envNATEgressOnly = "PG_NODE_WG_NAT_EGRESS_ONLY"
 )
 
 // applyLinuxHostRouting enables IPv4/IPv6 forwarding and installs an nftables masquerade
@@ -56,32 +57,58 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		log.Printf("wireguard host routing: ipv6 forwarding: %v", err)
 	}
 
-	log.Printf("wireguard host routing: wg interface %q, NAT egress %q (masquerade)", wgIf, outIf)
+	egressOnly := envTruthy(os.Getenv(envNATEgressOnly))
+	log.Printf(
+		"wireguard host routing: wg interface %q, NAT egress %q (masquerade, egress_only=%v)",
+		wgIf, outIf, egressOnly,
+	)
 
-	if err := ensureNFTMasquerade(wgIf, outIf); err != nil {
-		log.Printf("wireguard host routing: nftables masquerade (optional): %v", err)
+	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
+		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
 	}
+}
+
+func envTruthy(s string) bool {
+	v := strings.TrimSpace(s)
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 }
 
 func writeSysctl(relPath, value string) error {
 	path := "/proc/sys/" + relPath
-	return os.WriteFile(path, []byte(value+"\n"), 0)
+	err := os.WriteFile(path, []byte(value+"\n"), 0)
+	if err == nil {
+		return nil
+	}
+	key := strings.ReplaceAll(relPath, "/", ".")
+	out, err2 := exec.Command("sysctl", "-w", key+"="+value).CombinedOutput()
+	if err2 != nil {
+		return fmt.Errorf("%w; sysctl fallback: %w: %s", err, err2, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
-// ensureNFTMasquerade replaces table ip pasarguard_wg. Traffic is matched from the
-// configured WireGuard interface to the detected/configured egress interface only.
-func ensureNFTMasquerade(wgIface, outputIface string) error {
+// ensureNFTMasquerade replaces table ip pasarguard_wg.
+// If egressOnly, only oifname is matched (same idea as "oifname eth0 masquerade" in /etc/nftables.conf).
+// Otherwise traffic is matched from the WireGuard interface to the egress interface.
+func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
 	del := exec.Command("nft", "delete", "table", "ip", "pasarguard_wg")
 	_ = del.Run()
+
+	var rule string
+	if egressOnly {
+		rule = fmt.Sprintf("oifname %q masquerade", outputIface)
+	} else {
+		rule = fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
+	}
 
 	cfg := fmt.Sprintf(`table ip pasarguard_wg {
 	chain postrouting {
 		type nat hook postrouting priority 100;
 		policy accept;
-		iifname %q oifname %q masquerade
+		%s
 	}
 }
-`, wgIface, outputIface)
+`, rule)
 
 	cmd := exec.Command("nft", "-f", "-")
 	cmd.Stdin = strings.NewReader(cfg)
