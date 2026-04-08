@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -63,6 +64,27 @@ func NewConfig(config string) (*Config, error) {
 	}
 
 	return &wgConfig, nil
+}
+
+// InterfaceNetworks returns CIDR prefixes parsed from the node's core `address` list.
+// Used to restrict peer AllowedIPs to subnets this interface actually serves.
+func (c *Config) InterfaceNetworks() []*net.IPNet {
+	if c == nil {
+		return nil
+	}
+	var out []*net.IPNet
+	for _, addr := range c.Address {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		_, ipNet, err := net.ParseCIDR(addr)
+		if err != nil {
+			continue
+		}
+		out = append(out, ipNet)
+	}
+	return out
 }
 
 // GetPrivateKey returns the parsed WireGuard private key.

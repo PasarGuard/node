@@ -1,8 +1,28 @@
 package wireguard
 
 import (
+	"net"
 	"testing"
 )
+
+func TestConfigInterfaceNetworks(t *testing.T) {
+	cfg := &Config{Address: []string{" 10.8.0.1/24 ", ""}}
+	nets := cfg.InterfaceNetworks()
+	if len(nets) != 1 {
+		t.Fatalf("expected 1 network, got %d", len(nets))
+	}
+	if nets[0].String() != "10.8.0.0/24" {
+		t.Fatalf("unexpected network: %s", nets[0].String())
+	}
+	_, ipn, _ := net.ParseCIDR("10.8.0.5/32")
+	if !peerIPAllowedOnInterface(ipn, nets) {
+		t.Fatal("expected 10.8.0.5/32 to be allowed under 10.8.0.0/24")
+	}
+	_, wrong, _ := net.ParseCIDR("10.0.0.2/32")
+	if peerIPAllowedOnInterface(wrong, nets) {
+		t.Fatal("expected 10.0.0.2/32 to be rejected under 10.8.0.0/24")
+	}
+}
 
 func TestNewWireGuardConfig(t *testing.T) {
 	configJSON := `{

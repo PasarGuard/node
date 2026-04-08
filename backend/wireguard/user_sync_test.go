@@ -67,7 +67,7 @@ func TestSyncUserRejectsUnparsableStoredPeer(t *testing.T) {
 		Inbounds: []string{"wg-test"},
 		Proxies: &common.Proxy{
 			Wireguard: &common.Wireguard{
-				PublicKey: validKey, PeerIps: []string{"10.0.0.1/32"},
+				PublicKey: validKey, PeerIps: []string{"10.61.0.10/32"},
 			},
 		},
 	}
@@ -306,7 +306,7 @@ func TestSyncUsersReplaceAllRemovesStalePeersAndStats(t *testing.T) {
 			Inbounds: []string{"wg-test"},
 			Proxies: &common.Proxy{
 				Wireguard: &common.Wireguard{
-					PublicKey: newKey, PeerIps: []string{"10.0.0.4/32"},
+					PublicKey: newKey, PeerIps: []string{"10.63.0.10/32"},
 				},
 			},
 		},
