@@ -13,7 +13,7 @@ import (
 const (
 	envHostRouting        = "PG_NODE_WG_HOST_ROUTING"
 	envNATOutputInterface = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
-	envNATEgressOnly = "PG_NODE_WG_NAT_EGRESS_ONLY"
+	envNATEgressOnly      = "PG_NODE_WG_NAT_EGRESS_ONLY"
 )
 
 // applyLinuxHostRouting enables IPv4/IPv6 forwarding and installs an nftables masquerade
@@ -57,11 +57,18 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		log.Printf("wireguard host routing: ipv6 forwarding: %v", err)
 	}
 
-	egressOnly := envTruthy(os.Getenv(envNATEgressOnly))
+	egressOnly := true
+	if env := os.Getenv(envNATEgressOnly); env != "" {
+		egressOnly = envTruthy(env)
+	}
 	log.Printf(
 		"wireguard host routing: wg interface %q, NAT egress %q (masquerade, egress_only=%v)",
 		wgIf, outIf, egressOnly,
 	)
+
+	// Ensure nftables service is started and enabled
+	_ = exec.Command("systemctl", "start", "nftables").Run()
+	_ = exec.Command("systemctl", "enable", "nftables").Run()
 
 	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
 		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
@@ -87,13 +94,10 @@ func writeSysctl(relPath, value string) error {
 	return nil
 }
 
-// ensureNFTMasquerade replaces table ip pasarguard_wg.
+// ensureNFTMasquerade sets up NAT rules dynamically.
 // If egressOnly, only oifname is matched (same idea as "oifname eth0 masquerade" in /etc/nftables.conf).
 // Otherwise traffic is matched from the WireGuard interface to the egress interface.
 func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
-	del := exec.Command("nft", "delete", "table", "ip", "pasarguard_wg")
-	_ = del.Run()
-
 	var rule string
 	if egressOnly {
 		rule = fmt.Sprintf("oifname %q masquerade", outputIface)
@@ -101,10 +105,15 @@ func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
 		rule = fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
 	}
 
-	cfg := fmt.Sprintf(`table ip pasarguard_wg {
+	cfg := fmt.Sprintf(`flush ruleset
+
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority 0; policy accept;
+	}
+
 	chain postrouting {
-		type nat hook postrouting priority 100;
-		policy accept;
+		type nat hook postrouting priority 100; policy accept;
 		%s
 	}
 }
