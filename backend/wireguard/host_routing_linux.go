@@ -16,8 +16,8 @@ const (
 	envNATEgressOnly      = "PG_NODE_WG_NAT_EGRESS_ONLY"
 )
 
-// applyLinuxHostRouting enables IPv4/IPv6 forwarding and installs an nftables masquerade
-// rule for traffic from the WireGuard interface to the IPv4 default-route egress interface.
+// applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
+// WireGuard interface to the IPv4 default-route egress interface.
 //
 // wgInterfaceName comes from core JSON interface_name (e.g. wg0, wg1); never hardcoded here.
 // The NAT egress interface is resolved in order:
@@ -50,13 +50,6 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		}
 	}
 
-	if err := writeSysctl("net/ipv4/ip_forward", "1"); err != nil {
-		log.Printf("wireguard host routing: ipv4 forwarding: %v", err)
-	}
-	if err := writeSysctl("net/ipv6/conf/all/forwarding", "1"); err != nil {
-		log.Printf("wireguard host routing: ipv6 forwarding: %v", err)
-	}
-
 	egressOnly := true
 	if env := os.Getenv(envNATEgressOnly); env != "" {
 		egressOnly = envTruthy(env)
@@ -78,20 +71,6 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 func envTruthy(s string) bool {
 	v := strings.TrimSpace(s)
 	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
-}
-
-func writeSysctl(relPath, value string) error {
-	path := "/proc/sys/" + relPath
-	err := os.WriteFile(path, []byte(value+"\n"), 0)
-	if err == nil {
-		return nil
-	}
-	key := strings.ReplaceAll(relPath, "/", ".")
-	out, err2 := exec.Command("sysctl", "-w", key+"="+value).CombinedOutput()
-	if err2 != nil {
-		return fmt.Errorf("%w; sysctl fallback: %w: %s", err, err2, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 // ensureNFTMasquerade sets up NAT rules dynamically.

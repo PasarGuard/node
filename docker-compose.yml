@@ -13,7 +13,7 @@ services:
     environment:
       SERVICE_PORT: 62050
       SERVICE_PROTOCOL: "grpc"
-      # Linux: IP forwarding + nft masquerade from the WG interface (core interface_name) to the IPv4 default route iface.
+      # Linux: nft masquerade from the WG interface (core interface_name) to the IPv4 default route iface.
       # NAT egress is auto-detected (ip route / /proc/net/route); set PG_NODE_WG_NAT_OUTPUT_INTERFACE to override (e.g. eth0, ens192).
       PG_NODE_WG_HOST_ROUTING: "1"
 
