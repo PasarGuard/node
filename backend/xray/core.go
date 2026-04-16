@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type Core struct {
 	startupLogSize            int
 	startupFailure            string
 	startupDiagnosticsEnabled bool
+	unixSocketPaths           []string
 	logger                    *nodeLogger.Logger
 	cancelFunc                context.CancelFunc
 	mu                        sync.Mutex
@@ -116,6 +118,60 @@ func (c *Core) Started() bool {
 	return false
 }
 
+func collectUnixSocketPaths(cfg *Config) []string {
+	if cfg == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	paths := make([]string, 0)
+
+	for _, inbound := range cfg.InboundConfigs {
+		if inbound == nil {
+			continue
+		}
+
+		listen := strings.TrimSpace(inbound.Listen)
+		if listen == "" {
+			continue
+		}
+
+		path, _, _ := strings.Cut(listen, ",")
+		path = strings.TrimSpace(path)
+		if !strings.HasPrefix(path, "/") {
+			continue
+		}
+
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+
+	return paths
+}
+
+func removeUnixSocketFiles(paths []string) {
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("warning: failed to stat unix socket %s: %v", path, err)
+			}
+			continue
+		}
+
+		if info.Mode()&os.ModeSocket == 0 {
+			continue
+		}
+
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("warning: failed to remove unix socket %s: %v", path, err)
+		}
+	}
+}
+
 func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	accessFile, errorFile := xConfig.GetLogFiles()
 
@@ -151,6 +207,9 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 		c.processPID = 0
 	}
 
+	socketPaths := collectUnixSocketPaths(xConfig)
+	removeUnixSocketFiles(socketPaths)
+
 	cmd := exec.Command(c.executablePath, "-c", "stdin:")
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+c.assetsPath)
 	// Set process attributes for proper process management
@@ -173,6 +232,7 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	}
 	c.process = cmd
 	c.processPID = cmd.Process.Pid
+	c.unixSocketPaths = socketPaths
 
 	// Wait for the process to exit to prevent zombie processes
 	go func() {
@@ -192,11 +252,12 @@ func (c *Core) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.Started() {
+	started := c.Started()
+	if !started && c.process == nil && c.cancelFunc == nil && c.logger == nil && len(c.unixSocketPaths) == 0 {
 		return
 	}
 
-	if c.process != nil && c.process.Process != nil {
+	if started {
 		pid := c.process.Process.Pid
 		c.processPID = pid
 
@@ -225,11 +286,15 @@ func (c *Core) Stop() {
 			_ = killProcessTree(pid)
 		}
 	}
+	socketPaths := append([]string(nil), c.unixSocketPaths...)
 	c.process = nil
 	c.processPID = 0
+	c.unixSocketPaths = nil
+	removeUnixSocketFiles(socketPaths)
 
 	if c.cancelFunc != nil {
 		c.cancelFunc()
+		c.cancelFunc = nil
 	}
 
 	if c.logger != nil {
