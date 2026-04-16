@@ -29,3 +29,7 @@ xray-core/
 
 # AI
 .AI
+
+certs/
+generated/
+pasarguard-node*
