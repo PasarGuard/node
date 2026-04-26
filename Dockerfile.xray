@@ -19,7 +19,7 @@ FROM alpine:latest
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
 WORKDIR /app
-COPY --from=builder /src /app
+COPY --from=builder /src/main /app/main
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 

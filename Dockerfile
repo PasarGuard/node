@@ -21,7 +21,7 @@ LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 RUN apk update && apk add --no-cache wireguard-tools nftables iproute2 procps
 
 WORKDIR /app
-COPY --from=builder /src /app
+COPY --from=builder /src/main /app/main
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 
