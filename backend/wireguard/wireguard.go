@@ -170,7 +170,6 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 	psk, _ := wgConfig.GetPreSharedKey()
 	startupPeerConfigs, appliedKeys := buildTargetPeerConfigs(startupDiff.TargetPeers, psk)
 
-
 	manager, err := wg.newManager(wgConfig.InterfaceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create manager: %w", err)

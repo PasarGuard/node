@@ -2,7 +2,7 @@ NAME = pasarguard-node-$(GOOS)-$(GOARCH)
 
 LDFLAGS = -s -w -buildid=
 PARAMS = -trimpath -ldflags "$(LDFLAGS)" -v
-MAIN = ./main.go
+MAIN = ./cmd/node
 PREFIX ?= $(shell go env GOPATH)
 XRAY_OS ?=
 XRAY_ARCH ?=
@@ -172,4 +172,4 @@ test-race-wireguard:
 	GOTOOLCHAIN=auto CGO_ENABLED=1 go test -race -v -p 1 ./backend/wireguard
 
 serve:
-	go run main.go serve
+	go run ./cmd/node
