@@ -13,7 +13,7 @@ import (
 	"github.com/pasarguard/node/controller"
 	"github.com/pasarguard/node/controller/rest"
 	"github.com/pasarguard/node/controller/rpc"
-	"github.com/pasarguard/node/tools"
+	"github.com/pasarguard/node/pkg/tlsutil"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", cfg.NodeHost, cfg.ServicePort)
 
-	tlsConfig, err := tools.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
+	tlsConfig, err := tlsutil.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
 	if err != nil {
 		log.Fatal(err)
 	}

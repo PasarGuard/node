@@ -14,7 +14,8 @@ import (
 	"github.com/pasarguard/node/backend/xray"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
-	"github.com/pasarguard/node/tools"
+	"github.com/pasarguard/node/pkg/netutil"
+	"github.com/pasarguard/node/pkg/sysstats"
 )
 
 const NodeVersion = "0.3.1"
@@ -38,7 +39,7 @@ func New(cfg *config.Config) *Controller {
 	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
 		cfg:        cfg,
-		apiPort:    tools.FindFreePort(),
+		apiPort:    netutil.FindFreePort(),
 		cancelFunc: cancel,
 	}
 }
@@ -80,7 +81,7 @@ func (c *Controller) Disconnect() {
 	defer c.mu.Unlock()
 
 	c.backend = nil
-	c.apiPort = tools.FindFreePort()
+	c.apiPort = netutil.FindFreePort()
 	c.clientIP = ""
 }
 
@@ -162,7 +163,7 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			stats, err := tools.GetSystemStats()
+			stats, err := sysstats.GetSystemStats()
 			if err != nil {
 				log.Printf("Failed to get system stats: %v", err)
 			} else {

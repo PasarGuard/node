@@ -1,4 +1,4 @@
-package tools
+package tlsutil
 
 import (
 	"crypto/tls"

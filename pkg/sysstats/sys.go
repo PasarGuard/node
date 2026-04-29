@@ -1,4 +1,4 @@
-package tools
+package sysstats
 
 import (
 	"time"
@@ -45,40 +45,31 @@ func GetSystemStats() (*common.SystemStatsResponse, error) {
 }
 
 // getBandwidthSpeed returns the aggregate incoming (rx) and outgoing (tx)
-// bandwidth in bytes per second, sampled over a 1‑second interval.
+// bandwidth in bytes per second, sampled over a 1-second interval.
 // Loopback interface (lo) is excluded from the calculation.
 func getBandwidthSpeed() (uint64, uint64, error) {
-	// 1) First snapshot with timestamp
 	first, err := net.IOCounters(true)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// 2) Wait one second
 	time.Sleep(1 * time.Second)
 
-	// 3) Second snapshot with timestamp
 	second, err := net.IOCounters(true)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// 4) Build a map from interface name → first snapshot
-	// Skip loopback interface
 	prev := make(map[string]net.IOCountersStat, len(first))
 	for _, c := range first {
-		// Skip loopback interface
 		if c.Name == "lo" {
 			continue
 		}
 		prev[c.Name] = c
 	}
 
-	// 5) Compute deltas and sum across all interfaces
-	// Skip loopback interface
 	var totalRxBytes, totalTxBytes uint64
 	for _, c := range second {
-		// Skip loopback interface
 		if c.Name == "lo" {
 			continue
 		}
@@ -88,6 +79,5 @@ func getBandwidthSpeed() (uint64, uint64, error) {
 		}
 	}
 
-	// 6) Return the calculated rates (bytes per second)
 	return totalRxBytes, totalTxBytes, nil
 }

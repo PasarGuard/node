@@ -1,4 +1,4 @@
-package tools
+package fsutil
 
 import (
 	"os"

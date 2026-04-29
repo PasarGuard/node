@@ -11,7 +11,8 @@ import (
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
-	"github.com/pasarguard/node/tools"
+	"github.com/pasarguard/node/pkg/fsutil"
+	"github.com/pasarguard/node/pkg/netutil"
 )
 
 var (
@@ -22,7 +23,7 @@ var (
 )
 
 func TestXrayBackend(t *testing.T) {
-	xrayFile, err := tools.ReadFileAsString(jsonFile)
+	xrayFile, err := fsutil.ReadFileAsString(jsonFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestXrayBackend(t *testing.T) {
 		LogBufferSize:       1000,
 	}
 
-	back, err := New(context.Background(), newConfig, []*common.User{user, user2}, tools.FindFreePort(), cfg)
+	back, err := New(context.Background(), newConfig, []*common.User{user, user2}, netutil.FindFreePort(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
