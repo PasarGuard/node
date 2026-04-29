@@ -1,47 +1,47 @@
 name: Test Modules
 
 on:
-    pull_request:
-        branches:
-            - "**"
-    push:
-        branches:
-            - "dev"
-            - "wg"
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - "dev"
+      - "wg"
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        env:
-            GOTOOLCHAIN: auto
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
 
-        steps:
-            - name: Checkout codebase
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
 
-            - name: Set up Go
-              uses: actions/setup-go@v6
-              with:
-                  go-version: "1.26.1"
-                  check-latest: true
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.2"
+          check-latest: true
 
-            - name: Get project dependencies
-              run: make deps
+      - name: Get project dependencies
+        run: make deps
 
-            - name: Install xray-core
-              run: make install_xray
+      - name: Install xray-core
+        run: make install_xray
 
-            - name: install wg
-              run: make install_wg
+      - name: install wg
+        run: make install_wg
 
-            - name: Create certificate
-              run: |
-                  mkdir -p certs
-                  make generate_server_cert
-                  make generate_client_cert
+      - name: Create certificate
+        run: |
+          mkdir -p certs
+          make generate_server_cert
+          make generate_client_cert
 
-            - name: Run regular test suite
-              run: TEST_INTEGRATION=true go test ./... -v -p 1
+      - name: Run regular test suite
+        run: TEST_INTEGRATION=true go test ./... -v -p 1
 
-            - name: Run wireguard integration tests
-              run: sudo -E make test-integration-wireguard
+      - name: Run wireguard integration tests
+        run: sudo -E make test-integration-wireguard
