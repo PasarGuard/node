@@ -174,10 +174,38 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 	}
 }
 
-func (c *Controller) SystemStats() *common.SystemStatsResponse {
+func (c *Controller) SystemStats(ctx context.Context) *common.SystemStatsResponse {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.stats
+	statsSnapshot := c.stats
+	backendSnapshot := c.backend
+	c.mu.RUnlock()
+
+	response := &common.SystemStatsResponse{}
+	if statsSnapshot != nil {
+		response = &common.SystemStatsResponse{
+			MemTotal:               statsSnapshot.GetMemTotal(),
+			MemUsed:                statsSnapshot.GetMemUsed(),
+			CpuCores:               statsSnapshot.GetCpuCores(),
+			CpuUsage:               statsSnapshot.GetCpuUsage(),
+			IncomingBandwidthSpeed: statsSnapshot.GetIncomingBandwidthSpeed(),
+			OutgoingBandwidthSpeed: statsSnapshot.GetOutgoingBandwidthSpeed(),
+			Uptime:                 statsSnapshot.GetUptime(),
+		}
+	}
+
+	if backendSnapshot == nil {
+		return response
+	}
+
+	// Backend uptime is owned by each backend implementation; controller only forwards it here.
+	backendStats, err := backendSnapshot.GetSysStats(ctx)
+	if err != nil {
+		log.Printf("Failed to get backend uptime for system stats: %v", err)
+		return response
+	}
+
+	response.Uptime = uint64(backendStats.GetUptime())
+	return response
 }
 
 func (c *Controller) BaseInfoResponse() *common.BaseInfoResponse {

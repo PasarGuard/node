@@ -74,6 +74,6 @@ func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
 	common.SendProtoResponse(w, stats)
 }
 
-func (s *Service) GetSystemStats(w http.ResponseWriter, _ *http.Request) {
-	common.SendProtoResponse(w, s.SystemStats())
+func (s *Service) GetSystemStats(w http.ResponseWriter, r *http.Request) {
+	common.SendProtoResponse(w, s.SystemStats(r.Context()))
 }

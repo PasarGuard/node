@@ -88,6 +88,7 @@ message SystemStatsResponse {
     double cpu_usage = 4;
     uint64 incoming_bandwidth_speed = 5;
     uint64 outgoing_bandwidth_speed = 6;
+    uint64 uptime = 7;
 }
 
 // User

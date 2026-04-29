@@ -37,6 +37,6 @@ func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common
 	return s.Backend().GetSysStats(ctx)
 }
 
-func (s *Service) GetSystemStats(_ context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
-	return s.SystemStats(), nil
+func (s *Service) GetSystemStats(ctx context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
+	return s.SystemStats(ctx), nil
 }

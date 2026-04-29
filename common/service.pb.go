@@ -744,6 +744,7 @@ type SystemStatsResponse struct {
 	CpuUsage               float64                `protobuf:"fixed64,4,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`
 	IncomingBandwidthSpeed uint64                 `protobuf:"varint,5,opt,name=incoming_bandwidth_speed,json=incomingBandwidthSpeed,proto3" json:"incoming_bandwidth_speed,omitempty"`
 	OutgoingBandwidthSpeed uint64                 `protobuf:"varint,6,opt,name=outgoing_bandwidth_speed,json=outgoingBandwidthSpeed,proto3" json:"outgoing_bandwidth_speed,omitempty"`
+	Uptime                 uint64                 `protobuf:"varint,7,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -816,6 +817,13 @@ func (x *SystemStatsResponse) GetIncomingBandwidthSpeed() uint64 {
 func (x *SystemStatsResponse) GetOutgoingBandwidthSpeed() uint64 {
 	if x != nil {
 		return x.OutgoingBandwidthSpeed
+	}
+	return 0
+}
+
+func (x *SystemStatsResponse) GetUptime() uint64 {
+	if x != nil {
+		return x.Uptime
 	}
 	return 0
 }
@@ -1408,14 +1416,15 @@ const file_common_service_proto_rawDesc = "" +
 	"\flive_objects\x18\b \x01(\x04R\vliveObjects\x12$\n" +
 	"\x0epause_total_ns\x18\t \x01(\x04R\fpauseTotalNs\x12\x16\n" +
 	"\x06uptime\x18\n" +
-	" \x01(\rR\x06uptime\"\xfb\x01\n" +
+	" \x01(\rR\x06uptime\"\x93\x02\n" +
 	"\x13SystemStatsResponse\x12\x1b\n" +
 	"\tmem_total\x18\x01 \x01(\x04R\bmemTotal\x12\x19\n" +
 	"\bmem_used\x18\x02 \x01(\x04R\amemUsed\x12\x1b\n" +
 	"\tcpu_cores\x18\x03 \x01(\x04R\bcpuCores\x12\x1b\n" +
 	"\tcpu_usage\x18\x04 \x01(\x01R\bcpuUsage\x128\n" +
 	"\x18incoming_bandwidth_speed\x18\x05 \x01(\x04R\x16incomingBandwidthSpeed\x128\n" +
-	"\x18outgoing_bandwidth_speed\x18\x06 \x01(\x04R\x16outgoingBandwidthSpeed\"\x17\n" +
+	"\x18outgoing_bandwidth_speed\x18\x06 \x01(\x04R\x16outgoingBandwidthSpeed\x12\x16\n" +
+	"\x06uptime\x18\a \x01(\x04R\x06uptime\"\x17\n" +
 	"\x05Vmess\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"+\n" +
 	"\x05Vless\x12\x0e\n" +
