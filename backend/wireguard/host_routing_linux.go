@@ -14,6 +14,9 @@ const (
 	envHostRouting        = "PG_NODE_WG_HOST_ROUTING"
 	envNATOutputInterface = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
 	envNATEgressOnly      = "PG_NODE_WG_NAT_EGRESS_ONLY"
+	nftTableFamily        = "ip"
+	nftTableName          = "pg_node_wg_nat"
+	nftPostroutingChain   = "postrouting"
 )
 
 // applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
@@ -59,10 +62,6 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		wgIf, outIf, egressOnly,
 	)
 
-	// Ensure nftables service is started and enabled
-	_ = exec.Command("systemctl", "start", "nftables").Run()
-	_ = exec.Command("systemctl", "enable", "nftables").Run()
-
 	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
 		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
 	}
@@ -77,32 +76,61 @@ func envTruthy(s string) bool {
 // If egressOnly, only oifname is matched (same idea as "oifname eth0 masquerade" in /etc/nftables.conf).
 // Otherwise traffic is matched from the WireGuard interface to the egress interface.
 func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
-	var rule string
-	if egressOnly {
-		rule = fmt.Sprintf("oifname %q masquerade", outputIface)
-	} else {
-		rule = fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
+	rule := nftMasqueradeRule(wgIface, outputIface, egressOnly)
+
+	if err := runNFT("add", "table", nftTableFamily, nftTableName); err != nil && !nftAlreadyExists(err) {
+		return err
 	}
 
-	cfg := fmt.Sprintf(`flush ruleset
-
-table ip nat {
-	chain prerouting {
-		type nat hook prerouting priority 0; policy accept;
+	if err := runNFT(
+		"add", "chain", nftTableFamily, nftTableName, nftPostroutingChain,
+		"{", "type", "nat", "hook", "postrouting", "priority", "100", ";", "policy", "accept", ";", "}",
+	); err != nil && !nftAlreadyExists(err) {
+		return err
 	}
 
-	chain postrouting {
-		type nat hook postrouting priority 100; policy accept;
-		%s
-	}
-}
-`, rule)
-
-	cmd := exec.Command("nft", "-f", "-")
-	cmd.Stdin = strings.NewReader(cfg)
-	out, err := cmd.CombinedOutput()
+	exists, err := nftRuleExists(nftTableFamily, nftTableName, nftPostroutingChain, rule)
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	if err := runNFT("add", "rule", nftTableFamily, nftTableName, nftPostroutingChain, rule); err != nil {
+		return err
 	}
 	return nil
+}
+
+func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
+	if egressOnly {
+		return fmt.Sprintf("oifname %q masquerade", outputIface)
+	}
+	return fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
+}
+
+func nftRuleExists(family, table, chain, rule string) (bool, error) {
+	cmd := exec.Command("nft", "list", "chain", family, table, chain)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("nft list chain %s %s %s: %w: %s", family, table, chain, err, strings.TrimSpace(string(out)))
+	}
+	return strings.Contains(string(out), rule), nil
+}
+
+func runNFT(args ...string) error {
+	cmd := exec.Command("nft", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func nftAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "File exists")
 }
