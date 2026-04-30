@@ -13,7 +13,7 @@ services:
     environment:
       SERVICE_PORT: 62050
       SERVICE_PROTOCOL: "grpc"
-      # Linux: install a scoped nftables masquerade rule in table ip pg_node_wg_nat.
+      # Linux: enable runtime IPv4 forwarding and install a scoped nftables masquerade rule in table ip pg_node_wg_nat.
       # NAT egress is auto-detected (ip route / /proc/net/route); set PG_NODE_WG_NAT_OUTPUT_INTERFACE to override (e.g. eth0, ens192).
       PG_NODE_WG_HOST_ROUTING: "1"
 

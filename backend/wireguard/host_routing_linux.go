@@ -14,6 +14,7 @@ const (
 	envHostRouting        = "PG_NODE_WG_HOST_ROUTING"
 	envNATOutputInterface = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
 	envNATEgressOnly      = "PG_NODE_WG_NAT_EGRESS_ONLY"
+	ipv4ForwardPath       = "/proc/sys/net/ipv4/ip_forward"
 	nftTableFamily        = "ip"
 	nftTableName          = "pg_node_wg_nat"
 	nftPostroutingChain   = "postrouting"
@@ -62,6 +63,10 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		wgIf, outIf, egressOnly,
 	)
 
+	if err := ensureIPv4Forwarding(); err != nil {
+		log.Printf("wireguard host routing: enabling IPv4 forwarding failed: %v", err)
+	}
+
 	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
 		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
 	}
@@ -78,29 +83,11 @@ func envTruthy(s string) bool {
 func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
 	rule := nftMasqueradeRule(wgIface, outputIface, egressOnly)
 
-	if err := runNFT("add", "table", nftTableFamily, nftTableName); err != nil && !nftAlreadyExists(err) {
+	if err := runNFT("delete", "table", nftTableFamily, nftTableName); err != nil && !nftTableMissing(err) {
 		return err
 	}
 
-	if err := runNFT(
-		"add", "chain", nftTableFamily, nftTableName, nftPostroutingChain,
-		"{", "type", "nat", "hook", "postrouting", "priority", "100", ";", "policy", "accept", ";", "}",
-	); err != nil && !nftAlreadyExists(err) {
-		return err
-	}
-
-	exists, err := nftRuleExists(nftTableFamily, nftTableName, nftPostroutingChain, rule)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
-	if err := runNFT("add", "rule", nftTableFamily, nftTableName, nftPostroutingChain, rule); err != nil {
-		return err
-	}
-	return nil
+	return runNFTScript(nftMasqueradeConfig(rule))
 }
 
 func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
@@ -110,13 +97,38 @@ func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
 	return fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
 }
 
-func nftRuleExists(family, table, chain, rule string) (bool, error) {
-	cmd := exec.Command("nft", "list", "chain", family, table, chain)
+func nftMasqueradeConfig(rule string) string {
+	return fmt.Sprintf(`table %s %s {
+	chain %s {
+		type nat hook postrouting priority 100; policy accept;
+		%s
+	}
+}
+`, nftTableFamily, nftTableName, nftPostroutingChain, rule)
+}
+
+func ensureIPv4Forwarding() error {
+	out, err := os.ReadFile(ipv4ForwardPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", ipv4ForwardPath, err)
+	}
+	if strings.TrimSpace(string(out)) == "1" {
+		return nil
+	}
+	if err := os.WriteFile(ipv4ForwardPath, []byte("1\n"), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", ipv4ForwardPath, err)
+	}
+	return nil
+}
+
+func runNFTScript(script string) error {
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("nft list chain %s %s %s: %w: %s", family, table, chain, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("nft -f -: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	return strings.Contains(string(out), rule), nil
+	return nil
 }
 
 func runNFT(args ...string) error {
@@ -128,9 +140,12 @@ func runNFT(args ...string) error {
 	return nil
 }
 
-func nftAlreadyExists(err error) bool {
+func nftTableMissing(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "File exists")
+	msg := err.Error()
+	return strings.Contains(msg, "No such file or directory") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "No such file")
 }

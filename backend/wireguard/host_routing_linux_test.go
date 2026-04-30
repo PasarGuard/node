@@ -2,7 +2,10 @@
 
 package wireguard
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNFTMasqueradeRule(t *testing.T) {
 	if got := nftMasqueradeRule("wg0", "eth0", true); got != `oifname "eth0" masquerade` {
@@ -14,17 +17,36 @@ func TestNFTMasqueradeRule(t *testing.T) {
 	}
 }
 
-func TestNFTAlreadyExists(t *testing.T) {
-	if nftAlreadyExists(nil) {
-		t.Fatalf("nil error must not be treated as already exists")
+func TestNFTTableMissing(t *testing.T) {
+	if nftTableMissing(nil) {
+		t.Fatalf("nil error must not be treated as missing table")
 	}
 
-	if !nftAlreadyExists(staticError("File exists")) {
-		t.Fatalf("expected File exists error to be treated as already exists")
+	if !nftTableMissing(staticError("No such file or directory")) {
+		t.Fatalf("expected missing table error to be ignored")
 	}
 
-	if nftAlreadyExists(staticError("permission denied")) {
-		t.Fatalf("unexpected already exists match")
+	if nftTableMissing(staticError("permission denied")) {
+		t.Fatalf("unexpected missing table match")
+	}
+}
+
+func TestNFTMasqueradeConfigIsScoped(t *testing.T) {
+	cfg := nftMasqueradeConfig(`oifname "eth0" masquerade`)
+
+	for _, want := range []string{
+		"table ip pg_node_wg_nat",
+		"chain postrouting",
+		"type nat hook postrouting priority 100; policy accept;",
+		`oifname "eth0" masquerade`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Fatalf("config missing %q:\n%s", want, cfg)
+		}
+	}
+
+	if strings.Contains(cfg, "flush ruleset") {
+		t.Fatalf("managed config must not flush the global nft ruleset:\n%s", cfg)
 	}
 }
 
