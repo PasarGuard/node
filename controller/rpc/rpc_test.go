@@ -133,6 +133,7 @@ func TestGRPC_GetBackendStats(t *testing.T) {
 		t.Fatalf("Failed to get backend stats: %v", err)
 	}
 	log.Println(backStats)
+	log.Println("uptime:", backStats.GetUptime())
 }
 
 func TestGRPC_GetOutboundsStats(t *testing.T) {

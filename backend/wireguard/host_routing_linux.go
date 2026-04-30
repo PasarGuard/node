@@ -3,12 +3,15 @@
 package wireguard
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const (
@@ -19,10 +22,8 @@ const (
 	nftTableFamily        = "ip"
 	nftTableName          = "pg_node_wg_nat"
 	nftPostroutingChain   = "postrouting"
-	nftFilterTableFamily  = "inet"
-	nftFilterTableName    = "pg_node_wg_filter"
 	nftForwardChain       = "forward"
-	nftForwardRulePrefix  = "pg_node_wg_forward "
+	nftRuleCommentPrefix  = "pg_node_wg "
 )
 
 // applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
@@ -35,9 +36,9 @@ const (
 //  3. eth0 as last-resort fallback
 //
 // Disable all of this with PG_NODE_WG_HOST_ROUTING=0.
-func applyLinuxHostRouting(wgInterfaceName string) {
+func applyLinuxHostRouting(wgInterfaceName string) func() {
 	if v := strings.TrimSpace(os.Getenv(envHostRouting)); v == "0" || strings.EqualFold(v, "false") {
-		return
+		return nil
 	}
 
 	wgIf := strings.TrimSpace(wgInterfaceName)
@@ -68,16 +69,25 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 		wgIf, outIf, egressOnly,
 	)
 
+	ownerID := newHostRoutingOwnerID(wgIf)
+	log.Printf("wireguard host routing: owner %q", ownerID)
+
 	if err := ensureIPv4Forwarding(); err != nil {
 		log.Printf("wireguard host routing: enabling IPv4 forwarding failed: %v", err)
 	}
 
-	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
+	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly, ownerID); err != nil {
 		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
 	}
 
-	if err := ensureNFTForwarding(wgIf, outIf); err != nil {
+	if err := ensureNFTForwarding(wgIf, outIf, ownerID); err != nil {
 		log.Printf("wireguard host routing: nftables forward rules failed: %v", err)
+	}
+
+	return func() {
+		if err := cleanupLinuxHostRouting(ownerID); err != nil {
+			log.Printf("wireguard host routing: cleanup failed for owner %q: %v", ownerID, err)
+		}
 	}
 }
 
@@ -89,14 +99,27 @@ func envTruthy(s string) bool {
 // ensureNFTMasquerade sets up NAT rules dynamically.
 // If egressOnly, only oifname is matched (same idea as "oifname eth0 masquerade" in /etc/nftables.conf).
 // Otherwise traffic is matched from the WireGuard interface to the egress interface.
-func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool) error {
-	rule := nftMasqueradeRule(wgIface, outputIface, egressOnly)
-
-	if err := runNFT("delete", "table", nftTableFamily, nftTableName); err != nil && !nftTableMissing(err) {
+func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool, ownerID string) error {
+	if err := runNFT("add", "table", nftTableFamily, nftTableName); err != nil && !nftAlreadyExists(err) {
 		return err
 	}
 
-	return runNFTScript(nftMasqueradeConfig(rule))
+	if err := runNFT(
+		"add", "chain", nftTableFamily, nftTableName, nftPostroutingChain,
+		"{", "type", "nat", "hook", "postrouting", "priority", "100", ";", "policy", "accept", ";", "}",
+	); err != nil && !nftAlreadyExists(err) {
+		return err
+	}
+
+	chain := nftBaseChain{family: nftTableFamily, table: nftTableName, name: nftPostroutingChain}
+	if err := removeNFTRulesWithCommentPrefix(chain, nftOwnerCommentPrefix(ownerID)); err != nil {
+		return err
+	}
+
+	args := []string{"add", "rule", nftTableFamily, nftTableName, nftPostroutingChain}
+	args = append(args, nftMasqueradeRuleArgs(wgIface, outputIface, egressOnly)...)
+	args = append(args, "comment", nftString(nftNATRuleComment(ownerID, wgIface, outputIface, egressOnly)))
+	return runNFT(args...)
 }
 
 func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
@@ -106,39 +129,36 @@ func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
 	return fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
 }
 
-func nftMasqueradeConfig(rule string) string {
+func nftMasqueradeRuleArgs(wgIface, outputIface string, egressOnly bool) []string {
+	if egressOnly {
+		return []string{"oifname", nftString(outputIface), "masquerade"}
+	}
+	return []string{"iifname", nftString(wgIface), "oifname", nftString(outputIface), "masquerade"}
+}
+
+func nftMasqueradeConfig(rule, comment string) string {
 	return fmt.Sprintf(`table %s %s {
 	chain %s {
 		type nat hook postrouting priority 100; policy accept;
-		%s
+		%s comment %q
 	}
 }
-`, nftTableFamily, nftTableName, nftPostroutingChain, rule)
+`, nftTableFamily, nftTableName, nftPostroutingChain, rule, comment)
 }
 
-func ensureNFTForwarding(wgIface, outputIface string) error {
-	if err := runNFT("delete", "table", nftFilterTableFamily, nftFilterTableName); err != nil && !nftTableMissing(err) {
-		return err
-	}
-	if err := runNFTScript(nftForwardConfig(wgIface, outputIface)); err != nil {
-		return err
-	}
-
+func ensureNFTForwarding(wgIface, outputIface, ownerID string) error {
 	chains, err := nftForwardBaseChains()
 	if err != nil {
 		return err
 	}
 	for _, chain := range chains {
-		if chain.family == nftFilterTableFamily && chain.table == nftFilterTableName {
-			continue
-		}
-		if err := removeNFTForwardRules(chain); err != nil {
+		if err := removeNFTRulesWithCommentPrefix(chain, nftOwnerCommentPrefix(ownerID)); err != nil {
 			return err
 		}
-		if err := insertNFTForwardRule(chain, wgIface, outputIface, true); err != nil {
+		if err := insertNFTForwardRule(chain, wgIface, outputIface, ownerID, false); err != nil {
 			return err
 		}
-		if err := insertNFTForwardRule(chain, wgIface, outputIface, false); err != nil {
+		if err := insertNFTForwardRule(chain, wgIface, outputIface, ownerID, true); err != nil {
 			return err
 		}
 	}
@@ -146,23 +166,14 @@ func ensureNFTForwarding(wgIface, outputIface string) error {
 }
 
 func nftForwardConfig(wgIface, outputIface string) string {
-	return fmt.Sprintf(`table %s %s {
-	chain %s {
-		type filter hook forward priority 0; policy accept;
-		iifname %q oifname %q accept comment %q
-		iifname %q oifname %q ct state established,related accept comment %q
-	}
-}
-`,
-		nftFilterTableFamily,
-		nftFilterTableName,
-		nftForwardChain,
+	return fmt.Sprintf(`iifname %q oifname %q accept comment %q
+iifname %q oifname %q ct state established,related accept comment %q`,
 		wgIface,
 		outputIface,
-		nftForwardRuleComment(wgIface, outputIface, true),
+		nftForwardRuleComment("test-owner", wgIface, outputIface, true),
 		outputIface,
 		wgIface,
-		nftForwardRuleComment(wgIface, outputIface, false),
+		nftForwardRuleComment("test-owner", wgIface, outputIface, false),
 	)
 }
 
@@ -224,14 +235,14 @@ func nftForwardFamilySupported(family string) bool {
 	return family == "ip" || family == "inet"
 }
 
-func removeNFTForwardRules(chain nftBaseChain) error {
+func removeNFTRulesWithCommentPrefix(chain nftBaseChain, commentPrefix string) error {
 	cmd := exec.Command("nft", "-a", "list", "chain", chain.family, chain.table, chain.name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nft -a list chain %s %s %s: %w: %s", chain.family, chain.table, chain.name, err, strings.TrimSpace(string(out)))
 	}
 
-	for _, handle := range nftRuleHandlesWithComment(out, nftForwardRulePrefix) {
+	for _, handle := range nftRuleHandlesWithComment(out, commentPrefix) {
 		if err := runNFT("delete", "rule", chain.family, chain.table, chain.name, "handle", handle); err != nil {
 			return err
 		}
@@ -259,8 +270,8 @@ func nftRuleHandlesWithComment(data []byte, commentPrefix string) []string {
 	return handles
 }
 
-func insertNFTForwardRule(chain nftBaseChain, wgIface, outputIface string, outbound bool) error {
-	comment := nftForwardRuleComment(wgIface, outputIface, outbound)
+func insertNFTForwardRule(chain nftBaseChain, wgIface, outputIface, ownerID string, outbound bool) error {
+	comment := nftForwardRuleComment(ownerID, wgIface, outputIface, outbound)
 	args := []string{"insert", "rule", chain.family, chain.table, chain.name}
 	if outbound {
 		args = append(args, "iifname", nftString(wgIface), "oifname", nftString(outputIface), "accept", "comment", nftString(comment))
@@ -270,12 +281,24 @@ func insertNFTForwardRule(chain nftBaseChain, wgIface, outputIface string, outbo
 	return runNFT(args...)
 }
 
-func nftForwardRuleComment(wgIface, outputIface string, outbound bool) string {
+func nftForwardRuleComment(ownerID, wgIface, outputIface string, outbound bool) string {
 	direction := "return"
 	if outbound {
 		direction = "outbound"
 	}
-	return fmt.Sprintf("%s%s %s %s", nftForwardRulePrefix, wgIface, outputIface, direction)
+	return fmt.Sprintf("%sowner=%s type=forward iface=%s out=%s direction=%s", nftRuleCommentPrefix, ownerID, wgIface, outputIface, direction)
+}
+
+func nftNATRuleComment(ownerID, wgIface, outputIface string, egressOnly bool) string {
+	scope := "interface"
+	if egressOnly {
+		scope = "egress"
+	}
+	return fmt.Sprintf("%sowner=%s type=nat iface=%s out=%s scope=%s", nftRuleCommentPrefix, ownerID, wgIface, outputIface, scope)
+}
+
+func nftOwnerCommentPrefix(ownerID string) string {
+	return fmt.Sprintf("%sowner=%s ", nftRuleCommentPrefix, ownerID)
 }
 
 func nftString(s string) string {
@@ -315,12 +338,65 @@ func runNFT(args ...string) error {
 	return nil
 }
 
-func nftTableMissing(err error) bool {
+func nftAlreadyExists(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "No such file or directory") ||
-		strings.Contains(msg, "does not exist") ||
-		strings.Contains(msg, "No such file")
+	return strings.Contains(err.Error(), "File exists")
+}
+
+func cleanupLinuxHostRouting(ownerID string) error {
+	var errs []error
+
+	natChain := nftBaseChain{family: nftTableFamily, table: nftTableName, name: nftPostroutingChain}
+	if err := removeNFTRulesWithCommentPrefix(natChain, nftOwnerCommentPrefix(ownerID)); err != nil {
+		errs = append(errs, err)
+	}
+
+	chains, err := nftForwardBaseChains()
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		for _, chain := range chains {
+			if err := removeNFTRulesWithCommentPrefix(chain, nftOwnerCommentPrefix(ownerID)); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func newHostRoutingOwnerID(wgIface string) string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%s_%d_%d", sanitizeNFTOwnerPart(wgIface), os.Getpid(), time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s_%d_%x", sanitizeNFTOwnerPart(wgIface), os.Getpid(), b[:])
+}
+
+func sanitizeNFTOwnerPart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "wg"
+	}
+
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_',
+			r == '-',
+			r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "wg"
+	}
+	return b.String()
 }
