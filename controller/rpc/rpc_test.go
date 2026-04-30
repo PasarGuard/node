@@ -133,7 +133,6 @@ func TestGRPC_GetBackendStats(t *testing.T) {
 		t.Fatalf("Failed to get backend stats: %v", err)
 	}
 	log.Println(backStats)
-	log.Println("uptime:", backStats.GetUptime())
 }
 
 func TestGRPC_GetOutboundsStats(t *testing.T) {
@@ -416,6 +415,7 @@ func TestGRPC_GetSystemStats(t *testing.T) {
 	log.Println("cpu_cores:", nodeStats.GetCpuCores())
 	log.Println("incoming_bandwidth:", nodeStats.GetIncomingBandwidthSpeed())
 	log.Println("outgoing_bandwidth:", nodeStats.GetOutgoingBandwidthSpeed())
+	log.Println("uptime:", nodeStats.GetUptime())
 }
 
 func TestGRPC_KeepAliveTimeout(t *testing.T) {
