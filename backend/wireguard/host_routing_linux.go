@@ -3,6 +3,7 @@
 package wireguard
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +19,10 @@ const (
 	nftTableFamily        = "ip"
 	nftTableName          = "pg_node_wg_nat"
 	nftPostroutingChain   = "postrouting"
+	nftFilterTableFamily  = "inet"
+	nftFilterTableName    = "pg_node_wg_filter"
+	nftForwardChain       = "forward"
+	nftForwardRulePrefix  = "pg_node_wg_forward "
 )
 
 // applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
@@ -70,6 +75,10 @@ func applyLinuxHostRouting(wgInterfaceName string) {
 	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly); err != nil {
 		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
 	}
+
+	if err := ensureNFTForwarding(wgIf, outIf); err != nil {
+		log.Printf("wireguard host routing: nftables forward rules failed: %v", err)
+	}
 }
 
 func envTruthy(s string) bool {
@@ -105,6 +114,172 @@ func nftMasqueradeConfig(rule string) string {
 	}
 }
 `, nftTableFamily, nftTableName, nftPostroutingChain, rule)
+}
+
+func ensureNFTForwarding(wgIface, outputIface string) error {
+	if err := runNFT("delete", "table", nftFilterTableFamily, nftFilterTableName); err != nil && !nftTableMissing(err) {
+		return err
+	}
+	if err := runNFTScript(nftForwardConfig(wgIface, outputIface)); err != nil {
+		return err
+	}
+
+	chains, err := nftForwardBaseChains()
+	if err != nil {
+		return err
+	}
+	for _, chain := range chains {
+		if chain.family == nftFilterTableFamily && chain.table == nftFilterTableName {
+			continue
+		}
+		if err := removeNFTForwardRules(chain); err != nil {
+			return err
+		}
+		if err := insertNFTForwardRule(chain, wgIface, outputIface, true); err != nil {
+			return err
+		}
+		if err := insertNFTForwardRule(chain, wgIface, outputIface, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nftForwardConfig(wgIface, outputIface string) string {
+	return fmt.Sprintf(`table %s %s {
+	chain %s {
+		type filter hook forward priority 0; policy accept;
+		iifname %q oifname %q accept comment %q
+		iifname %q oifname %q ct state established,related accept comment %q
+	}
+}
+`,
+		nftFilterTableFamily,
+		nftFilterTableName,
+		nftForwardChain,
+		wgIface,
+		outputIface,
+		nftForwardRuleComment(wgIface, outputIface, true),
+		outputIface,
+		wgIface,
+		nftForwardRuleComment(wgIface, outputIface, false),
+	)
+}
+
+type nftBaseChain struct {
+	family string
+	table  string
+	name   string
+}
+
+type nftListRuleset struct {
+	NFTables []map[string]json.RawMessage `json:"nftables"`
+}
+
+type nftListChain struct {
+	Family string `json:"family"`
+	Table  string `json:"table"`
+	Name   string `json:"name"`
+	Hook   string `json:"hook"`
+}
+
+func nftForwardBaseChains() ([]nftBaseChain, error) {
+	cmd := exec.Command("nft", "-j", "list", "ruleset")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("nft -j list ruleset: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return parseNFTForwardBaseChains(out)
+}
+
+func parseNFTForwardBaseChains(data []byte) ([]nftBaseChain, error) {
+	var ruleset nftListRuleset
+	if err := json.Unmarshal(data, &ruleset); err != nil {
+		return nil, fmt.Errorf("parse nft ruleset: %w", err)
+	}
+
+	chains := make([]nftBaseChain, 0)
+	for _, item := range ruleset.NFTables {
+		raw, ok := item["chain"]
+		if !ok {
+			continue
+		}
+		var chain nftListChain
+		if err := json.Unmarshal(raw, &chain); err != nil {
+			return nil, fmt.Errorf("parse nft chain: %w", err)
+		}
+		if chain.Hook != nftForwardChain || !nftForwardFamilySupported(chain.Family) {
+			continue
+		}
+		chains = append(chains, nftBaseChain{
+			family: chain.Family,
+			table:  chain.Table,
+			name:   chain.Name,
+		})
+	}
+	return chains, nil
+}
+
+func nftForwardFamilySupported(family string) bool {
+	return family == "ip" || family == "inet"
+}
+
+func removeNFTForwardRules(chain nftBaseChain) error {
+	cmd := exec.Command("nft", "-a", "list", "chain", chain.family, chain.table, chain.name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft -a list chain %s %s %s: %w: %s", chain.family, chain.table, chain.name, err, strings.TrimSpace(string(out)))
+	}
+
+	for _, handle := range nftRuleHandlesWithComment(out, nftForwardRulePrefix) {
+		if err := runNFT("delete", "rule", chain.family, chain.table, chain.name, "handle", handle); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nftRuleHandlesWithComment(data []byte, commentPrefix string) []string {
+	handles := make([]string, 0)
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, commentPrefix) {
+			continue
+		}
+
+		before, handle, ok := strings.Cut(line, "# handle ")
+		if !ok || strings.TrimSpace(before) == "" {
+			continue
+		}
+		fields := strings.Fields(handle)
+		if len(fields) == 0 {
+			continue
+		}
+		handles = append(handles, fields[0])
+	}
+	return handles
+}
+
+func insertNFTForwardRule(chain nftBaseChain, wgIface, outputIface string, outbound bool) error {
+	comment := nftForwardRuleComment(wgIface, outputIface, outbound)
+	args := []string{"insert", "rule", chain.family, chain.table, chain.name}
+	if outbound {
+		args = append(args, "iifname", nftString(wgIface), "oifname", nftString(outputIface), "accept", "comment", nftString(comment))
+	} else {
+		args = append(args, "iifname", nftString(outputIface), "oifname", nftString(wgIface), "ct", "state", "established,related", "accept", "comment", nftString(comment))
+	}
+	return runNFT(args...)
+}
+
+func nftForwardRuleComment(wgIface, outputIface string, outbound bool) string {
+	direction := "return"
+	if outbound {
+		direction = "outbound"
+	}
+	return fmt.Sprintf("%s%s %s %s", nftForwardRulePrefix, wgIface, outputIface, direction)
+}
+
+func nftString(s string) string {
+	return fmt.Sprintf("%q", s)
 }
 
 func ensureIPv4Forwarding() error {
