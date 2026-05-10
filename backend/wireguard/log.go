@@ -8,7 +8,7 @@ import (
 type logSeverity string
 
 const (
-	wireGuardLogTimestampFormat = "2006/01/02 15:04:05.000000"
+	wireGuardLogTimestampFormat = "2006-01-02T15:04:05.000000Z07:00"
 
 	logSeverityInfo    logSeverity = "Info"
 	logSeverityWarning logSeverity = "Warning"
@@ -16,7 +16,7 @@ const (
 )
 
 func formatWireGuardLogLine(severity logSeverity, message string) string {
-	timestamp := time.Now().Format(wireGuardLogTimestampFormat)
+	timestamp := time.Now().UTC().Format(wireGuardLogTimestampFormat)
 	return fmt.Sprintf("%s [%s] %s", timestamp, severity, message)
 }
 
