@@ -8,7 +8,7 @@ import (
 type logSeverity string
 
 const (
-	wireGuardLogTimestampFormat = "2006-01-02T15:04:05.000000Z07:00"
+	wireGuardLogTimestampFormat = "2006/01/02 15:04:05"
 
 	logSeverityInfo    logSeverity = "Info"
 	logSeverityWarning logSeverity = "Warning"

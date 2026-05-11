@@ -163,7 +163,7 @@ func TestWireGuardNewInitializesWithSingleConfigureCallIncludingPeers(t *testing
 
 	select {
 	case startupLog := <-wg.Logs():
-		pattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z \[Info\] WireGuard interface wg-test initialized successfully$`)
+		pattern := regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[Info\] WireGuard interface wg-test initialized successfully$`)
 		if !pattern.MatchString(startupLog) {
 			t.Fatalf("expected startup log with timestamp prefix, got %q", startupLog)
 		}
