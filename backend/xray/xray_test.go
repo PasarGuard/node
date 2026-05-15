@@ -174,12 +174,11 @@ func TestGetOutboundsLatencyWithRealXray(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		XrayExecutablePath:    executablePath,
-		XrayAssetsPath:        assetsPath,
-		GeneratedConfigPath:   configPath,
-		Debug:                 false,
-		LogBufferSize:         1000,
-		LatencyTimeoutSeconds: 5,
+		XrayExecutablePath:  executablePath,
+		XrayAssetsPath:      assetsPath,
+		GeneratedConfigPath: configPath,
+		Debug:               false,
+		LogBufferSize:       1000,
 	}
 
 	back, err := New(

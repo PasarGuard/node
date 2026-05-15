@@ -25,18 +25,19 @@ type debugVarsResponse struct {
 	Observatory map[string]observatoryEntry `json:"observatory"`
 }
 
+const xrayObservatoryReadTimeout = 5 * time.Second
+
 func (x *Xray) GetOutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
 	x.mu.RLock()
 	started := x.core != nil && x.core.Started()
 	metricPort := x.metricPort
-	timeoutSeconds := x.cfg.LatencyTimeoutSeconds
 	x.mu.RUnlock()
 
 	if !started {
 		return nil, errors.New("xray not started")
 	}
 
-	client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+	client := &http.Client{Timeout: xrayObservatoryReadTimeout}
 	addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(metricPort))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr.String()+"/debug/vars", nil)
 	if err != nil {
