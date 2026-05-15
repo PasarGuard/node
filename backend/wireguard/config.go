@@ -13,11 +13,12 @@ import (
 
 // Config represents the WireGuard configuration
 type Config struct {
-	InterfaceName string   `json:"interface_name"`
-	PrivateKey    string   `json:"private_key"`
-	PreSharedKey  string   `json:"pre_shared_key,omitempty"`
-	ListenPort    int      `json:"listen_port"`
-	Address       []string `json:"address"`
+	InterfaceName string         `json:"interface_name"`
+	PrivateKey    string         `json:"private_key"`
+	PreSharedKey  string         `json:"pre_shared_key,omitempty"`
+	ListenPort    int            `json:"listen_port"`
+	Address       []string       `json:"address"`
+	Latency       *LatencyConfig `json:"latency,omitempty"`
 
 	privateKeyValue   wgtypes.Key
 	privateKeySet     bool
@@ -25,6 +26,11 @@ type Config struct {
 	presharedKeySet   bool
 
 	mu sync.RWMutex
+}
+
+type LatencyConfig struct {
+	TestURL        string `json:"test_url,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 // PeerInfo stores information about a WireGuard peer
@@ -61,6 +67,15 @@ func NewConfig(config string) (*Config, error) {
 
 	if wgConfig.ListenPort <= 0 {
 		wgConfig.ListenPort = 51820
+	}
+	if wgConfig.Latency == nil {
+		wgConfig.Latency = &LatencyConfig{}
+	}
+	if strings.TrimSpace(wgConfig.Latency.TestURL) == "" {
+		wgConfig.Latency.TestURL = "https://www.gstatic.com/generate_204"
+	}
+	if wgConfig.Latency.TimeoutSeconds <= 0 {
+		wgConfig.Latency.TimeoutSeconds = 5
 	}
 
 	return &wgConfig, nil

@@ -66,6 +66,38 @@ func TestNewWireGuardConfigDefaults(t *testing.T) {
 	if config.ListenPort != 51820 {
 		t.Errorf("Expected default listen_port 51820, got: %d", config.ListenPort)
 	}
+	if config.Latency == nil {
+		t.Fatal("expected default latency config")
+	}
+	if config.Latency.TestURL != "https://www.gstatic.com/generate_204" {
+		t.Errorf("expected default latency.test_url, got: %s", config.Latency.TestURL)
+	}
+	if config.Latency.TimeoutSeconds != 5 {
+		t.Errorf("expected default latency.timeout_seconds 5, got: %d", config.Latency.TimeoutSeconds)
+	}
+}
+
+func TestNewWireGuardConfigLatencyNested(t *testing.T) {
+	configJSON := `{
+		"latency": {
+			"test_url": "https://example.com/generate_204",
+			"timeout_seconds": 9
+		}
+	}`
+
+	config, err := NewConfig(configJSON)
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+	if config.Latency == nil {
+		t.Fatal("expected latency config")
+	}
+	if config.Latency.TestURL != "https://example.com/generate_204" {
+		t.Errorf("expected latency.test_url to round-trip, got: %s", config.Latency.TestURL)
+	}
+	if config.Latency.TimeoutSeconds != 9 {
+		t.Errorf("expected latency.timeout_seconds 9, got: %d", config.Latency.TimeoutSeconds)
+	}
 }
 
 func TestNewWireGuardConfigInvalidJSON(t *testing.T) {

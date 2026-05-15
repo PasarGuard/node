@@ -28,8 +28,12 @@ func (wg *WireGuard) latencyProbeInterface() string {
 func (wg *WireGuard) GetOutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
 	wg.mu.RLock()
 	state := wg.state
-	testURL := wg.cfg.LatencyTestURL
-	timeoutSeconds := wg.cfg.LatencyTimeoutSeconds
+	testURL := ""
+	timeoutSeconds := 0
+	if wg.config != nil && wg.config.Latency != nil {
+		testURL = wg.config.Latency.TestURL
+		timeoutSeconds = wg.config.Latency.TimeoutSeconds
+	}
 	wg.mu.RUnlock()
 
 	if state != lifecycleRunning {

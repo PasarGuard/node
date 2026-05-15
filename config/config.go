@@ -25,8 +25,6 @@ type Config struct {
 	StartupLogTailSize          int
 	StatsUpdateIntervalSeconds  int
 	StatsCleanupIntervalSeconds int
-	LatencyTestURL              string
-	LatencyTimeoutSeconds       int
 }
 
 func Load() (*Config, error) {
@@ -48,17 +46,11 @@ func Load() (*Config, error) {
 		StartupLogTailSize:          GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
 		StatsUpdateIntervalSeconds:  GetEnvAsInt("STATS_UPDATE_INTERVAL_SECONDS", 10),
 		StatsCleanupIntervalSeconds: GetEnvAsInt("STATS_CLEANUP_INTERVAL_SECONDS", 300),
-		LatencyTestURL:              GetEnv("LATENCY_TEST_URL", "https://www.gstatic.com/generate_204"),
-		LatencyTimeoutSeconds:       GetEnvAsInt("LATENCY_TIMEOUT_SECONDS", 5),
 	}
 
 	if cfg.LogBufferSize <= 0 {
 		log.Printf("[Warning] LOG_BUFFER_SIZE must be greater than 0, got %d. Falling back to 1.", cfg.LogBufferSize)
 		cfg.LogBufferSize = 1
-	}
-	if cfg.LatencyTimeoutSeconds <= 0 {
-		log.Printf("[Warning] LATENCY_TIMEOUT_SECONDS must be greater than 0, got %d. Falling back to 5.", cfg.LatencyTimeoutSeconds)
-		cfg.LatencyTimeoutSeconds = 5
 	}
 
 	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")
