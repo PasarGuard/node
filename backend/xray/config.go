@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"slices"
 	"sort"
 	"strings"
@@ -575,7 +576,12 @@ func apiRuleSources() []string {
 	return sources
 }
 
-func (c *Config) ApplyAPI(apiPort int) (err error) {
+func loopbackListenAddress(port int) string {
+	addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(port))
+	return addr.String()
+}
+
+func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 	// Remove the existing inbound with the API_INBOUND tag
 	for i, inbound := range c.InboundConfigs {
 		if inbound.Tag == "API_INBOUND" {
@@ -588,6 +594,11 @@ func (c *Config) ApplyAPI(apiPort int) (err error) {
 	c.API = &conf.APIConfig{
 		Services: []string{"HandlerService", "LoggerService", "StatsService"},
 		Tag:      apiTag,
+	}
+
+	c.Metrics = map[string]any{
+		"tag":    "metric",
+		"listen": loopbackListenAddress(metricPort),
 	}
 
 	if c.RouterConfig == nil {

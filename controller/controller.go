@@ -28,6 +28,7 @@ type Controller struct {
 	backend     backend.Backend
 	cfg         *config.Config
 	apiPort     int
+	metricPort  int
 	clientIP    string
 	lastRequest time.Time
 	stats       *common.SystemStatsResponse
@@ -40,6 +41,7 @@ func New(cfg *config.Config) *Controller {
 	return &Controller{
 		cfg:        cfg,
 		apiPort:    netutil.FindFreePort(),
+		metricPort: netutil.FindFreePort(),
 		cancelFunc: cancel,
 	}
 }
@@ -82,6 +84,7 @@ func (c *Controller) Disconnect() {
 
 	c.backend = nil
 	c.apiPort = netutil.FindFreePort()
+	c.metricPort = netutil.FindFreePort()
 	c.clientIP = ""
 }
 
@@ -108,7 +111,14 @@ func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) 
 			return err
 		}
 
-		newBackend, err := xray.New(ctx, config, backend.GetUsers(), c.apiPort, c.cfg)
+		newBackend, err := xray.New(
+			ctx,
+			config,
+			backend.GetUsers(),
+			c.apiPort,
+			c.metricPort,
+			c.cfg,
+		)
 		if err != nil {
 			return err
 		}
@@ -225,4 +235,16 @@ func (c *Controller) BaseInfoResponse() *common.BaseInfoResponse {
 	}
 
 	return response
+}
+
+func (c *Controller) OutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
+	c.mu.RLock()
+	backendSnapshot := c.backend
+	c.mu.RUnlock()
+
+	if backendSnapshot == nil {
+		return &common.LatencyResponse{Latencies: []*common.Latency{}}, nil
+	}
+
+	return backendSnapshot.GetOutboundsLatency(ctx, request)
 }

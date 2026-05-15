@@ -18,6 +18,7 @@ type Backend interface {
 	UpdateUsersAndRestart(context.Context, []*common.User) error
 	GetSysStats(context.Context) (*common.BackendStatsResponse, error)
 	GetStats(context.Context, *common.StatRequest) (*common.StatResponse, error)
+	GetOutboundsLatency(context.Context, *common.LatencyRequest) (*common.LatencyResponse, error)
 	GetUserOnlineStats(context.Context, string) (*common.OnlineStatResponse, error)
 	GetUserOnlineIpListStats(context.Context, string) (*common.StatsOnlineIpListResponse, error)
 }

@@ -26,6 +26,7 @@ const (
 	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
 	NodeService_GetBackendStats_FullMethodName          = "/service.NodeService/GetBackendStats"
 	NodeService_GetStats_FullMethodName                 = "/service.NodeService/GetStats"
+	NodeService_GetOutboundsLatency_FullMethodName      = "/service.NodeService/GetOutboundsLatency"
 	NodeService_GetUserOnlineStats_FullMethodName       = "/service.NodeService/GetUserOnlineStats"
 	NodeService_GetUserOnlineIpListStats_FullMethodName = "/service.NodeService/GetUserOnlineIpListStats"
 	NodeService_SyncUser_FullMethodName                 = "/service.NodeService/SyncUser"
@@ -46,6 +47,7 @@ type NodeServiceClient interface {
 	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
 	GetBackendStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BackendStatsResponse, error)
 	GetStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
+	GetOutboundsLatency(ctx context.Context, in *LatencyRequest, opts ...grpc.CallOption) (*LatencyResponse, error)
 	GetUserOnlineStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*OnlineStatResponse, error)
 	GetUserOnlineIpListStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatsOnlineIpListResponse, error)
 	SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error)
@@ -140,6 +142,16 @@ func (c *nodeServiceClient) GetStats(ctx context.Context, in *StatRequest, opts 
 	return out, nil
 }
 
+func (c *nodeServiceClient) GetOutboundsLatency(ctx context.Context, in *LatencyRequest, opts ...grpc.CallOption) (*LatencyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LatencyResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetOutboundsLatency_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *nodeServiceClient) GetUserOnlineStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*OnlineStatResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OnlineStatResponse)
@@ -209,6 +221,7 @@ type NodeServiceServer interface {
 	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
 	GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error)
 	GetStats(context.Context, *StatRequest) (*StatResponse, error)
+	GetOutboundsLatency(context.Context, *LatencyRequest) (*LatencyResponse, error)
 	GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error)
 	GetUserOnlineIpListStats(context.Context, *StatRequest) (*StatsOnlineIpListResponse, error)
 	SyncUser(grpc.ClientStreamingServer[User, Empty]) error
@@ -244,6 +257,9 @@ func (UnimplementedNodeServiceServer) GetBackendStats(context.Context, *Empty) (
 }
 func (UnimplementedNodeServiceServer) GetStats(context.Context, *StatRequest) (*StatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStats not implemented")
+}
+func (UnimplementedNodeServiceServer) GetOutboundsLatency(context.Context, *LatencyRequest) (*LatencyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOutboundsLatency not implemented")
 }
 func (UnimplementedNodeServiceServer) GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUserOnlineStats not implemented")
@@ -400,6 +416,24 @@ func _NodeService_GetStats_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_GetOutboundsLatency_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LatencyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetOutboundsLatency(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetOutboundsLatency_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetOutboundsLatency(ctx, req.(*LatencyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NodeService_GetUserOnlineStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StatRequest)
 	if err := dec(in); err != nil {
@@ -498,6 +532,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStats",
 			Handler:    _NodeService_GetStats_Handler,
+		},
+		{
+			MethodName: "GetOutboundsLatency",
+			Handler:    _NodeService_GetOutboundsLatency_Handler,
 		},
 		{
 			MethodName: "GetUserOnlineStats",

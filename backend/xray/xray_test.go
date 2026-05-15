@@ -100,7 +100,14 @@ func TestXrayBackend(t *testing.T) {
 		LogBufferSize:       1000,
 	}
 
-	back, err := New(context.Background(), newConfig, []*common.User{user, user2}, netutil.FindFreePort(), cfg)
+	back, err := New(
+		context.Background(),
+		newConfig,
+		[]*common.User{user, user2},
+		netutil.FindFreePort(),
+		netutil.FindFreePort(),
+		cfg,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,4 +153,85 @@ loop:
 	}
 
 	back.Shutdown()
+}
+
+func TestGetOutboundsLatencyWithRealXray(t *testing.T) {
+	xrayFile, err := fsutil.ReadFileAsString(jsonFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newConfig, err := NewConfig(xrayFile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newConfig.Observatory = map[string]any{
+		"subjectSelector":   []string{"direct"},
+		"probeUrl":          "https://www.google.com/generate_204",
+		"probeInterval":     "1s",
+		"enableConcurrency": true,
+	}
+
+	cfg := &config.Config{
+		XrayExecutablePath:    executablePath,
+		XrayAssetsPath:        assetsPath,
+		GeneratedConfigPath:   configPath,
+		Debug:                 false,
+		LogBufferSize:         1000,
+		LatencyTimeoutSeconds: 5,
+	}
+
+	back, err := New(
+		context.Background(),
+		newConfig,
+		nil,
+		netutil.FindFreePort(),
+		netutil.FindFreePort(),
+		cfg,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer back.Shutdown()
+
+	var resp *common.LatencyResponse
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		resp, err = back.GetOutboundsLatency(ctx, &common.LatencyRequest{Name: "direct"})
+		if err == nil && len(resp.GetLatencies()) > 0 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			if err != nil {
+				t.Fatalf("timed out waiting for observatory data: %v", err)
+			}
+			t.Fatal("timed out waiting for observatory data")
+		case <-ticker.C:
+		}
+	}
+
+	latency := resp.GetLatencies()[0]
+	if latency.GetName() != "direct" {
+		t.Fatalf("unexpected name: got %s want direct", latency.GetName())
+	}
+	if latency.GetSource() != "xray-observatory" {
+		t.Fatalf("unexpected source: got %s want xray-observatory", latency.GetSource())
+	}
+	if latency.GetLastTryTime() == 0 {
+		t.Fatal("expected last_try_time to be populated")
+	}
+}
+
+func TestLoopbackListenAddressUsesProvidedPort(t *testing.T) {
+	if got := loopbackListenAddress(11111); got != "127.0.0.1:11111" {
+		t.Fatalf("unexpected listen address: got %s", got)
+	}
 }

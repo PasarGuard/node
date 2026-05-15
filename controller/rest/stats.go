@@ -74,6 +74,22 @@ func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
 	common.SendProtoResponse(w, stats)
 }
 
+func (s *Service) GetOutboundsLatency(w http.ResponseWriter, r *http.Request) {
+	var request common.LatencyRequest
+	if err := common.ReadProtoBody(r.Body, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	latency, err := s.OutboundsLatency(r.Context(), &request)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	common.SendProtoResponse(w, latency)
+}
+
 func (s *Service) GetSystemStats(w http.ResponseWriter, r *http.Request) {
 	common.SendProtoResponse(w, s.SystemStats(r.Context()))
 }

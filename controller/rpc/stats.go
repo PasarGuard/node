@@ -37,6 +37,10 @@ func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common
 	return s.Backend().GetSysStats(ctx)
 }
 
+func (s *Service) GetOutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
+	return s.OutboundsLatency(ctx, request)
+}
+
 func (s *Service) GetSystemStats(ctx context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
 	return s.SystemStats(ctx), nil
 }

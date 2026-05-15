@@ -68,6 +68,24 @@ message StatsOnlineIpListResponse {
   map<string, int64> ips = 2;
 }
 
+message Latency {
+  string name = 1;
+  bool alive = 2;
+  int64 delay = 3;
+  string link = 4;
+  int64 last_seen_time = 5;
+  int64 last_try_time = 6;
+  string source = 7;
+}
+
+message LatencyRequest {
+  string name = 1;
+}
+
+message LatencyResponse {
+  repeated Latency latencies = 1;
+}
+
 message BackendStatsResponse {
     uint32 num_goroutine = 1;
     uint32 num_gc = 2;
@@ -156,6 +174,7 @@ service NodeService {
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
 
   rpc GetStats (StatRequest) returns (StatResponse) {}
+  rpc GetOutboundsLatency (LatencyRequest) returns (LatencyResponse) {}
 
   rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
   rpc GetUserOnlineIpListStats(StatRequest) returns (StatsOnlineIpListResponse) {}
