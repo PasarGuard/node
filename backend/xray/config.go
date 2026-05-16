@@ -581,6 +581,77 @@ func loopbackListenAddress(port int) string {
 	return addr.String()
 }
 
+func (c *Config) outboundProtocolByTag() map[string]string {
+	rawOutbounds, ok := c.OutboundConfigs.([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make(map[string]string, len(rawOutbounds))
+	for _, outbound := range rawOutbounds {
+		obj, ok := outbound.(map[string]any)
+		if !ok {
+			continue
+		}
+		tag, _ := obj["tag"].(string)
+		protocol, _ := obj["protocol"].(string)
+		tag = strings.TrimSpace(tag)
+		protocol = strings.TrimSpace(protocol)
+		if tag == "" || protocol == "" {
+			continue
+		}
+		out[tag] = protocol
+	}
+
+	return out
+}
+
+var observatoryExcludedProtocols = map[string]struct{}{
+	"blackhole": {},
+	"dns":       {},
+	"loopback":  {},
+}
+
+func (c *Config) sanitizeObservatorySelectors() {
+	protocolByTag := c.outboundProtocolByTag()
+	if len(protocolByTag) == 0 {
+		return
+	}
+
+	sanitize := func(section map[string]any) {
+		if section == nil {
+			return
+		}
+		raw, ok := section["subjectSelector"]
+		if !ok {
+			return
+		}
+		values, ok := raw.([]any)
+		if !ok {
+			return
+		}
+
+		filtered := make([]any, 0, len(values))
+		for _, value := range values {
+			tag, ok := value.(string)
+			if !ok {
+				continue
+			}
+			protocol, hasProtocol := protocolByTag[strings.TrimSpace(tag)]
+			if hasProtocol {
+				if _, excluded := observatoryExcludedProtocols[protocol]; excluded {
+					continue
+				}
+			}
+			filtered = append(filtered, tag)
+		}
+		section["subjectSelector"] = filtered
+	}
+
+	sanitize(c.Observatory)
+	sanitize(c.BurstObservatory)
+}
+
 func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 	// Remove the existing inbound with the API_INBOUND tag
 	for i, inbound := range c.InboundConfigs {
@@ -600,6 +671,7 @@ func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 		"tag":    "metric",
 		"listen": loopbackListenAddress(metricPort),
 	}
+	c.sanitizeObservatorySelectors()
 
 	if c.RouterConfig == nil {
 		c.RouterConfig = &conf.RouterConfig{}

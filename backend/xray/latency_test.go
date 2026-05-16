@@ -1,0 +1,60 @@
+package xray
+
+import "testing"
+
+func TestShouldIncludeObservatoryOutbound(t *testing.T) {
+	protocolByTag := map[string]string{
+		"blocked":  "blackhole",
+		"dns-out":  "dns",
+		"loop-out": "loopback",
+		"direct":   "freedom",
+	}
+
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "blocked", want: false},
+		{tag: "dns-out", want: false},
+		{tag: "loop-out", want: false},
+		{tag: "direct", want: true},
+		{tag: "unknown", want: true},
+	}
+
+	for _, tc := range cases {
+		if got := shouldIncludeObservatoryOutbound(protocolByTag, tc.tag); got != tc.want {
+			t.Fatalf("tag %q: got %v want %v", tc.tag, got, tc.want)
+		}
+	}
+}
+
+func TestApplyAPISanitizesObservatorySelectors(t *testing.T) {
+	cfg := &Config{
+		OutboundConfigs: []any{
+			map[string]any{"tag": "direct", "protocol": "freedom"},
+			map[string]any{"tag": "blocked", "protocol": "blackhole"},
+			map[string]any{"tag": "dns-out", "protocol": "dns"},
+			map[string]any{"tag": "loop-out", "protocol": "loopback"},
+		},
+		Observatory: map[string]any{
+			"subjectSelector": []any{"direct", "blocked", "dns-out", "loop-out"},
+		},
+		BurstObservatory: map[string]any{
+			"subjectSelector": []any{"blocked", "direct"},
+		},
+	}
+
+	if err := cfg.ApplyAPI(10001, 10002); err != nil {
+		t.Fatal(err)
+	}
+
+	obs := cfg.Observatory["subjectSelector"].([]any)
+	if len(obs) != 1 || obs[0] != "direct" {
+		t.Fatalf("unexpected observatory selectors: %#v", obs)
+	}
+
+	burst := cfg.BurstObservatory["subjectSelector"].([]any)
+	if len(burst) != 1 || burst[0] != "direct" {
+		t.Fatalf("unexpected burst observatory selectors: %#v", burst)
+	}
+}

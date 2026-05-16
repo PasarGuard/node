@@ -27,10 +27,23 @@ type debugVarsResponse struct {
 
 const xrayObservatoryReadTimeout = 5 * time.Second
 
+func shouldIncludeObservatoryOutbound(protocolByTag map[string]string, tag string) bool {
+	protocol, ok := protocolByTag[tag]
+	if !ok {
+		return true
+	}
+	_, excluded := observatoryExcludedProtocols[protocol]
+	return !excluded
+}
+
 func (x *Xray) GetOutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
 	x.mu.RLock()
 	started := x.core != nil && x.core.Started()
 	metricPort := x.metricPort
+	protocolByTag := map[string]string(nil)
+	if x.config != nil {
+		protocolByTag = x.config.outboundProtocolByTag()
+	}
 	x.mu.RUnlock()
 
 	if !started {
@@ -66,6 +79,9 @@ func (x *Xray) GetOutboundsLatency(ctx context.Context, request *common.LatencyR
 	keys := make([]string, 0, len(vars.Observatory))
 	for key := range vars.Observatory {
 		if name != "" && key != name {
+			continue
+		}
+		if !shouldIncludeObservatoryOutbound(protocolByTag, key) {
 			continue
 		}
 		keys = append(keys, key)
