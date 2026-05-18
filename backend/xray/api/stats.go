@@ -76,26 +76,7 @@ func (x *XrayHandler) GetUsersStats(ctx context.Context, reset bool) (*common.St
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
-
-		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		link := parts[2]
-		statType := parts[3]
-
-		stats.Stats = append(stats.Stats, &common.Stat{
-			Name:  name,
-			Type:  statType,
-			Link:  link,
-			Value: value,
-		})
-	}
-
-	return stats, nil
+	return buildStatResponse(resp.GetStat()), nil
 }
 
 func (x *XrayHandler) GetInboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
@@ -104,26 +85,7 @@ func (x *XrayHandler) GetInboundsStats(ctx context.Context, reset bool) (*common
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
-
-		// Extract the type from the name (e.g., "traffic")
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		link := parts[2]
-		statType := parts[3]
-
-		stats.Stats = append(stats.Stats, &common.Stat{
-			Name:  name,
-			Type:  statType,
-			Link:  link,
-			Value: value,
-		})
-	}
-
-	return stats, nil
+	return buildStatResponse(resp.GetStat()), nil
 }
 
 func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*common.StatResponse, error) {
@@ -132,25 +94,7 @@ func (x *XrayHandler) GetOutboundsStats(ctx context.Context, reset bool) (*commo
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
-
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		link := parts[2]
-		statType := parts[3]
-
-		stats.Stats = append(stats.Stats, &common.Stat{
-			Name:  name,
-			Type:  statType,
-			Link:  link,
-			Value: value,
-		})
-	}
-
-	return stats, nil
+	return buildStatResponse(resp.GetStat()), nil
 }
 
 func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool) (*common.StatResponse, error) {
@@ -162,25 +106,7 @@ func (x *XrayHandler) GetUserStats(ctx context.Context, email string, reset bool
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
-
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		statType := parts[2]
-		link := parts[3]
-
-		stats.Stats = append(stats.Stats, &common.Stat{
-			Name:  name,
-			Type:  statType,
-			Link:  link,
-			Value: value,
-		})
-	}
-
-	return stats, nil
+	return buildStatResponse(resp.GetStat()), nil
 }
 
 func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
@@ -192,25 +118,7 @@ func (x *XrayHandler) GetInboundStats(ctx context.Context, tag string, reset boo
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
-
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		statType := parts[2]
-		link := parts[3]
-
-		stats.Stats = append(stats.Stats, &common.Stat{
-			Name:  name,
-			Type:  statType,
-			Link:  link,
-			Value: value,
-		})
-	}
-
-	return stats, nil
+	return buildStatResponse(resp.GetStat()), nil
 }
 
 func (x *XrayHandler) GetOutboundStats(ctx context.Context, tag string, reset bool) (*common.StatResponse, error) {
@@ -222,23 +130,36 @@ func (x *XrayHandler) GetOutboundStats(ctx context.Context, tag string, reset bo
 		return nil, err
 	}
 
-	stats := &common.StatResponse{}
-	for _, stat := range resp.GetStat() {
-		data := stat.GetName()
-		value := stat.GetValue()
+	return buildStatResponse(resp.GetStat()), nil
+}
 
-		parts := strings.Split(data, ">>>")
-		name := parts[1]
-		statType := parts[2]
-		link := parts[3]
+func buildStatResponse(queryStats []*command.Stat) *common.StatResponse {
+	stats := &common.StatResponse{}
+	for _, stat := range queryStats {
+		name, link, statType, ok := parseStatName(stat.GetName())
+		if !ok {
+			continue
+		}
 
 		stats.Stats = append(stats.Stats, &common.Stat{
 			Name:  name,
 			Type:  statType,
 			Link:  link,
-			Value: value,
+			Value: stat.GetValue(),
 		})
 	}
 
-	return stats, nil
+	return stats
+}
+
+func parseStatName(raw string) (name, link, statType string, ok bool) {
+	parts := strings.Split(raw, ">>>")
+	if len(parts) < 4 {
+		return "", "", "", false
+	}
+	if parts[1] == "" || parts[2] == "" || parts[3] == "" {
+		return "", "", "", false
+	}
+
+	return parts[1], parts[2], parts[3], true
 }
