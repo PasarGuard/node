@@ -152,8 +152,7 @@ func (i *Inbound) syncUsers(users []*common.User) {
 					log.Println("error for user", user.GetEmail(), ":", err)
 					continue
 				}
-				newAccount := checkVless(i, *account)
-				i.clients[user.GetEmail()] = &newAccount
+				i.clients[user.GetEmail()] = account
 			}
 		}
 
@@ -217,8 +216,7 @@ func (i *Inbound) updateUser(account api.Account) {
 		i.clients[email] = a
 
 	case *api.VlessAccount:
-		newAccount := checkVless(i, *a)
-		i.clients[email] = &newAccount
+		i.clients[email] = a
 
 	case *api.TrojanAccount:
 		i.clients[email] = a
@@ -259,8 +257,7 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 	case Vless:
 		for _, account := range accounts {
 			if a, ok := account.(*api.VlessAccount); ok {
-				newAccount := checkVless(i, *a)
-				i.clients[account.GetEmail()] = &newAccount
+				i.clients[account.GetEmail()] = a
 			}
 		}
 

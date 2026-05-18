@@ -41,45 +41,28 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	return settings, nil
 }
 
-func checkVless(inbound *Inbound, account api.VlessAccount) api.VlessAccount {
-	if account.Flow != "" {
-
-		networkType, ok := inbound.StreamSettings["network"]
-		if !ok || !(networkType == "tcp" || networkType == "raw" || networkType == "kcp") {
-			account.Flow = ""
-			return account
-		}
-
-		securityType, ok := inbound.StreamSettings["security"]
-		if !ok || !(securityType == "tls" || securityType == "reality") {
-			account.Flow = ""
-			return account
-		}
-
-		rawMap, ok := inbound.StreamSettings["rawSettings"].(map[string]interface{})
-		if !ok {
-			rawMap, ok = inbound.StreamSettings["tcpSettings"].(map[string]interface{})
-			if !ok {
-				return account
-			}
-		}
-
-		headerMap, ok := rawMap["header"].(map[string]interface{})
-		if !ok {
-			return account
-		}
-
-		headerType, ok := headerMap["Type"].(string)
-		if !ok {
-			return account
-		}
-
-		if headerType == "http" {
-			account.Flow = ""
-			return account
-		}
+func inboundFlow(inbound *Inbound) string {
+	if inbound == nil || inbound.Settings == nil {
+		return ""
 	}
-	return account
+	flow, _ := inbound.Settings["flow"].(string)
+	return flow
+}
+
+func accountForAPI(inbound *Inbound, account api.Account) api.Account {
+	vlessAccount, ok := account.(*api.VlessAccount)
+	if !ok {
+		return account
+	}
+
+	overrideFlow := inboundFlow(inbound)
+	if overrideFlow == "" {
+		return account
+	}
+
+	copy := *vlessAccount
+	copy.Flow = overrideFlow
+	return &copy
 }
 
 func checkShadowsocks2022(method string, account api.ShadowsocksAccount) api.ShadowsocksAccount {
@@ -95,8 +78,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			if settings.Vless == nil {
 				return nil, false
 			}
-			account := checkVless(inbound, *settings.Vless)
-			return &account, true
+			return settings.Vless, true
 
 		case Vmess:
 			if settings.Vmess == nil {
@@ -157,7 +139,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		account, isActive := isActiveInbound(inbound, userInbounds, proxySetting)
 		if isActive {
 			inbound.updateUser(account)
-			err = handler.AddInboundUser(ctx, inbound.Tag, account)
+			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				log.Println(err)
 				errMessage += "\n" + err.Error()
@@ -204,7 +186,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		for _, account := range update.accounts {
 			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
-			if err := handler.AddInboundUser(ctx, tag, account); err != nil {
+			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				log.Println(err)
 				errMessage += "\n" + err.Error()
 			}
