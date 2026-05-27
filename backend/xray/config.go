@@ -428,6 +428,9 @@ func filterRules(rules []json.RawMessage, apiTag string) ([]json.RawMessage, err
 		if outboundTagValue, ok := obj["outboundTag"].(string); ok && outboundTagValue == apiTag {
 			continue
 		}
+		if ruleTagValue, ok := obj["ruleTag"].(string); ok && ruleTagValue == malformedDomainGuardRuleTag {
+			continue
+		}
 
 		filtered = append(filtered, raw)
 	}
@@ -603,6 +606,48 @@ func (c *Config) outboundProtocolByTag() map[string]string {
 	return out
 }
 
+const malformedDomainGuardRuleTag = "PG_NODE_MALFORMED_DOMAIN_GUARD"
+
+func (c *Config) blackholeOutboundTag() string {
+	protocolByTag := c.outboundProtocolByTag()
+	if len(protocolByTag) == 0 {
+		return ""
+	}
+
+	tags := make([]string, 0, len(protocolByTag))
+	for tag := range protocolByTag {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	for _, tag := range tags {
+		if strings.EqualFold(protocolByTag[tag], "blackhole") {
+			return tag
+		}
+	}
+
+	return ""
+}
+
+func malformedDomainGuardRule(outboundTag string) (json.RawMessage, error) {
+	rule := map[string]any{
+		"domain": []string{
+			"regexp:^.{254,}$",
+			"regexp:(^|\\.)[^.]{64,}(\\.|$)",
+		},
+		"outboundTag": outboundTag,
+		"ruleTag":     malformedDomainGuardRuleTag,
+		"type":        "field",
+	}
+
+	rawBytes, err := json.Marshal(rule)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.RawMessage(rawBytes), nil
+}
+
 var observatoryExcludedProtocols = map[string]struct{}{
 	"blackhole": {},
 	"dns":       {},
@@ -711,7 +756,16 @@ func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 
 	newRaw := json.RawMessage(rawBytes)
 
-	c.RouterConfig.RuleList = append([]json.RawMessage{newRaw}, c.RouterConfig.RuleList...)
+	prependRules := []json.RawMessage{newRaw}
+	if blockTag := c.blackholeOutboundTag(); blockTag != "" {
+		guardRaw, err := malformedDomainGuardRule(blockTag)
+		if err != nil {
+			return err
+		}
+		prependRules = append(prependRules, guardRaw)
+	}
+
+	c.RouterConfig.RuleList = append(prependRules, c.RouterConfig.RuleList...)
 
 	return nil
 }

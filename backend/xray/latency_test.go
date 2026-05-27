@@ -1,6 +1,12 @@
 package xray
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/xtls/xray-core/infra/conf"
+)
 
 func TestShouldIncludeObservatoryOutbound(t *testing.T) {
 	protocolByTag := map[string]string{
@@ -57,4 +63,64 @@ func TestApplyAPISanitizesObservatorySelectors(t *testing.T) {
 	if len(burst) != 1 || burst[0] != "direct" {
 		t.Fatalf("unexpected burst observatory selectors: %#v", burst)
 	}
+}
+
+func TestApplyAPIAddsMalformedDomainGuardWhenBlackholeExists(t *testing.T) {
+	cfg := &Config{
+		InboundConfigs: []*Inbound{},
+		OutboundConfigs: []any{
+			map[string]any{"tag": "direct", "protocol": "freedom"},
+			map[string]any{"tag": "Block", "protocol": "blackhole"},
+		},
+	}
+
+	if err := cfg.ApplyAPI(10001, 10002); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.RouterConfig.RuleList) < 2 {
+		t.Fatalf("expected API and malformed-domain guard rules, got %d", len(cfg.RouterConfig.RuleList))
+	}
+
+	rule := string(cfg.RouterConfig.RuleList[1])
+	if !containsAll(rule, malformedDomainGuardRuleTag, `"outboundTag":"Block"`, `regexp:^.{254,}$`) {
+		t.Fatalf("unexpected malformed-domain guard rule: %s", rule)
+	}
+}
+
+func TestApplyAPIRemovesExistingMalformedDomainGuard(t *testing.T) {
+	cfg := &Config{
+		InboundConfigs: []*Inbound{},
+		OutboundConfigs: []any{
+			map[string]any{"tag": "Block", "protocol": "blackhole"},
+		},
+		RouterConfig: &conf.RouterConfig{
+			RuleList: []json.RawMessage{
+				json.RawMessage(`{"type":"field","ruleTag":"PG_NODE_MALFORMED_DOMAIN_GUARD","outboundTag":"old","domain":["regexp:^.{254,}$"]}`),
+			},
+		},
+	}
+
+	if err := cfg.ApplyAPI(10001, 10002); err != nil {
+		t.Fatal(err)
+	}
+
+	count := 0
+	for _, raw := range cfg.RouterConfig.RuleList {
+		if strings.Contains(string(raw), malformedDomainGuardRuleTag) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected one malformed-domain guard rule, got %d", count)
+	}
+}
+
+func containsAll(s string, values ...string) bool {
+	for _, value := range values {
+		if !strings.Contains(s, value) {
+			return false
+		}
+	}
+	return true
 }
