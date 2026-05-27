@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+
 func (x *Xray) startupLogTailSize() int {
 	if x.cfg != nil && x.cfg.StartupLogTailSize > 0 {
 		return x.cfg.StartupLogTailSize
@@ -100,6 +101,9 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 				// Only restart after multiple consecutive failures
 				if consecutiveFailures >= maxFailures {
 					log.Printf("xray health check failed %d times, restarting...", consecutiveFailures)
+					if tail := x.core.RuntimeLogTail(10); len(tail) > 0 {
+						log.Printf("last %d xray log lines before restart:\n%s", len(tail), strings.Join(tail, "\n"))
+					}
 					if err = x.Restart(); err != nil {
 						log.Println(err.Error())
 					} else {

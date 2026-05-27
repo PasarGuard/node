@@ -32,11 +32,13 @@ type Core struct {
 	startupLogSize            int
 	startupFailure            string
 	startupDiagnosticsEnabled bool
+	runtimeLogs               *startupLogRing
 	unixSocketPaths           []string
 	logger                    *nodeLogger.Logger
 	cancelFunc                context.CancelFunc
 	mu                        sync.Mutex
 	startupMu                 sync.RWMutex
+	runtimeMu                 sync.RWMutex
 }
 
 func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize, startupLogTailSize int) (*Core, error) {
@@ -51,6 +53,7 @@ func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize, s
 		logsChan:       make(chan string, logBufferSize),
 		logPhase:       logPhaseRuntime,
 		startupLogSize: startupLogTailSize,
+		runtimeLogs:    newStartupLogRing(10),
 	}
 
 	version, err := core.refreshVersion()
@@ -189,6 +192,10 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	if c.Started() {
 		return errors.New("xray is started already")
 	}
+
+	c.runtimeMu.Lock()
+	c.runtimeLogs.reset()
+	c.runtimeMu.Unlock()
 
 	c.EnableStartupDiagnostics(c.startupLogSize)
 	c.setStartupLogPhase()

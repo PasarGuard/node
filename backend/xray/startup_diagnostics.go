@@ -166,6 +166,21 @@ func (c *Core) StartupLogTail(n int) []string {
 	return c.startupLogs.tail(n)
 }
 
+func (c *Core) RecordRuntimeLog(line string) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	c.runtimeLogs.add(line)
+}
+
+func (c *Core) RuntimeLogTail(n int) []string {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	if c.runtimeLogs == nil {
+		return nil
+	}
+	return c.runtimeLogs.tail(n)
+}
+
 func isStartupFailureLog(line string) bool {
 	lower := strings.ToLower(line)
 

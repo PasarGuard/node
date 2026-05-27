@@ -56,6 +56,7 @@ func (c *Core) captureStartupLogLine(output string) {
 }
 
 func (c *Core) captureRuntimeLogLine(output string) {
+	c.RecordRuntimeLog(output)
 	// Non-blocking send: skip if channel is full to prevent deadlock
 	select {
 	case c.logsChan <- output:
