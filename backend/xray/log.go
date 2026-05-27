@@ -15,6 +15,10 @@ var (
 )
 
 func (c *Core) detectLogType(log string) {
+	if c.logger == nil {
+		return
+	}
+
 	// Check if it's an access log (contains accepted + email pattern)
 	if accessLogPattern.MatchString(log) {
 		c.logger.Log(nodeLogger.LogInfo, log)
@@ -27,6 +31,7 @@ func (c *Core) detectLogType(log string) {
 
 func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 	scanner := bufio.NewScanner(pipe)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -40,6 +45,14 @@ func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 			c.captureRuntimeLogLine(output)
 		}
 	}
+}
+
+func (c *Core) recordProcessLog(output string) {
+	if c.isStartupLogPhase() {
+		c.captureStartupLogLine(output)
+		return
+	}
+	c.captureRuntimeLogLine(output)
 }
 
 func (c *Core) captureStartupLogLine(output string) {

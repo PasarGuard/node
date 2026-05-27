@@ -26,6 +26,8 @@ type Core struct {
 	process                   *exec.Cmd
 	processPID                int
 	restarting                bool
+	stopping                  bool
+	waitDone                  chan struct{}
 	logsChan                  chan string
 	logPhase                  uint32
 	startupLogs               *startupLogRing
@@ -226,6 +228,10 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	if err != nil {
 		return err
 	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
 
 	// Create a new logger for this core instance
 	c.logger = nodeLogger.New(debugMode)
@@ -239,11 +245,16 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	}
 	c.process = cmd
 	c.processPID = cmd.Process.Pid
+	c.stopping = false
+	c.waitDone = make(chan struct{})
 	c.unixSocketPaths = socketPaths
 
 	// Wait for the process to exit to prevent zombie processes
+	waitDone := c.waitDone
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
+		close(waitDone)
+		c.handleProcessExit(cmd, waitErr)
 	}()
 
 	ctxCore, cancel := context.WithCancel(context.Background())
@@ -251,8 +262,27 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 
 	// Start capturing process logs
 	go c.captureProcessLogs(ctxCore, stdout)
+	go c.captureProcessLogs(ctxCore, stderr)
 
 	return nil
+}
+
+func (c *Core) handleProcessExit(cmd *exec.Cmd, err error) {
+	c.mu.Lock()
+	expected := c.stopping || c.process != cmd
+	c.mu.Unlock()
+
+	if expected {
+		return
+	}
+
+	message := "xray process exited unexpectedly"
+	if err != nil {
+		message = fmt.Sprintf("%s: %v", message, err)
+	}
+
+	log.Println(message)
+	c.recordProcessLog(message)
 }
 
 func (c *Core) Stop() {
@@ -267,18 +297,15 @@ func (c *Core) Stop() {
 	if started {
 		pid := c.process.Process.Pid
 		c.processPID = pid
+		waitDone := c.waitDone
+		c.stopping = true
 
 		// Kill the process
 		_ = c.process.Process.Kill()
 
-		// Wait for process to terminate with timeout
-		done := make(chan error, 1)
-		go func() {
-			done <- c.process.Wait()
-		}()
-
+		// Wait for the process watcher to reap the process.
 		select {
-		case <-done:
+		case <-waitDone:
 			// Process terminated
 		case <-time.After(5 * time.Second):
 			// Timeout - try force kill
@@ -296,6 +323,8 @@ func (c *Core) Stop() {
 	socketPaths := append([]string(nil), c.unixSocketPaths...)
 	c.process = nil
 	c.processPID = 0
+	c.stopping = false
+	c.waitDone = nil
 	c.unixSocketPaths = nil
 	removeUnixSocketFiles(socketPaths)
 
@@ -334,6 +363,12 @@ func (c *Core) Restart(config *Config, debugMode bool) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Core) Restarting() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.restarting
 }
 
 func (c *Core) Logs() <-chan string {

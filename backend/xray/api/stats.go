@@ -17,7 +17,11 @@ func (x *XrayHandler) GetSysStats(ctx context.Context) (*common.BackendStatsResp
 	client := *x.StatsServiceClient
 	resp, err := client.GetSysStats(ctx, &command.SysStatsRequest{})
 	if err != nil {
-		return nil, status.Errorf(codes.Unknown, "failed to get sys stats: %v", err)
+		code := codes.Unknown
+		if st, ok := status.FromError(err); ok {
+			code = st.Code()
+		}
+		return nil, status.Errorf(code, "failed to get sys stats: %v", err)
 	}
 
 	return &common.BackendStatsResponse{

@@ -80,14 +80,34 @@ func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
 
 func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 	consecutiveFailures := 0
-	maxFailures := 3 // Allow a few failures before restarting
+	maxFailures := 10 // Give Xray API time to recover under load before restarting.
+	checkInterval := 2 * time.Second
+
+	restart := func(reason string) {
+		log.Println(reason)
+		if tail := x.core.RuntimeLogTail(10); len(tail) > 0 {
+			log.Printf("last %d xray log lines before restart:\n%s", len(tail), strings.Join(tail, "\n"))
+		}
+		if err := x.Restart(); err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("xray restarted")
+			consecutiveFailures = 0
+		}
+	}
 
 	for {
 		select {
 		case <-baseCtx.Done():
 			return
 		default:
-			ctx, cancel := context.WithTimeout(baseCtx, time.Second*3)
+			if x.core.Restarting() {
+				consecutiveFailures = 0
+				time.Sleep(checkInterval)
+				continue
+			}
+
+			ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
 			_, err := x.GetSysStats(ctx)
 			cancel()
 
@@ -98,23 +118,16 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 
 				consecutiveFailures++
 				log.Printf("xray health check failure %d/%d: %v", consecutiveFailures, maxFailures, err)
-				// Only restart after multiple consecutive failures
-				if consecutiveFailures >= maxFailures {
-					log.Printf("xray health check failed %d times, restarting...", consecutiveFailures)
-					if tail := x.core.RuntimeLogTail(10); len(tail) > 0 {
-						log.Printf("last %d xray log lines before restart:\n%s", len(tail), strings.Join(tail, "\n"))
-					}
-					if err = x.Restart(); err != nil {
-						log.Println(err.Error())
-					} else {
-						log.Println("xray restarted")
-						consecutiveFailures = 0 // Reset counter after restart
-					}
+
+				if !x.core.Started() {
+					restart("xray process is not running, restarting...")
+				} else if consecutiveFailures >= maxFailures {
+					restart(fmt.Sprintf("xray health check failed %d times, restarting...", consecutiveFailures))
 				}
 			} else {
 				consecutiveFailures = 0 // Reset on success
 			}
 		}
-		time.Sleep(time.Second * 2)
+		time.Sleep(checkInterval)
 	}
 }

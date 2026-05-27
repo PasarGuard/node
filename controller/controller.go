@@ -168,19 +168,34 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 }
 
 func (c *Controller) recordSystemStats(ctx context.Context) {
+	interval := time.Duration(c.cfg.StatsUpdateIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	collect := func() {
+		stats, err := sysstats.GetSystemStats()
+		if err != nil {
+			log.Printf("Failed to get system stats: %v", err)
+			return
+		}
+
+		c.mu.Lock()
+		c.stats = stats
+		c.mu.Unlock()
+	}
+
+	collect()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			stats, err := sysstats.GetSystemStats()
-			if err != nil {
-				log.Printf("Failed to get system stats: %v", err)
-			} else {
-				c.mu.Lock()
-				c.stats = stats
-				c.mu.Unlock()
-			}
+		case <-ticker.C:
+			collect()
 		}
 	}
 }
