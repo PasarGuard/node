@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-
 func (x *Xray) startupLogTailSize() int {
 	if x.cfg != nil && x.cfg.StartupLogTailSize > 0 {
 		return x.cfg.StartupLogTailSize
@@ -115,6 +114,6 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 				consecutiveFailures = 0 // Reset on success
 			}
 		}
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 2)
 	}
 }
