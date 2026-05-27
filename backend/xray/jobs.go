@@ -97,6 +97,7 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 				}
 
 				consecutiveFailures++
+				log.Printf("xray health check failure %d/%d: %v", consecutiveFailures, maxFailures, err)
 				// Only restart after multiple consecutive failures
 				if consecutiveFailures >= maxFailures {
 					log.Printf("xray health check failed %d times, restarting...", consecutiveFailures)
