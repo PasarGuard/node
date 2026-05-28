@@ -228,10 +228,6 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	if err != nil {
 		return err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
 
 	// Create a new logger for this core instance
 	c.logger = nodeLogger.New(debugMode)
@@ -262,7 +258,6 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 
 	// Start capturing process logs
 	go c.captureProcessLogs(ctxCore, stdout)
-	go c.captureProcessLogs(ctxCore, stderr)
 
 	return nil
 }
