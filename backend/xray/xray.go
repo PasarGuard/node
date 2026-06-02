@@ -103,10 +103,18 @@ func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort,
 	return xray, nil
 }
 
-func (x *Xray) Logs() <-chan string {
+func (x *Xray) SubscribeLogs(ctx context.Context) <-chan string {
 	x.mu.RLock()
-	defer x.mu.RUnlock()
-	return x.core.Logs()
+	core := x.core
+	x.mu.RUnlock()
+
+	if core == nil {
+		ch := make(chan string)
+		close(ch)
+		return ch
+	}
+
+	return core.SubscribeLogs(ctx)
 }
 
 func (x *Xray) Version() string {
@@ -140,6 +148,7 @@ func (x *Xray) Shutdown() {
 	// Stop core (this now waits for process termination)
 	if x.core != nil {
 		x.core.Stop()
+		x.core.CloseLogs()
 	}
 
 	// Close API handler

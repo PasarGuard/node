@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) GetLogs(_ *common.Empty, stream common.NodeService_GetLogsServer) error {
-	logChan := s.Backend().Logs()
+	logChan := s.Backend().SubscribeLogs(stream.Context())
 
 	for {
 		select {

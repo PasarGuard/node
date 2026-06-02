@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/logstream"
 	"github.com/pasarguard/node/common"
 	nodeconfig "github.com/pasarguard/node/config"
 	"github.com/vishvananda/netlink"
@@ -161,8 +162,11 @@ func TestWireGuardNewInitializesWithSingleConfigureCallIncludingPeers(t *testing
 		t.Fatalf("expected one peer in startup configure call, got %d", len(configured.Peers))
 	}
 
+	logCtx, logCancel := context.WithCancel(context.Background())
+	defer logCancel()
+
 	select {
-	case startupLog := <-wg.Logs():
+	case startupLog := <-wg.SubscribeLogs(logCtx):
 		pattern := regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[Info\] WireGuard interface wg-test initialized successfully$`)
 		if !pattern.MatchString(startupLog) {
 			t.Fatalf("expected startup log with timestamp prefix, got %q", startupLog)
@@ -181,12 +185,15 @@ func TestWireGuardNewInitializesWithSingleConfigureCallIncludingPeers(t *testing
 }
 
 func TestWireGuardShutdownIsIdempotent(t *testing.T) {
-	_, cancel := context.WithCancel(context.Background())
-	logChan := make(chan string)
+	_, shutdownCancel := context.WithCancel(context.Background())
+	logs := logstream.NewBuffer(10)
+	logCtx, logCancel := context.WithCancel(context.Background())
+	defer logCancel()
+	logSub := logs.Subscribe(logCtx)
 
 	wg := &WireGuard{
-		cancelFunc:    cancel,
-		logChan:       logChan,
+		cancelFunc:    shutdownCancel,
+		logs:          logs,
 		updateTicker:  time.NewTicker(time.Hour),
 		cleanupTicker: time.NewTicker(time.Hour),
 		state:         lifecycleRunning,
@@ -196,12 +203,24 @@ func TestWireGuardShutdownIsIdempotent(t *testing.T) {
 	wg.Shutdown()
 
 	select {
-	case _, ok := <-logChan:
-		if ok {
-			t.Fatal("expected log channel to be closed after first shutdown")
+	case msg, ok := <-logSub:
+		if !ok {
+			t.Fatal("expected shutdown log before subscription close")
 		}
-	default:
-		t.Fatal("expected log channel close signal after first shutdown")
+		if !strings.Contains(msg, "wireguard shutdown complete") {
+			t.Fatalf("expected shutdown log, got %q", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected shutdown log to be emitted")
+	}
+
+	select {
+	case _, ok := <-logSub:
+		if ok {
+			t.Fatal("expected log subscription to be closed after first shutdown")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected log subscription close signal after first shutdown")
 	}
 
 	// Must not panic or alter state unexpectedly on second call.
@@ -213,8 +232,8 @@ func TestWireGuardShutdownIsIdempotent(t *testing.T) {
 	if wg.version != "" {
 		t.Fatalf("expected empty version after shutdown, got %q", wg.version)
 	}
-	if wg.logChan != nil {
-		t.Fatal("expected wg.logChan to be nil after shutdown")
+	if wg.logs != nil {
+		t.Fatal("expected wg.logs to be nil after shutdown")
 	}
 }
 
