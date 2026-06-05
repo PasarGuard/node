@@ -18,6 +18,8 @@ type XrayHandler struct {
 	GrpcClient           *grpc.ClientConn
 }
 
+const maxGRPCMessageSize = 64 * 1024 * 1024 // 64MB
+
 func NewXrayAPI(apiPort int) (*XrayHandler, error) {
 	x := &XrayHandler{}
 	target := fmt.Sprintf("127.0.0.1:%v", apiPort)
@@ -30,6 +32,10 @@ func NewXrayAPI(apiPort int) (*XrayHandler, error) {
 	x.GrpcClient, err = grpc.NewClient(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxGRPCMessageSize),
+			grpc.MaxCallSendMsgSize(maxGRPCMessageSize),
+		),
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			conn, dialErr := dialer.DialContext(ctx, "tcp4", addr)
 			if dialErr == nil {
