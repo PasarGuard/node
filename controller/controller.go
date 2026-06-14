@@ -168,10 +168,7 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 }
 
 func (c *Controller) recordSystemStats(ctx context.Context) {
-	interval := time.Duration(c.cfg.StatsUpdateIntervalSeconds) * time.Second
-	if interval <= 0 {
-		interval = 10 * time.Second
-	}
+	interval := 1500 * time.Millisecond
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
