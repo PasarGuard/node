@@ -18,7 +18,7 @@ import (
 	"github.com/pasarguard/node/pkg/sysstats"
 )
 
-const NodeVersion = "0.5.1"
+const NodeVersion = "0.5.2"
 
 type Service interface {
 	Disconnect()
