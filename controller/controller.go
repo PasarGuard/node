@@ -65,7 +65,6 @@ func (c *Controller) Connect(ip string, keepAlive uint64) {
 }
 
 func (c *Controller) Disconnect() {
-func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	cancel := c.cancelFunc
 	c.cancelFunc = nil
@@ -74,10 +73,6 @@ func (c *Controller) Disconnect() {
 	if cancel != nil {
 		cancel()
 	}
-
-	c.mu.Lock()
-	backend := c.backend
-	c.mu.Unlock()
 
 	c.mu.Lock()
 	backend := c.backend
