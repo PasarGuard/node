@@ -27,6 +27,7 @@ type Core struct {
 	processPID                int
 	restarting                bool
 	stopping                  bool
+	cleanExit                 bool
 	waitDone                  chan struct{}
 	logsChan                  chan string
 	logPhase                  uint32
@@ -202,10 +203,12 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	c.EnableStartupDiagnostics(c.startupLogSize)
 	c.setStartupLogPhase()
 
-	// Clean up any orphaned xray processes before starting new one
-	if err := c.cleanupOrphanedProcesses(); err != nil {
-		log.Printf("warning: failed to cleanup orphaned processes: %v", err)
+	if !c.cleanExit {
+		if err := c.cleanupOrphanedProcesses(); err != nil {
+			log.Printf("warning: failed to cleanup orphaned processes: %v", err)
+		}
 	}
+	c.cleanExit = false
 
 	// Force kill any orphaned process in this Core instance before starting new one
 	if c.process != nil && c.process.Process != nil {
@@ -265,6 +268,9 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 func (c *Core) handleProcessExit(cmd *exec.Cmd, err error) {
 	c.mu.Lock()
 	expected := c.stopping || c.process != cmd
+	if expected {
+		c.cleanExit = true
+	}
 	c.mu.Unlock()
 
 	if expected {

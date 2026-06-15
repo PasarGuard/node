@@ -37,12 +37,10 @@ type Controller struct {
 }
 
 func New(cfg *config.Config) *Controller {
-	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
 		cfg:        cfg,
 		apiPort:    netutil.FindFreePort(),
 		metricPort: netutil.FindFreePort(),
-		cancelFunc: cancel,
 	}
 }
 
@@ -67,7 +65,9 @@ func (c *Controller) Connect(ip string, keepAlive uint64) {
 }
 
 func (c *Controller) Disconnect() {
-	c.cancelFunc()
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+	}
 
 	c.mu.Lock()
 	backend := c.backend
