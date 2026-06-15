@@ -5,13 +5,19 @@ import (
 	"context"
 	"io"
 	"regexp"
+	"sync"
 
 	nodeLogger "github.com/pasarguard/node/logger"
 )
 
 var (
-	// Pattern for access logs: contains "accepted" (tcp/udp) and "email:"
 	accessLogPattern = regexp.MustCompile(`from .+:\d+ accepted (tcp|udp):.+:\d+ \[.+\] email: .+`)
+	bufPool          = sync.Pool{
+		New: func() any {
+			buf := make([]byte, 64*1024)
+			return &buf
+		},
+	}
 )
 
 func (c *Core) detectLogType(log string) {
@@ -19,23 +25,24 @@ func (c *Core) detectLogType(log string) {
 		return
 	}
 
-	// Check if it's an access log (contains accepted + email pattern)
 	if accessLogPattern.MatchString(log) {
 		c.logger.Log(nodeLogger.LogInfo, log)
 		return
 	}
 
-	// All other logs go to error file
 	c.logger.Log(nodeLogger.LogError, log)
 }
 
 func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	bufp := bufPool.Get().(*[]byte)
+	scanner.Buffer(*bufp, 1024*1024)
+	defer bufPool.Put(bufp)
+
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return // Exit gracefully if stop signal received
+			return
 		default:
 			output := scanner.Text()
 			if c.isStartupLogPhase() {
@@ -58,24 +65,18 @@ func (c *Core) recordProcessLog(output string) {
 func (c *Core) captureStartupLogLine(output string) {
 	c.RecordStartupLog(output)
 
-	// Non-blocking send: skip if channel is full to prevent deadlock
 	select {
 	case c.logsChan <- output:
-		// Log sent successfully
 	default:
-		// Channel full, skip this log (prevents blocking xray process)
 	}
 	c.detectLogType(output)
 }
 
 func (c *Core) captureRuntimeLogLine(output string) {
 	c.RecordRuntimeLog(output)
-	// Non-blocking send: skip if channel is full to prevent deadlock
 	select {
 	case c.logsChan <- output:
-		// Log sent successfully
 	default:
-		// Channel full, skip this log (prevents blocking xray process)
 	}
 	c.detectLogType(output)
 }
