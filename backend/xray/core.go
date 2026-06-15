@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pasarguard/node/backend/logstream"
 	nodeLogger "github.com/pasarguard/node/logger"
 )
 
@@ -28,7 +29,7 @@ type Core struct {
 	restarting                bool
 	stopping                  bool
 	waitDone                  chan struct{}
-	logsChan                  chan string
+	logs                      *logstream.Buffer
 	logPhase                  uint32
 	startupLogs               *startupLogRing
 	startupLogSize            int
@@ -52,7 +53,7 @@ func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize, s
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
 		configPath:     configPath,
-		logsChan:       make(chan string, logBufferSize),
+		logs:           logstream.NewBuffer(logBufferSize),
 		logPhase:       logPhaseRuntime,
 		startupLogSize: startupLogTailSize,
 		runtimeLogs:    newStartupLogRing(10),
@@ -366,10 +367,28 @@ func (c *Core) Restarting() bool {
 	return c.restarting
 }
 
-func (c *Core) Logs() <-chan string {
+func (c *Core) SubscribeLogs(ctx context.Context) <-chan string {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.logsChan
+	logs := c.logs
+	c.mu.Unlock()
+
+	if logs == nil {
+		ch := make(chan string)
+		close(ch)
+		return ch
+	}
+
+	return logs.Subscribe(ctx)
+}
+
+func (c *Core) CloseLogs() {
+	c.mu.Lock()
+	logs := c.logs
+	c.mu.Unlock()
+
+	if logs != nil {
+		logs.Close()
+	}
 }
 
 // ProcessInfo holds information about a process
