@@ -1,6 +1,7 @@
 package sysstats
 
 import (
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -8,6 +9,18 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 
 	"github.com/pasarguard/node/common"
+)
+
+type bandwidthState struct {
+	lastRxBytes uint64
+	lastTxBytes uint64
+	lastTime    time.Time
+}
+
+var (
+	bwMu          sync.Mutex
+	bwState       bandwidthState
+	bwInitialized bool
 )
 
 func GetSystemStats() (*common.SystemStatsResponse, error) {
@@ -34,50 +47,58 @@ func GetSystemStats() (*common.SystemStatsResponse, error) {
 		stats.CpuUsage = percentages[0]
 	}
 
-	incomingSpeed, outgoingSpeed, err := getBandwidthSpeed()
-	if err != nil {
-		return stats, err
-	}
+	incomingSpeed, outgoingSpeed := getBandwidthSpeed()
 	stats.IncomingBandwidthSpeed = incomingSpeed
 	stats.OutgoingBandwidthSpeed = outgoingSpeed
 
 	return stats, nil
 }
 
-// getBandwidthSpeed returns the aggregate incoming (rx) and outgoing (tx)
-// bandwidth in bytes per second, sampled over a 1-second interval.
-// Loopback interface (lo) is excluded from the calculation.
-func getBandwidthSpeed() (uint64, uint64, error) {
-	first, err := net.IOCounters(true)
+func getBandwidthSpeed() (uint64, uint64) {
+	counters, err := net.IOCounters(true)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0
 	}
 
-	time.Sleep(1 * time.Second)
-
-	second, err := net.IOCounters(true)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	prev := make(map[string]net.IOCountersStat, len(first))
-	for _, c := range first {
+	now := time.Now()
+	var totalRx, totalTx uint64
+	for _, c := range counters {
 		if c.Name == "lo" {
 			continue
 		}
-		prev[c.Name] = c
+		totalRx += c.BytesRecv
+		totalTx += c.BytesSent
 	}
 
-	var totalRxBytes, totalTxBytes uint64
-	for _, c := range second {
-		if c.Name == "lo" {
-			continue
+	bwMu.Lock()
+	defer bwMu.Unlock()
+
+	if !bwInitialized {
+		bwState = bandwidthState{
+			lastRxBytes: totalRx,
+			lastTxBytes: totalTx,
+			lastTime:    now,
 		}
-		if p, ok := prev[c.Name]; ok {
-			totalRxBytes += c.BytesRecv - p.BytesRecv
-			totalTxBytes += c.BytesSent - p.BytesSent
-		}
+		bwInitialized = true
+		return 0, 0
 	}
 
-	return totalRxBytes, totalTxBytes, nil
+	elapsed := now.Sub(bwState.lastTime).Seconds()
+	if elapsed <= 0 {
+		return 0, 0
+	}
+
+	var rxSpeed, txSpeed uint64
+	if totalRx >= bwState.lastRxBytes {
+		rxSpeed = uint64(float64(totalRx-bwState.lastRxBytes) / elapsed)
+	}
+	if totalTx >= bwState.lastTxBytes {
+		txSpeed = uint64(float64(totalTx-bwState.lastTxBytes) / elapsed)
+	}
+
+	bwState.lastRxBytes = totalRx
+	bwState.lastTxBytes = totalTx
+	bwState.lastTime = now
+
+	return rxSpeed, txSpeed
 }
