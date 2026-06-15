@@ -324,6 +324,11 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 		exclude:        inbound.exclude,
 	}
 
+	// Shallow copy: values share references with the original map. This is safe
+	// because Settings values are primitives or read-only config data (strings,
+	// ints, nested map[string]any from JSON unmarshal). If the data model ever
+	// adds mutable nested types (e.g., pointers to structs that get mutated),
+	// this loop must switch to a deep copy.
 	snap.Settings = make(map[string]any, len(inbound.Settings)+1)
 	for k, v := range inbound.Settings {
 		snap.Settings[k] = v
@@ -407,30 +412,28 @@ func (c *Config) ToBytes() ([]byte, error) {
 	}
 
 	snapConfig := Config{
-		LogConfig:       c.LogConfig,
-		RouterConfig:    c.RouterConfig,
-		DNSConfig:       c.DNSConfig,
-		InboundConfigs:  snapInbounds,
-		OutboundConfigs: c.OutboundConfigs,
-		Policy:          c.Policy,
-		API:             c.API,
-		Metrics:         c.Metrics,
-		Stats:           c.Stats,
-		Reverse:         c.Reverse,
-		FakeDNS:         c.FakeDNS,
-		Observatory:     c.Observatory,
+		RouterConfig:     c.RouterConfig,
+		DNSConfig:        c.DNSConfig,
+		InboundConfigs:   snapInbounds,
+		OutboundConfigs:  c.OutboundConfigs,
+		Policy:           c.Policy,
+		API:              c.API,
+		Metrics:          c.Metrics,
+		Stats:            c.Stats,
+		Reverse:          c.Reverse,
+		FakeDNS:          c.FakeDNS,
+		Observatory:      c.Observatory,
 		BurstObservatory: c.BurstObservatory,
 	}
 
-	aLog := snapConfig.LogConfig.AccessLog
-	eLog := snapConfig.LogConfig.ErrorLog
-	snapConfig.LogConfig.AccessLog = ""
-	snapConfig.LogConfig.ErrorLog = ""
+	if c.LogConfig != nil {
+		snapLog := *c.LogConfig
+		snapLog.AccessLog = ""
+		snapLog.ErrorLog = ""
+		snapConfig.LogConfig = &snapLog
+	}
 
 	b, err := json.Marshal(&snapConfig)
-
-	snapConfig.LogConfig.AccessLog = aLog
-	snapConfig.LogConfig.ErrorLog = eLog
 
 	if err != nil {
 		return nil, err
