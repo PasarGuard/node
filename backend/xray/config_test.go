@@ -3,6 +3,8 @@ package xray
 import (
 	"slices"
 	"testing"
+
+	"github.com/xtls/xray-core/infra/conf"
 )
 
 func TestSanitizeAPIServices(t *testing.T) {
@@ -60,5 +62,31 @@ func TestSanitizeAPIServices(t *testing.T) {
 				t.Fatalf("sanitizeAPIServices(%#v) = %#v, want %#v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestApplyAPIMergesUserServices(t *testing.T) {
+	cfg := &Config{
+		InboundConfigs: []*Inbound{},
+		API: &conf.APIConfig{
+			Services: []string{"RoutingService"},
+			Tag:      "custom",
+			Listen:   "1.2.3.4:5",
+		},
+	}
+
+	if err := cfg.ApplyAPI(10001, 10002); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
+	if !slices.Equal(cfg.API.Services, want) {
+		t.Fatalf("API.Services = %#v, want %#v", cfg.API.Services, want)
+	}
+	if cfg.API.Tag != "API" {
+		t.Fatalf("API.Tag = %q, want %q", cfg.API.Tag, "API")
+	}
+	if cfg.API.Listen != "" {
+		t.Fatalf("API.Listen = %q, want empty (node forces loopback API_INBOUND only)", cfg.API.Listen)
 	}
 }

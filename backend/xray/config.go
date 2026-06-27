@@ -763,9 +763,17 @@ func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 
 	apiTag := "API"
 
+	var userServices []string
+	if c.API != nil {
+		userServices = c.API.Services
+	}
+
 	c.API = &conf.APIConfig{
-		Services: []string{"HandlerService", "LoggerService", "StatsService"},
+		Services: sanitizeAPIServices(userServices),
 		Tag:      apiTag,
+		// Listen intentionally left empty: the node exposes the API only via the
+		// loopback, source-restricted API_INBOUND below. Honoring a user listen
+		// would open a second, unguarded gRPC entry point.
 	}
 
 	c.Metrics = map[string]any{
