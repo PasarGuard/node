@@ -90,3 +90,16 @@ func TestApplyAPIMergesUserServices(t *testing.T) {
 		t.Fatalf("API.Listen = %q, want empty (node forces loopback API_INBOUND only)", cfg.API.Listen)
 	}
 }
+
+func TestApplyAPINilAPIYieldsRequiredServices(t *testing.T) {
+	cfg := &Config{InboundConfigs: []*Inbound{}}
+
+	if err := cfg.ApplyAPI(10001, 10002); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"HandlerService", "LoggerService", "StatsService"}
+	if !slices.Equal(cfg.API.Services, want) {
+		t.Fatalf("API.Services = %#v, want %#v", cfg.API.Services, want)
+	}
+}
