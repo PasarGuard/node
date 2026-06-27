@@ -527,6 +527,63 @@ func normalizeGeoIPPrivateRules(rules []json.RawMessage) ([]json.RawMessage, err
 	return normalized, nil
 }
 
+// canonicalAPIServices maps a lowercased service name to its canonical form.
+// ponytail: mirrors the switch in xray-core infra/conf/api.go APIConfig.Build().
+// Ceiling: if xray-core adds/removes a service this must be synced by hand
+// (TestSanitizeAPIServices pins the set so a drifted upgrade fails loudly).
+var canonicalAPIServices = map[string]string{
+	"reflectionservice":  "ReflectionService",
+	"handlerservice":     "HandlerService",
+	"loggerservice":      "LoggerService",
+	"statsservice":       "StatsService",
+	"observatoryservice": "ObservatoryService",
+	"routingservice":     "RoutingService",
+}
+
+// requiredAPIServices are always present — the node's own gRPC clients depend on
+// HandlerService (users/inbounds) and StatsService (traffic); LoggerService
+// preserves current behavior.
+var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService"}
+
+// sanitizeAPIServices returns the required API services plus any valid
+// user-provided extras (canonicalized, deduped case-insensitively, sorted).
+// Unknown service names are dropped with a logged warning rather than failing
+// the backend, matching the rest of ApplyAPI's defensive normalization.
+func sanitizeAPIServices(userProvided []string) []string {
+	seen := make(map[string]struct{}, len(requiredAPIServices)+len(userProvided))
+	result := make([]string, 0, len(requiredAPIServices)+len(userProvided))
+
+	for _, s := range requiredAPIServices {
+		key := strings.ToLower(s)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, s)
+	}
+
+	extras := make([]string, 0, len(userProvided))
+	for _, s := range userProvided {
+		key := strings.ToLower(strings.TrimSpace(s))
+		if key == "" {
+			continue
+		}
+		canonical, ok := canonicalAPIServices[key]
+		if !ok {
+			log.Printf("xray config: dropping unknown API service %q", s)
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		extras = append(extras, canonical)
+	}
+
+	sort.Strings(extras)
+	return append(result, extras...)
+}
+
 func apiRuleSources() []string {
 	seen := map[string]struct{}{
 		"127.0.0.1": {},
