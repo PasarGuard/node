@@ -32,6 +32,11 @@ func TestSanitizeAPIServices(t *testing.T) {
 			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
 		},
 		{
+			name: "dedupe extras across case",
+			in:   []string{"routingservice", "RoutingService"},
+			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
+		},
+		{
 			name: "unknown dropped, required preserved",
 			in:   []string{"foo", "RoutigService"},
 			want: []string{"HandlerService", "LoggerService", "StatsService"},

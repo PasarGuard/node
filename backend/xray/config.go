@@ -529,8 +529,10 @@ func normalizeGeoIPPrivateRules(rules []json.RawMessage) ([]json.RawMessage, err
 
 // canonicalAPIServices maps a lowercased service name to its canonical form.
 // ponytail: mirrors the switch in xray-core infra/conf/api.go APIConfig.Build().
-// Ceiling: if xray-core adds/removes a service this must be synced by hand
-// (TestSanitizeAPIServices pins the set so a drifted upgrade fails loudly).
+// Ceiling: this set must be synced by hand against xray-core on upgrade —
+// nothing detects drift automatically. TestSanitizeAPIServices pins the
+// expected names, so a hand-edit to this map breaks the test and forces the
+// expectations to be updated deliberately.
 var canonicalAPIServices = map[string]string{
 	"reflectionservice":  "ReflectionService",
 	"handlerservice":     "HandlerService",
