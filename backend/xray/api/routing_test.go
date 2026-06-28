@@ -6,6 +6,8 @@ import (
 	"github.com/pasarguard/node/common"
 	routingCommand "github.com/xtls/xray-core/app/router/command"
 	xnet "github.com/xtls/xray-core/common/net"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestToCommonRoutingRules(t *testing.T) {
@@ -91,7 +93,11 @@ func TestAddRuleConfigParsesJSON(t *testing.T) {
 }
 
 func TestAddRuleConfigRejectsGarbage(t *testing.T) {
-	if _, err := addRuleConfig(`{not json`); err == nil {
+	_, err := addRuleConfig(`{not json`)
+	if err == nil {
 		t.Fatal("expected error for malformed rule JSON")
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument", status.Code(err))
 	}
 }

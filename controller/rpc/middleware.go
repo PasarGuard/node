@@ -251,6 +251,12 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/SyncUsers":                true,
 	"/service.NodeService/SyncUsersChunked":         true,
 	"/service.NodeService/GetLogs":                  true,
+	"/service.NodeService/ListRoutingRules":         true,
+	"/service.NodeService/GetBalancerInfo":          true,
+	"/service.NodeService/TestRoute":                true,
+	"/service.NodeService/AddRoutingRule":           true,
+	"/service.NodeService/RemoveRoutingRule":        true,
+	"/service.NodeService/OverrideBalancerTarget":   true,
 }
 
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {

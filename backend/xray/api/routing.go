@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net"
 	"strings"
 
@@ -13,6 +11,8 @@ import (
 	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/infra/conf"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func toCommonRoutingRules(resp *routingCommand.ListRuleResponse) *common.RoutingRulesResponse {
@@ -87,10 +87,10 @@ func addRuleConfig(ruleJSON string) (*serial.TypedMessage, error) {
 	rc := &conf.RouterConfig{RuleList: []json.RawMessage{json.RawMessage(ruleJSON)}}
 	built, err := rc.Build()
 	if err != nil {
-		return nil, fmt.Errorf("parse routing rule: %w", err)
+		return nil, status.Errorf(codes.InvalidArgument, "parse routing rule: %v", err)
 	}
 	if len(built.Rule) == 0 {
-		return nil, errors.New("no routing rule parsed from JSON")
+		return nil, status.Error(codes.InvalidArgument, "no routing rule parsed from JSON")
 	}
 	return serial.ToTypedMessage(built.Rule[0]), nil
 }
