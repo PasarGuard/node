@@ -162,6 +162,49 @@ message UsersChunk {
   bool last = 3;
 }
 
+// Routing (mirrors xray app/router/command, node-friendly shapes)
+message RoutingRule {
+  string outbound_tag = 1;
+  string rule_tag = 2;
+}
+message RoutingRulesResponse { repeated RoutingRule rules = 1; }
+
+message BalancerInfoRequest { string tag = 1; }
+message BalancerInfoResponse {
+  string override_target = 1;
+  repeated string principle_target = 2;
+}
+
+message TestRouteRequest {
+  string inbound_tag = 1;
+  string network = 2;          // "tcp" | "udp"
+  string target_ip = 3;
+  string target_domain = 4;
+  uint32 target_port = 5;
+  string protocol = 6;
+  string user = 7;
+  map<string, string> attributes = 8;
+  repeated string field_selectors = 9;
+  bool publish_result = 10;
+}
+message RouteResult {
+  string outbound_tag = 1;
+  repeated string outbound_group_tags = 2;
+  string inbound_tag = 3;
+  string network = 4;
+  string target_domain = 5;
+}
+
+message AddRoutingRuleRequest {
+  string rule = 1;             // JSON for one xray routing rule (same shape as routing.rules[])
+  bool should_append = 2;
+}
+message RemoveRoutingRuleRequest { string rule_tag = 1; }
+message OverrideBalancerTargetRequest {
+  string balancer_tag = 1;
+  string target = 2;
+}
+
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
@@ -182,4 +225,11 @@ service NodeService {
   rpc SyncUser (stream User) returns (Empty) {}
   rpc SyncUsers (Users) returns (Empty) {}
   rpc SyncUsersChunked (stream UsersChunk) returns (Empty) {}
+
+  rpc ListRoutingRules (Empty) returns (RoutingRulesResponse) {}
+  rpc GetBalancerInfo (BalancerInfoRequest) returns (BalancerInfoResponse) {}
+  rpc TestRoute (TestRouteRequest) returns (RouteResult) {}
+  rpc AddRoutingRule (AddRoutingRuleRequest) returns (Empty) {}
+  rpc RemoveRoutingRule (RemoveRoutingRuleRequest) returns (Empty) {}
+  rpc OverrideBalancerTarget (OverrideBalancerTargetRequest) returns (Empty) {}
 }
