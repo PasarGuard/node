@@ -586,6 +586,34 @@ func sanitizeAPIServices(userProvided []string) []string {
 	return append(result, extras...)
 }
 
+const (
+	defaultObservatoryProbeURL      = "https://www.google.com/generate_204"
+	defaultObservatoryProbeInterval = "10s"
+)
+
+// defaultObservatory builds an observatory app that probes every eligible
+// outbound (a tag whose protocol is not in observatoryExcludedProtocols). It is
+// injected only when ObservatoryService is enabled but the operator configured
+// no observatory/burstObservatory — without the observatory feature xray-core
+// fails dependency resolution and the core exits. With no eligible outbounds it
+// still returns a valid object so the dependency resolves.
+func (c *Config) defaultObservatory() map[string]any {
+	protocolByTag := c.outboundProtocolByTag()
+	tags := make([]string, 0, len(protocolByTag))
+	for tag, protocol := range protocolByTag {
+		if _, excluded := observatoryExcludedProtocols[protocol]; excluded {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	return map[string]any{
+		"subjectSelector": tags,
+		"probeURL":        defaultObservatoryProbeURL,
+		"probeInterval":   defaultObservatoryProbeInterval,
+	}
+}
+
 func apiRuleSources() []string {
 	seen := map[string]struct{}{
 		"127.0.0.1": {},
@@ -768,12 +796,21 @@ func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 		userServices = c.API.Services
 	}
 
+	services := sanitizeAPIServices(userServices)
 	c.API = &conf.APIConfig{
-		Services: sanitizeAPIServices(userServices),
+		Services: services,
 		Tag:      apiTag,
 		// Listen intentionally left empty: the node exposes the API only via the
 		// loopback, source-restricted API_INBOUND below. Honoring a user listen
 		// would open a second, unguarded gRPC entry point.
+	}
+
+	// ObservatoryService has a hard dependency on the observatory feature; enabling
+	// it without an observatory/burstObservatory app makes xray exit on startup.
+	// Inject a functional default so the toggle is crash-free and immediately useful.
+	if slices.Contains(services, "ObservatoryService") &&
+		c.Observatory == nil && c.BurstObservatory == nil {
+		c.Observatory = c.defaultObservatory()
 	}
 
 	c.Metrics = map[string]any{
