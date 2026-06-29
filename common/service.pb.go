@@ -1301,15 +1301,13 @@ func (x *Hysteria) GetAuth() string {
 }
 
 type Mtproto struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Secret            string                 `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
-	UserAdTag         string                 `protobuf:"bytes,2,opt,name=user_ad_tag,json=userAdTag,proto3" json:"user_ad_tag,omitempty"`
-	MaxTcpConns       uint32                 `protobuf:"varint,3,opt,name=max_tcp_conns,json=maxTcpConns,proto3" json:"max_tcp_conns,omitempty"`
-	ExpirationRfc3339 string                 `protobuf:"bytes,4,opt,name=expiration_rfc3339,json=expirationRfc3339,proto3" json:"expiration_rfc3339,omitempty"`
-	DataQuotaBytes    uint64                 `protobuf:"varint,5,opt,name=data_quota_bytes,json=dataQuotaBytes,proto3" json:"data_quota_bytes,omitempty"`
-	MaxUniqueIps      uint32                 `protobuf:"varint,6,opt,name=max_unique_ips,json=maxUniqueIps,proto3" json:"max_unique_ips,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Secret        string                 `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	UserAdTag     string                 `protobuf:"bytes,2,opt,name=user_ad_tag,json=userAdTag,proto3" json:"user_ad_tag,omitempty"`
+	MaxTcpConns   uint32                 `protobuf:"varint,3,opt,name=max_tcp_conns,json=maxTcpConns,proto3" json:"max_tcp_conns,omitempty"`
+	MaxUniqueIps  uint32                 `protobuf:"varint,4,opt,name=max_unique_ips,json=maxUniqueIps,proto3" json:"max_unique_ips,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Mtproto) Reset() {
@@ -1359,20 +1357,6 @@ func (x *Mtproto) GetUserAdTag() string {
 func (x *Mtproto) GetMaxTcpConns() uint32 {
 	if x != nil {
 		return x.MaxTcpConns
-	}
-	return 0
-}
-
-func (x *Mtproto) GetExpirationRfc3339() string {
-	if x != nil {
-		return x.ExpirationRfc3339
-	}
-	return ""
-}
-
-func (x *Mtproto) GetDataQuotaBytes() uint64 {
-	if x != nil {
-		return x.DataQuotaBytes
 	}
 	return 0
 }
@@ -1727,14 +1711,12 @@ const file_common_service_proto_rawDesc = "" +
 	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x19\n" +
 	"\bpeer_ips\x18\x02 \x03(\tR\apeerIps\"\x1e\n" +
 	"\bHysteria\x12\x12\n" +
-	"\x04auth\x18\x01 \x01(\tR\x04auth\"\xe4\x01\n" +
+	"\x04auth\x18\x01 \x01(\tR\x04auth\"\x8b\x01\n" +
 	"\aMtproto\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x1e\n" +
 	"\vuser_ad_tag\x18\x02 \x01(\tR\tuserAdTag\x12\"\n" +
-	"\rmax_tcp_conns\x18\x03 \x01(\rR\vmaxTcpConns\x12-\n" +
-	"\x12expiration_rfc3339\x18\x04 \x01(\tR\x11expirationRfc3339\x12(\n" +
-	"\x10data_quota_bytes\x18\x05 \x01(\x04R\x0edataQuotaBytes\x12$\n" +
-	"\x0emax_unique_ips\x18\x06 \x01(\rR\fmaxUniqueIps\"\xc1\x02\n" +
+	"\rmax_tcp_conns\x18\x03 \x01(\rR\vmaxTcpConns\x12$\n" +
+	"\x0emax_unique_ips\x18\x04 \x01(\rR\fmaxUniqueIps\"\xc1\x02\n" +
 	"\x05Proxy\x12$\n" +
 	"\x05vmess\x18\x01 \x01(\v2\x0e.service.VmessR\x05vmess\x12$\n" +
 	"\x05vless\x18\x02 \x01(\v2\x0e.service.VlessR\x05vless\x12'\n" +

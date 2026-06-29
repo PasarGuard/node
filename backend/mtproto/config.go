@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/pasarguard/node/common"
 )
@@ -37,13 +36,11 @@ type Config struct {
 }
 
 type runtimeUser struct {
-	Username          string
-	Secret            string
-	UserAdTag         string
-	MaxTCPConns       uint32
-	ExpirationRFC3339 string
-	DataQuotaBytes    uint64
-	MaxUniqueIPs      uint32
+	Username     string
+	Secret       string
+	UserAdTag    string
+	MaxTCPConns  uint32
+	MaxUniqueIPs uint32
 }
 
 func NewConfig(raw string) (*Config, error) {
@@ -156,8 +153,6 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 	userSecrets := make(map[string]any, len(users)+1)
 	userAdTags := make(map[string]any)
 	userMaxTCPConns := make(map[string]any)
-	userExpirations := make(map[string]any)
-	userDataQuota := make(map[string]any)
 	userMaxUniqueIPs := make(map[string]any)
 
 	usernames := make([]string, 0, len(users))
@@ -175,12 +170,6 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 		if user.MaxTCPConns > 0 {
 			userMaxTCPConns[username] = user.MaxTCPConns
 		}
-		if user.ExpirationRFC3339 != "" {
-			userExpirations[username] = tomlLiteral(user.ExpirationRFC3339)
-		}
-		if user.DataQuotaBytes > 0 {
-			userDataQuota[username] = user.DataQuotaBytes
-		}
 		if user.MaxUniqueIPs > 0 {
 			userMaxUniqueIPs[username] = user.MaxUniqueIPs
 		}
@@ -193,8 +182,6 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 	access["users"] = userSecrets
 	writeOptionalMap(access, "user_ad_tags", userAdTags)
 	writeOptionalMap(access, "user_max_tcp_conns", userMaxTCPConns)
-	writeOptionalMap(access, "user_expirations", userExpirations)
-	writeOptionalMap(access, "user_data_quota", userDataQuota)
 	writeOptionalMap(access, "user_max_unique_ips", userMaxUniqueIPs)
 
 	return nil
@@ -251,21 +238,12 @@ func activeUserFromCommon(user *common.User, inboundTag string) (*runtimeUser, b
 		return nil, false, fmt.Errorf("mtproto user %q has an invalid user_ad_tag; expected exactly 32 hex characters", username)
 	}
 
-	expiration := strings.TrimSpace(proxy.GetExpirationRfc3339())
-	if expiration != "" {
-		if _, err := time.Parse(time.RFC3339, expiration); err != nil {
-			return nil, false, fmt.Errorf("mtproto user %q has an invalid expiration_rfc3339: %w", username, err)
-		}
-	}
-
 	return &runtimeUser{
-		Username:          username,
-		Secret:            strings.ToLower(secret),
-		UserAdTag:         strings.ToLower(userAdTag),
-		MaxTCPConns:       proxy.GetMaxTcpConns(),
-		ExpirationRFC3339: expiration,
-		DataQuotaBytes:    proxy.GetDataQuotaBytes(),
-		MaxUniqueIPs:      proxy.GetMaxUniqueIps(),
+		Username:     username,
+		Secret:       strings.ToLower(secret),
+		UserAdTag:    strings.ToLower(userAdTag),
+		MaxTCPConns:  proxy.GetMaxTcpConns(),
+		MaxUniqueIPs: proxy.GetMaxUniqueIps(),
 	}, true, nil
 }
 

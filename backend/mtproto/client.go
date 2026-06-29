@@ -47,8 +47,6 @@ type telemtUserInfo struct {
 	ActiveUniqueIPs     int      `json:"active_unique_ips"`
 	RecentUniqueIPs     int      `json:"recent_unique_ips"`
 	UserAdTag           string   `json:"user_ad_tag"`
-	ExpirationRFC3339   string   `json:"expiration_rfc3339"`
-	DataQuotaBytes      uint64   `json:"data_quota_bytes"`
 	MaxTCPConns         int      `json:"max_tcp_conns"`
 	MaxUniqueIPs        int      `json:"max_unique_ips"`
 	TotalOctets         uint64   `json:"total_octets"`
@@ -60,22 +58,18 @@ type telemtHealth struct {
 }
 
 type telemtCreateUserRequest struct {
-	Username          string  `json:"username"`
-	Secret            string  `json:"secret,omitempty"`
-	UserAdTag         string  `json:"user_ad_tag,omitempty"`
-	MaxTCPConns       *int    `json:"max_tcp_conns,omitempty"`
-	ExpirationRFC3339 string  `json:"expiration_rfc3339,omitempty"`
-	DataQuotaBytes    *uint64 `json:"data_quota_bytes,omitempty"`
-	MaxUniqueIPs      *int    `json:"max_unique_ips,omitempty"`
+	Username     string `json:"username"`
+	Secret       string `json:"secret,omitempty"`
+	UserAdTag    string `json:"user_ad_tag,omitempty"`
+	MaxTCPConns  *int   `json:"max_tcp_conns,omitempty"`
+	MaxUniqueIPs *int   `json:"max_unique_ips,omitempty"`
 }
 
 type telemtPatchUserRequest struct {
-	Secret            string  `json:"secret,omitempty"`
-	UserAdTag         string  `json:"user_ad_tag,omitempty"`
-	MaxTCPConns       *int    `json:"max_tcp_conns,omitempty"`
-	ExpirationRFC3339 string  `json:"expiration_rfc3339,omitempty"`
-	DataQuotaBytes    *uint64 `json:"data_quota_bytes,omitempty"`
-	MaxUniqueIPs      *int    `json:"max_unique_ips,omitempty"`
+	Secret       string `json:"secret,omitempty"`
+	UserAdTag    string `json:"user_ad_tag,omitempty"`
+	MaxTCPConns  *int   `json:"max_tcp_conns,omitempty"`
+	MaxUniqueIPs *int   `json:"max_unique_ips,omitempty"`
 }
 
 type apiStatusError struct {
@@ -157,13 +151,11 @@ func buildCreateUserRequest(user *runtimeUser) (*telemtCreateUserRequest, error)
 	}
 
 	request := &telemtCreateUserRequest{
-		Username:          user.Username,
-		Secret:            user.Secret,
-		UserAdTag:         user.UserAdTag,
-		MaxTCPConns:       maxTCPConns,
-		ExpirationRFC3339: user.ExpirationRFC3339,
-		DataQuotaBytes:    optionalPositiveUint64(user.DataQuotaBytes),
-		MaxUniqueIPs:      maxUniqueIPs,
+		Username:     user.Username,
+		Secret:       user.Secret,
+		UserAdTag:    user.UserAdTag,
+		MaxTCPConns:  maxTCPConns,
+		MaxUniqueIPs: maxUniqueIPs,
 	}
 	return request, nil
 }
@@ -179,22 +171,12 @@ func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
 	}
 
 	request := &telemtPatchUserRequest{
-		Secret:            user.Secret,
-		UserAdTag:         user.UserAdTag,
-		MaxTCPConns:       maxTCPConns,
-		ExpirationRFC3339: user.ExpirationRFC3339,
-		DataQuotaBytes:    optionalPositiveUint64(user.DataQuotaBytes),
-		MaxUniqueIPs:      maxUniqueIPs,
+		Secret:       user.Secret,
+		UserAdTag:    user.UserAdTag,
+		MaxTCPConns:  maxTCPConns,
+		MaxUniqueIPs: maxUniqueIPs,
 	}
 	return request, nil
-}
-
-func optionalPositiveUint64(value uint64) *uint64 {
-	if value == 0 {
-		return nil
-	}
-	copyValue := value
-	return &copyValue
 }
 
 func optionalPositiveInt(value uint32, field string) (*int, error) {

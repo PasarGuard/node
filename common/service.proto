@@ -142,9 +142,10 @@ message Mtproto {
     string secret = 1;
     string user_ad_tag = 2;
     uint32 max_tcp_conns = 3;
-    string expiration_rfc3339 = 4;
-    uint64 data_quota_bytes = 5;
-    uint32 max_unique_ips = 6;
+    uint32 max_unique_ips = 4;
+    // Note: data quota and expiry are intentionally omitted. The panel owns
+    // quota/expiry enforcement (via usage reporting and user sync), the same as
+    // for the xray and wireguard backends; telemt must not enforce them.
 }
 
 message Proxy {
