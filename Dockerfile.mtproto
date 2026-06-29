@@ -1,0 +1,31 @@
+FROM --platform=$BUILDPLATFORM golang:1.26.2-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG TELEMT_REPOSITORY=telemt/telemt
+ARG TELEMT_VERSION=3.4.19
+
+RUN apk update && apk add --no-cache make curl tar
+
+WORKDIR /src
+
+COPY go* .
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    TELEMT_REPOSITORY=${TELEMT_REPOSITORY} TELEMT_VERSION=${TELEMT_VERSION} \
+    make install_telemt
+
+FROM alpine:latest
+
+LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
+
+RUN apk update && apk add --no-cache ca-certificates
+
+WORKDIR /app
+COPY --from=builder /src/main /app/main
+COPY --from=builder /usr/local/bin/telemt /usr/local/bin/telemt
+
+ENTRYPOINT ["./main"]
