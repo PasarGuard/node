@@ -16,6 +16,7 @@ message BaseInfoResponse {
 enum BackendType {
   XRAY = 0;
   WIREGUARD = 1;
+  MTPROTO = 2;
 }
 
 message Backend {
@@ -137,6 +138,15 @@ message Hysteria {
     string auth = 1;
 }
 
+message Mtproto {
+    string secret = 1;
+    string user_ad_tag = 2;
+    uint32 max_tcp_conns = 3;
+    string expiration_rfc3339 = 4;
+    uint64 data_quota_bytes = 5;
+    uint32 max_unique_ips = 6;
+}
+
 message Proxy {
     Vmess vmess = 1;
     Vless vless = 2;
@@ -144,6 +154,7 @@ message Proxy {
     Shadowsocks shadowsocks = 4;
     Wireguard wireguard = 5;
     Hysteria hysteria = 6;
+    Mtproto mtproto = 7;
 }
 
 message User {
