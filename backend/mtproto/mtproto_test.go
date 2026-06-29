@@ -33,8 +33,11 @@ func TestNewConfig_InboundTagAndValidation(t *testing.T) {
 
 	// custom inbound tag
 	cfg, err = NewConfig(`{"inbound_tag":"mtp-eu","server":{"port":2222}}`)
-	if err != nil || cfg.InboundTag != "mtp-eu" {
-		t.Fatalf("custom inbound tag not honored: tag=%q err=%v", cfg.InboundTag, err)
+	if err != nil {
+		t.Fatalf("NewConfig returned error: %v", err)
+	}
+	if cfg.InboundTag != "mtp-eu" {
+		t.Errorf("custom inbound tag = %q, want %q", cfg.InboundTag, "mtp-eu")
 	}
 
 	// panel must not set managed access keys

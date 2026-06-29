@@ -2,6 +2,7 @@ package mtproto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -89,7 +90,12 @@ func TestIntegration_LifecycleAndUsers(t *testing.T) {
 		t.Fatalf("SyncUser(remove alice): %v", err)
 	}
 	if _, err := mt.apiClient.GetUser(ctx, "alice"); err == nil {
-		t.Error("alice should have been removed")
+		t.Fatal("alice should have been removed")
+	} else {
+		var apiErr *apiStatusError
+		if !errors.As(err, &apiErr) || !apiErr.NotFound() {
+			t.Fatalf("expected alice lookup to return not found, got %v", err)
+		}
 	}
 
 	// Traffic + online-count stats come from telemt's Prometheus endpoint, which
