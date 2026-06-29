@@ -622,13 +622,27 @@ func cloneRuntimeUserMap(input map[string]*runtimeUser) map[string]*runtimeUser 
 	return cloned
 }
 
+// writeFileAtomic writes payload to path via a temp file and rename. The
+// rendered config holds the API bearer token and per-user secrets, so the
+// directory and file are created with owner-only permissions.
 func writeFileAtomic(path string, payload []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, payload, 0o644); err != nil {
+	tempFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	if _, err := tempFile.Write(payload); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tempPath, path)
