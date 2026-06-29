@@ -59,11 +59,13 @@ func NewConfig(raw string) (*Config, error) {
 		return nil, fmt.Errorf("failed to decode mtproto config JSON: %w", err)
 	}
 
-	var extra any
-	if err := decoder.Decode(&extra); err != nil && !errors.Is(err, io.EOF) {
+	var extra json.RawMessage
+	switch err := decoder.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+		// exactly one JSON document, as required
+	case err != nil:
 		return nil, fmt.Errorf("failed to decode trailing mtproto config JSON: %w", err)
-	}
-	if extra != nil {
+	default:
 		return nil, errors.New("mtproto config must contain exactly one JSON object")
 	}
 
