@@ -22,9 +22,11 @@ type processManager struct {
 	version        string
 	commandFactory commandFactory
 
-	mu     sync.RWMutex
-	cmd    *exec.Cmd
-	waitCh chan error
+	mu            sync.RWMutex
+	cmd           *exec.Cmd
+	waitCh        chan error
+	logWG         sync.WaitGroup
+	closeLogsOnce sync.Once
 }
 
 func newProcessManager(executablePath, configPath, pidFilePath string, logBufferSize int) (*processManager, error) {
@@ -132,6 +134,7 @@ func (p *processManager) Start() error {
 		close(waitCh)
 	}()
 
+	p.logWG.Add(2)
 	go p.captureLogs(stdout)
 	go p.captureLogs(stderr)
 
@@ -203,6 +206,7 @@ func (p *processManager) Restart() error {
 }
 
 func (p *processManager) captureLogs(pipe io.Reader) {
+	defer p.logWG.Done()
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -213,6 +217,11 @@ func (p *processManager) captureLogs(pipe io.Reader) {
 	}
 }
 
+// CloseLogs waits for the capture goroutines to finish before closing the
+// channel, so a late log send can never hit a closed channel during shutdown.
 func (p *processManager) CloseLogs() {
-	close(p.logs)
+	p.closeLogsOnce.Do(func() {
+		p.logWG.Wait()
+		close(p.logs)
+	})
 }
