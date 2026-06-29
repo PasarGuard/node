@@ -642,7 +642,7 @@ func writeFileAtomic(path string, payload []byte) error {
 		return err
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
+	defer func() { _ = os.Remove(tempPath) }()
 
 	if _, err := tempFile.Write(payload); err != nil {
 		_ = tempFile.Close()
