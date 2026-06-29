@@ -80,6 +80,11 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		return nil, err
 	}
 
+	sentinel, err := newSentinelUser()
+	if err != nil {
+		return nil, err
+	}
+
 	mt := &MTProto{
 		cfg:            cfg,
 		config:         mtConfig,
@@ -87,7 +92,7 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		apiClient:      newAPIClient(fmt.Sprintf("http://127.0.0.1:%d", apiPort), authHeader),
 		metricsScraper: newMetricsScraper(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort)),
 		tracker:        newTrafficTracker(),
-		sentinel:       newSentinelUser(),
+		sentinel:       sentinel,
 		apiPort:        apiPort,
 		metricsPort:    metricsPort,
 		apiAuthHeader:  authHeader,
@@ -101,7 +106,7 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		return nil, err
 	}
 	if err := mt.waitForHealth(ctx); err != nil {
-		mt.process.Shutdown()
+		mt.Shutdown()
 		return nil, err
 	}
 
@@ -582,24 +587,20 @@ func (m *MTProto) isDesiredUser(username string) bool {
 	return exists
 }
 
-func newSentinelUser() *runtimeUser {
+func newSentinelUser() (*runtimeUser, error) {
 	secret := make([]byte, 16)
 	usernameSuffix := make([]byte, 4)
 	if _, err := rand.Read(secret); err != nil {
-		for i := range secret {
-			secret[i] = byte(i)
-		}
+		return nil, fmt.Errorf("failed to generate mtproto sentinel secret: %w", err)
 	}
 	if _, err := rand.Read(usernameSuffix); err != nil {
-		for i := range usernameSuffix {
-			usernameSuffix[i] = byte(i + 16)
-		}
+		return nil, fmt.Errorf("failed to generate mtproto sentinel username: %w", err)
 	}
 
 	return &runtimeUser{
 		Username: "pg-node-internal-" + hex.EncodeToString(usernameSuffix),
 		Secret:   hex.EncodeToString(secret),
-	}
+	}, nil
 }
 
 func generateBearerToken() (string, error) {
