@@ -519,6 +519,11 @@ func (m *MTProto) waitForRuntimeUsers(ctx context.Context, previousDesired, desi
 			expectedAbsent[username] = struct{}{}
 		}
 	}
+	// Going from zero desired users to real users drops the sentinel, but it is
+	// not in previousDesired, so require it to be gone explicitly.
+	if len(previousDesired) == 0 && len(desired) > 0 {
+		expectedAbsent[m.sentinel.Username] = struct{}{}
+	}
 
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
