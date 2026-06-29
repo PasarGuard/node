@@ -2,6 +2,7 @@ package mtproto
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,10 @@ import (
 	"sync"
 	"time"
 )
+
+// telemtCommandTimeout bounds the short-lived telemt invocations (--version,
+// reload) so a wedged binary cannot block startup or a live reload forever.
+const telemtCommandTimeout = 30 * time.Second
 
 type commandFactory func(executable string, args ...string) *exec.Cmd
 
@@ -66,9 +71,15 @@ func newProcessManager(executablePath, configPath, pidFilePath string, logBuffer
 }
 
 func (p *processManager) detectVersion() (string, error) {
-	cmd := p.commandFactory(p.executablePath, "--version")
+	ctx, cancel := context.WithTimeout(context.Background(), telemtCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, p.executablePath, "--version")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("telemt --version timed out after %s: %w", telemtCommandTimeout, ctx.Err())
+		}
 		return "", fmt.Errorf("failed to detect telemt version: %w", err)
 	}
 
@@ -169,9 +180,15 @@ func (p *processManager) startedLocked() bool {
 }
 
 func (p *processManager) Reload() error {
-	cmd := p.commandFactory(p.executablePath, "reload", "--pid-file", p.pidFilePath)
+	ctx, cancel := context.WithTimeout(context.Background(), telemtCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, p.executablePath, "reload", "--pid-file", p.pidFilePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("telemt reload timed out after %s: %w", telemtCommandTimeout, ctx.Err())
+		}
 		return fmt.Errorf("failed to reload telemt: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	return nil
