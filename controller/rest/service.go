@@ -52,6 +52,16 @@ func (s *Service) setRouter() {
 		private.Put("/user/sync", s.SyncUser)
 		private.Put("/users/sync", s.SyncUsers)
 		private.Put("/users/sync/chunked", s.SyncUsersChunked)
+
+		// routing api (xray-only; non-xray backends get codes.Unimplemented -> 501)
+		private.Route("/routing", func(routingGroup chi.Router) {
+			routingGroup.Get("/rules", s.ListRoutingRules)
+			routingGroup.Put("/rules", s.AddRoutingRule)
+			routingGroup.Delete("/rules", s.RemoveRoutingRule)
+			routingGroup.Get("/balancer", s.GetBalancerInfo)
+			routingGroup.Put("/balancer/override", s.OverrideBalancerTarget)
+			routingGroup.Get("/test", s.TestRoute)
+		})
 	})
 
 	s.Router = router

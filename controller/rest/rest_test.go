@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -384,6 +385,74 @@ func TestREST_GetSystemStats(t *testing.T) {
 
 	fmt.Printf("System Stats: \nMem Total: %d \nMem Used: %d \nCpu Number: %d \nCpu Usage: %f \nIncoming: %d \nOutgoing: %d \n",
 		systemStats.MemTotal, systemStats.MemUsed, systemStats.CpuCores, systemStats.CpuUsage, systemStats.IncomingBandwidthSpeed, systemStats.OutgoingBandwidthSpeed)
+}
+
+func TestREST_Routing(t *testing.T) {
+	doRouting := func(method, endpoint string, reqMsg proto.Message) (int, []byte) {
+		var body []byte
+		if reqMsg != nil {
+			var err error
+			if body, err = proto.Marshal(reqMsg); err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+		}
+		req, err := http.NewRequest(method, sharedTestCtx.url+endpoint, bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		req.Header.Set("x-api-key", apiKey.String())
+		req.Header.Set("Content-Type", "application/x-protobuf")
+		resp, err := sharedTestCtx.client.Do(req)
+		if err != nil {
+			t.Fatalf("do request: %v", err)
+		}
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, respBody
+	}
+
+	// assertRegistered confirms a route exists (handler ran) rather than chi's
+	// default not-found, regardless of whether the routing op itself succeeds.
+	assertRegistered := func(method, endpoint string, reqMsg proto.Message) {
+		code, body := doRouting(method, endpoint, reqMsg)
+		if code == http.StatusNotFound && strings.Contains(string(body), "404 page not found") {
+			t.Fatalf("%s %s not registered (chi 404)", method, endpoint)
+		}
+	}
+
+	// List rules (RoutingService enabled in the test config) -> 200 + decodes.
+	code, body := doRouting("GET", "/routing/rules", &common.Empty{})
+	if code != http.StatusOK {
+		t.Fatalf("ListRoutingRules: status = %d, body = %s", code, body)
+	}
+	var rules common.RoutingRulesResponse
+	if err := proto.Unmarshal(body, &rules); err != nil {
+		t.Fatalf("decode RoutingRulesResponse: %v", err)
+	}
+
+	// Add a valid rule -> 200, then remove it by tag -> 200.
+	code, body = doRouting("PUT", "/routing/rules", &common.AddRoutingRuleRequest{
+		Rule:         `{"type":"field","outboundTag":"direct","domain":["rest-routing-test.example.com"],"ruleTag":"rest-routing-test"}`,
+		ShouldAppend: true,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("AddRoutingRule(valid): status = %d, body = %s", code, body)
+	}
+	code, body = doRouting("DELETE", "/routing/rules", &common.RemoveRoutingRuleRequest{RuleTag: "rest-routing-test"})
+	if code != http.StatusOK {
+		t.Fatalf("RemoveRoutingRule: status = %d, body = %s", code, body)
+	}
+
+	// Malformed rule JSON -> 400 (InvalidArgument mapped to HTTP).
+	code, body = doRouting("PUT", "/routing/rules", &common.AddRoutingRuleRequest{Rule: "{not json"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("AddRoutingRule(malformed): status = %d, want 400, body = %s", code, body)
+	}
+
+	// Remaining routes: confirm they are wired (handler runs, not chi 404).
+	assertRegistered("GET", "/routing/balancer", &common.BalancerInfoRequest{Tag: "none"})
+	assertRegistered("GET", "/routing/test", &common.TestRouteRequest{Network: "tcp", TargetDomain: "example.com"})
+	assertRegistered("PUT", "/routing/balancer/override", &common.OverrideBalancerTargetRequest{BalancerTag: "none", Target: "none"})
 }
 
 func TestREST_StopBackend(t *testing.T) {
