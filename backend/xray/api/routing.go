@@ -82,7 +82,9 @@ func toCommonRouteResult(rc *routingCommand.RoutingContext) *common.RouteResult 
 
 // addRuleConfig parses one routing-rule JSON (same shape as routing.rules[]) into
 // the TypedMessage that RoutingService.AddRule expects, using only exported
-// xray-core API.
+// xray-core API. xray's Router.AddRule unwraps the message and requires a
+// *router.Config (it rejects a bare *router.RoutingRule with "config type
+// error"), so the whole built config — carrying the single parsed rule — is sent.
 func addRuleConfig(ruleJSON string) (*serial.TypedMessage, error) {
 	rc := &conf.RouterConfig{RuleList: []json.RawMessage{json.RawMessage(ruleJSON)}}
 	built, err := rc.Build()
@@ -92,7 +94,7 @@ func addRuleConfig(ruleJSON string) (*serial.TypedMessage, error) {
 	if len(built.Rule) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "no routing rule parsed from JSON")
 	}
-	return serial.ToTypedMessage(built.Rule[0]), nil
+	return serial.ToTypedMessage(built), nil
 }
 
 func (x *XrayHandler) ListRoutingRules(ctx context.Context) (*common.RoutingRulesResponse, error) {

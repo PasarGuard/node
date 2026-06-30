@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/pasarguard/node/common"
+	"github.com/xtls/xray-core/app/router"
 	routingCommand "github.com/xtls/xray-core/app/router/command"
 	xnet "github.com/xtls/xray-core/common/net"
 	"google.golang.org/grpc/codes"
@@ -87,8 +88,14 @@ func TestAddRuleConfigParsesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("addRuleConfig error: %v", err)
 	}
-	if tm == nil || tm.Type == "" {
-		t.Fatalf("typed message = %+v, want non-empty type", tm)
+	// xray's Router.AddRule unwraps the message and requires a *router.Config;
+	// a bare *router.RoutingRule is rejected with "config type error".
+	inst, err := tm.GetInstance()
+	if err != nil {
+		t.Fatalf("GetInstance error: %v", err)
+	}
+	if _, ok := inst.(*router.Config); !ok {
+		t.Fatalf("typed message instance = %T, want *router.Config", inst)
 	}
 }
 
