@@ -65,7 +65,7 @@ func (s *Service) AddRoutingRule(ctx context.Context, request *common.AddRouting
 	if err != nil {
 		return nil, err
 	}
-	if err := rb.AddRoutingRule(ctx, request.GetRule(), request.GetShouldAppend()); err != nil {
+	if err := rb.AddRoutingRule(ctx, request.GetRule(), !request.GetShouldReset()); err != nil {
 		return nil, err
 	}
 	return &common.Empty{}, nil

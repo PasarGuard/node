@@ -106,7 +106,7 @@ func (s *Service) AddRoutingRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := rb.AddRoutingRule(r.Context(), request.GetRule(), request.GetShouldAppend()); err != nil {
+	if err := rb.AddRoutingRule(r.Context(), request.GetRule(), !request.GetShouldReset()); err != nil {
 		writeRoutingError(w, err)
 		return
 	}

@@ -1931,9 +1931,12 @@ func (x *RouteResult) GetTargetDomain() string {
 }
 
 type AddRoutingRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Rule          string                 `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"` // JSON for one xray routing rule (same shape as routing.rules[])
-	ShouldAppend  bool                   `protobuf:"varint,2,opt,name=should_append,json=shouldAppend,proto3" json:"should_append,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Rule  string                 `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"` // JSON for one xray routing rule (same shape as routing.rules[])
+	// false (default) appends the rule, keeping existing rules; true resets the
+	// router (clears all rules + balancers) before adding. Default is the safe,
+	// non-destructive behavior.
+	ShouldReset   bool `protobuf:"varint,2,opt,name=should_reset,json=shouldReset,proto3" json:"should_reset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1975,9 +1978,9 @@ func (x *AddRoutingRuleRequest) GetRule() string {
 	return ""
 }
 
-func (x *AddRoutingRuleRequest) GetShouldAppend() bool {
+func (x *AddRoutingRuleRequest) GetShouldReset() bool {
 	if x != nil {
-		return x.ShouldAppend
+		return x.ShouldReset
 	}
 	return false
 }
@@ -2219,10 +2222,10 @@ const file_common_service_proto_rawDesc = "" +
 	"\vinbound_tag\x18\x03 \x01(\tR\n" +
 	"inboundTag\x12\x18\n" +
 	"\anetwork\x18\x04 \x01(\tR\anetwork\x12#\n" +
-	"\rtarget_domain\x18\x05 \x01(\tR\ftargetDomain\"P\n" +
+	"\rtarget_domain\x18\x05 \x01(\tR\ftargetDomain\"N\n" +
 	"\x15AddRoutingRuleRequest\x12\x12\n" +
-	"\x04rule\x18\x01 \x01(\tR\x04rule\x12#\n" +
-	"\rshould_append\x18\x02 \x01(\bR\fshouldAppend\"5\n" +
+	"\x04rule\x18\x01 \x01(\tR\x04rule\x12!\n" +
+	"\fshould_reset\x18\x02 \x01(\bR\vshouldReset\"5\n" +
 	"\x18RemoveRoutingRuleRequest\x12\x19\n" +
 	"\brule_tag\x18\x01 \x01(\tR\aruleTag\"Z\n" +
 	"\x1dOverrideBalancerTargetRequest\x12!\n" +

@@ -430,17 +430,37 @@ func TestREST_Routing(t *testing.T) {
 		t.Fatalf("decode RoutingRulesResponse: %v", err)
 	}
 
-	// Add a valid rule -> 200, then remove it by tag -> 200.
-	code, body = doRouting("PUT", "/routing/rules", &common.AddRoutingRuleRequest{
-		Rule:         `{"type":"field","outboundTag":"direct","domain":["rest-routing-test.example.com"],"ruleTag":"rest-routing-test"}`,
-		ShouldAppend: true,
-	})
-	if code != http.StatusOK {
-		t.Fatalf("AddRoutingRule(valid): status = %d, body = %s", code, body)
+	// Two adds with the default (should_reset unset) must APPEND: the second add
+	// must keep the first rule rather than resetting the router. This guards the
+	// safe, non-destructive wire default.
+	addTags := []string{"rest-routing-test-a", "rest-routing-test-b"}
+	for _, tag := range addTags {
+		code, body = doRouting("PUT", "/routing/rules", &common.AddRoutingRuleRequest{
+			Rule: `{"type":"field","outboundTag":"direct","domain":["` + tag + `.example.com"],"ruleTag":"` + tag + `"}`,
+		})
+		if code != http.StatusOK {
+			t.Fatalf("AddRoutingRule(%s): status = %d, body = %s", tag, code, body)
+		}
 	}
-	code, body = doRouting("DELETE", "/routing/rules", &common.RemoveRoutingRuleRequest{RuleTag: "rest-routing-test"})
+	code, body = doRouting("GET", "/routing/rules", &common.Empty{})
 	if code != http.StatusOK {
-		t.Fatalf("RemoveRoutingRule: status = %d, body = %s", code, body)
+		t.Fatalf("ListRoutingRules(after appends): status = %d, body = %s", code, body)
+	}
+	var listed common.RoutingRulesResponse
+	if err := proto.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("decode RoutingRulesResponse: %v", err)
+	}
+	tags := make(map[string]bool)
+	for _, ru := range listed.GetRules() {
+		tags[ru.GetRuleTag()] = true
+	}
+	if !tags["rest-routing-test-a"] || !tags["rest-routing-test-b"] {
+		t.Fatalf("default add did not append (both rules should survive); got tags = %v", tags)
+	}
+	for _, tag := range addTags {
+		if code, body = doRouting("DELETE", "/routing/rules", &common.RemoveRoutingRuleRequest{RuleTag: tag}); code != http.StatusOK {
+			t.Fatalf("RemoveRoutingRule(%s): status = %d, body = %s", tag, code, body)
+		}
 	}
 
 	// Malformed rule JSON -> 400 (InvalidArgument mapped to HTTP).

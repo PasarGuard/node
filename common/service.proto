@@ -197,7 +197,10 @@ message RouteResult {
 
 message AddRoutingRuleRequest {
   string rule = 1;             // JSON for one xray routing rule (same shape as routing.rules[])
-  bool should_append = 2;
+  // false (default) appends the rule, keeping existing rules; true resets the
+  // router (clears all rules + balancers) before adding. Default is the safe,
+  // non-destructive behavior.
+  bool should_reset = 2;
 }
 message RemoveRoutingRuleRequest { string rule_tag = 1; }
 message OverrideBalancerTargetRequest {
