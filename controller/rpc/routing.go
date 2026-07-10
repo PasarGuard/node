@@ -57,7 +57,11 @@ func (s *Service) TestRoute(ctx context.Context, request *common.TestRouteReques
 	if err != nil {
 		return nil, err
 	}
-	return rb.TestRoute(ctx, request)
+	resp, err := rb.TestRoute(ctx, request)
+	if err != nil {
+		return nil, common.InterceptNotFound(err)
+	}
+	return resp, nil
 }
 
 func (s *Service) AddRoutingRule(ctx context.Context, request *common.AddRoutingRuleRequest) (*common.Empty, error) {
