@@ -53,14 +53,17 @@ func (s *Service) setRouter() {
 		private.Put("/users/sync", s.SyncUsers)
 		private.Put("/users/sync/chunked", s.SyncUsersChunked)
 
-		// routing api (xray-only; non-xray backends get codes.Unimplemented -> 501)
+		// routing api (xray-only; non-xray backends get codes.Unimplemented -> 501).
+		// Balancer info and test-route carry protobuf request bodies, so they use
+		// POST: GET-with-body breaks fetch()-style clients and may be dropped by
+		// intermediaries (RFC 9110 discourages it).
 		private.Route("/routing", func(routingGroup chi.Router) {
 			routingGroup.Get("/rules", s.ListRoutingRules)
 			routingGroup.Put("/rules", s.AddRoutingRule)
 			routingGroup.Delete("/rules", s.RemoveRoutingRule)
-			routingGroup.Get("/balancer", s.GetBalancerInfo)
+			routingGroup.Post("/balancer", s.GetBalancerInfo)
 			routingGroup.Put("/balancer/override", s.OverrideBalancerTarget)
-			routingGroup.Get("/test", s.TestRoute)
+			routingGroup.Post("/test", s.TestRoute)
 		})
 	})
 

@@ -470,8 +470,9 @@ func TestREST_Routing(t *testing.T) {
 	}
 
 	// Remaining routes: confirm they are wired (handler runs, not chi 404).
-	assertRegistered("GET", "/routing/balancer", &common.BalancerInfoRequest{Tag: "none"})
-	assertRegistered("GET", "/routing/test", &common.TestRouteRequest{Network: "tcp", TargetDomain: "example.com"})
+	// Balancer info and test-route are POST because they carry request bodies.
+	assertRegistered("POST", "/routing/balancer", &common.BalancerInfoRequest{Tag: "none"})
+	assertRegistered("POST", "/routing/test", &common.TestRouteRequest{Network: "tcp", TargetDomain: "example.com"})
 	assertRegistered("PUT", "/routing/balancer/override", &common.OverrideBalancerTargetRequest{BalancerTag: "none", Target: "none"})
 }
 
