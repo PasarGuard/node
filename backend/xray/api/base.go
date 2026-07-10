@@ -64,10 +64,10 @@ func NewXrayAPI(apiPort int) (*XrayHandler, error) {
 }
 
 func (x *XrayHandler) Close() {
+	// The service clients are intentionally left set: a call racing Close (e.g.
+	// an RPC in flight while Shutdown runs) then fails cleanly on the closed
+	// grpc.ClientConn instead of panicking on a nil client dereference.
 	if x.GrpcClient != nil {
 		_ = x.GrpcClient.Close()
 	}
-	x.StatsServiceClient = nil
-	x.RoutingServiceClient = nil
-	x.HandlerServiceClient = nil
 }
