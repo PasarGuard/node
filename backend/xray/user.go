@@ -40,6 +40,12 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 		settings.Hysteria = api.NewHysteriaAccount(user)
 	}
 
+	if user.GetProxies().GetWireguard() != nil {
+		if wgAccount, err := api.NewWireguardAccount(user); err == nil {
+			settings.Wireguard = wgAccount
+		}
+	}
+
 	return settings, nil
 }
 
@@ -114,6 +120,12 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Hysteria, true
+
+		case Wireguard:
+			if settings.Wireguard == nil {
+				return nil, false
+			}
+			return settings.Wireguard, true
 		}
 	}
 	return nil, false
@@ -140,17 +152,24 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
 		account, isActive := isActiveInbound(inbound, userInbounds, proxySetting)
 		if isActive {
 			inbound.updateUser(account)
+			if inbound.Protocol != Wireguard {
+				_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
+			}
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
-			inbound.removeUser(user.GetEmail())
+			removeEmail := user.GetEmail()
+			if inbound.Protocol == Wireguard && proxySetting.Wireguard != nil {
+				removeEmail = proxySetting.Wireguard.GetEmail()
+			}
+			_ = handler.RemoveInboundUser(ctx, inbound.Tag, removeEmail)
+			inbound.removeUser(removeEmail)
 		}
 	}
 
@@ -236,7 +255,9 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		}
 
 		for _, account := range update.accounts {
-			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+			if inbound.Protocol != Wireguard {
+				_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+			}
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())

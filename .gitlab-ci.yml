@@ -1,0 +1,41 @@
+stages:
+  - verify
+  - docker
+
+variables:
+  GOTOOLCHAIN: auto
+  GOFLAGS: "-mod=readonly"
+
+go-verify:
+  image: golang:1.26.3
+  stage: verify
+  script:
+    - test -z "$(gofmt -l backend/xray/api/account.go backend/xray/api/wireguard_account.go backend/xray/api/wireguard_key.go backend/xray/api/wireguard_account_test.go backend/xray/config.go backend/xray/user.go common/service.pb.go)"
+    - go mod download
+    - apt-get update
+    - apt-get install -y --no-install-recommends curl openssl
+    - curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- --tag v26.7.11 --os linux --arch 64
+    - make generate_server_cert
+    - make generate_client_cert
+    - go vet ./...
+    - go test ./... -p 1
+
+go-race-wireguard:
+  image: golang:1.26.3
+  stage: verify
+  script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends gcc
+    - CGO_ENABLED=1 go test -race ./backend/wireguard
+
+docker-build:
+  image: docker:27.5.1
+  stage: docker
+  services:
+    - name: docker:27.5.1-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker build --build-arg XRAY_TAG=v26.7.11 --tag "$CI_REGISTRY_IMAGE/node:$CI_COMMIT_SHA" .

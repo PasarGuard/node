@@ -6,6 +6,7 @@ MAIN = ./cmd/node
 PREFIX ?= $(shell go env GOPATH)
 XRAY_OS ?=
 XRAY_ARCH ?=
+XRAY_TAG ?= v26.7.11
 # Map GOARCH to installer arch flag (pure make vars to avoid shell leakage)
 XRAY_ARCH_MAP_amd64   = 64
 XRAY_ARCH_MAP_386     = 32
@@ -125,9 +126,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | sudo bash -s -- $(XRAY_INSTALL_ARGS); \
+		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | sudo bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
 	else \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- $(XRAY_INSTALL_ARGS); \
+		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
 	fi
 
 else
