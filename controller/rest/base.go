@@ -12,6 +12,13 @@ func (s *Service) Base(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
+	if err := disableWriteDeadline(w); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "failed to configure lifecycle response deadline", http.StatusInternalServerError)
+		return
+	}
+	stopCancelDeadline := stopWritesOnContext(r.Context(), w)
+	defer stopCancelDeadline()
+
 	s.LockControl()
 	defer s.UnlockControl()
 
@@ -44,7 +51,14 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 	common.SendProtoResponse(w, s.BaseInfoResponse())
 }
 
-func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
+func (s *Service) Stop(w http.ResponseWriter, r *http.Request) {
+	if err := disableWriteDeadline(w); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(w, "failed to configure lifecycle response deadline", http.StatusInternalServerError)
+		return
+	}
+	stopCancelDeadline := stopWritesOnContext(r.Context(), w)
+	defer stopCancelDeadline()
+
 	s.LockControl()
 	defer s.UnlockControl()
 

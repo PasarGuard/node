@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,7 +43,7 @@ type Controller struct {
 	mu                   sync.RWMutex
 	controlMu            sync.Mutex
 	userSyncMu           sync.Mutex
-	maxUserSyncEpoch     uint64
+	maxUserSyncEpoch     *atomic.Uint64
 }
 
 // UserSyncEpochError reports a user mutation that is older than one already
@@ -83,10 +84,11 @@ func (e *UserSyncEpochError) Error() string {
 func New(cfg *config.Config) *Controller {
 	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
-		cfg:        cfg,
-		apiPort:    netutil.FindFreePort(),
-		metricPort: netutil.FindFreePort(),
-		cancelFunc: cancel,
+		cfg:              cfg,
+		apiPort:          netutil.FindFreePort(),
+		metricPort:       netutil.FindFreePort(),
+		cancelFunc:       cancel,
+		maxUserSyncEpoch: &atomic.Uint64{},
 	}
 }
 
@@ -174,20 +176,19 @@ func (c *Controller) ApplyUserSyncEpoch(epoch uint64, mutate func() error) error
 	c.userSyncMu.Lock()
 	defer c.userSyncMu.Unlock()
 
-	if epoch < c.maxUserSyncEpoch || (epoch == 0 && c.maxUserSyncEpoch > 0) {
-		return &UserSyncEpochError{Received: epoch, Current: c.maxUserSyncEpoch}
+	currentEpoch := c.maxUserSyncEpoch.Load()
+	if epoch < currentEpoch || (epoch == 0 && currentEpoch > 0) {
+		return &UserSyncEpochError{Received: epoch, Current: currentEpoch}
 	}
-	if epoch > c.maxUserSyncEpoch {
-		c.maxUserSyncEpoch = epoch
+	if epoch > currentEpoch {
+		c.maxUserSyncEpoch.Store(epoch)
 	}
 
 	return mutate()
 }
 
 func (c *Controller) UserSyncEpoch() uint64 {
-	c.userSyncMu.Lock()
-	defer c.userSyncMu.Unlock()
-	return c.maxUserSyncEpoch
+	return c.maxUserSyncEpoch.Load()
 }
 
 func (c *Controller) NewRequest() {
@@ -387,8 +388,8 @@ func (c *Controller) SystemStats(ctx context.Context) *common.SystemStatsRespons
 func (c *Controller) BaseInfoResponse() *common.BaseInfoResponse {
 	userSyncEpoch := c.UserSyncEpoch()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	response := &common.BaseInfoResponse{
 		Started:                false,

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"log"
 
 	"github.com/pasarguard/node/common"
 	"google.golang.org/grpc/codes"
@@ -22,7 +23,14 @@ func (s *Service) Start(ctx context.Context, data *common.Backend) (*common.Base
 	}
 
 	if err := s.StartBackendControlled(ctx, data, clientIP); err != nil {
-		return nil, userSyncError(err)
+		if epochErr := userSyncError(err); status.Code(epochErr) == codes.FailedPrecondition {
+			return nil, epochErr
+		}
+		if ctx.Err() != nil {
+			return nil, status.FromContextError(ctx.Err()).Err()
+		}
+		log.Print("backend start failed")
+		return nil, status.Error(codes.Internal, "failed to start backend")
 	}
 
 	return s.BaseInfoResponse(), nil

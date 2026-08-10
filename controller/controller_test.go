@@ -135,3 +135,37 @@ func TestStaleKeepAliveCannotDisconnectReplacementConnection(t *testing.T) {
 		t.Fatal("stale keep-alive generation became valid after replacement")
 	}
 }
+
+func TestBaseInfoDoesNotWaitForUserMutation(t *testing.T) {
+	c := New(&config.Config{})
+	mutationStarted := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	mutationDone := make(chan struct{})
+	go func() {
+		_ = c.ApplyUserSyncEpoch(42, func() error {
+			close(mutationStarted)
+			<-releaseMutation
+			return nil
+		})
+		close(mutationDone)
+	}()
+	<-mutationStarted
+
+	responseDone := make(chan *common.BaseInfoResponse, 1)
+	go func() { responseDone <- c.BaseInfoResponse() }()
+	select {
+	case response := <-responseDone:
+		if response.GetUserSyncEpoch() != 42 {
+			t.Fatalf("BaseInfo epoch = %d, want 42", response.GetUserSyncEpoch())
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("BaseInfo blocked behind an in-flight user mutation")
+	}
+
+	close(releaseMutation)
+	select {
+	case <-mutationDone:
+	case <-time.After(time.Second):
+		t.Fatal("mutation did not finish")
+	}
+}

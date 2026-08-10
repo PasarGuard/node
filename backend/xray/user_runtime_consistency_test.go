@@ -256,3 +256,29 @@ func TestSyncUserAddFailureDoesNotResurrectRemovedCredential(t *testing.T) {
 		t.Fatalf("restart snapshot would resurrect removed credential: %#v", snapshot)
 	}
 }
+
+func TestUpdateUsersAggregatesRemovalFailuresAndContinues(t *testing.T) {
+	oldA := trojanAccount("a@example.com", "old-a")
+	oldB := trojanAccount("b@example.com", "old-b")
+	oldC := trojanAccount("c@example.com", "old-c")
+	x, inbound, handler := newRuntimeConsistencyXray(oldA, oldB, oldC)
+	firstFailure := errors.New("first remove failed")
+	secondFailure := errors.New("second remove failed")
+	handler.removeFailures[1] = firstFailure
+	handler.removeFailures[2] = secondFailure
+
+	err := x.UpdateUsers(context.Background(), []*common.User{
+		trojanUser("a@example.com", "unused"),
+		trojanUser("b@example.com", "unused"),
+		trojanUser("c@example.com", "unused"),
+	})
+	if err == nil || !errors.Is(err, firstFailure) || !errors.Is(err, secondFailure) {
+		t.Fatalf("expected both removal errors to be aggregated, got %v", err)
+	}
+	if handler.removeCalls != 3 {
+		t.Fatalf("remove calls = %d, want 3", handler.removeCalls)
+	}
+	if _, ok := accountPassword(t, inbound.clients, "c@example.com"); ok {
+		t.Fatal("later successful removal remained in restart snapshot")
+	}
+}

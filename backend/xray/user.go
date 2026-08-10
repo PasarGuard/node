@@ -61,27 +61,28 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 // removeInboundUser treats an already-absent runtime user as a successful
 // idempotent revoke, but never hides transport/core errors. A caller must not
 // report a revoked credential while Xray still accepts it.
-func removeInboundUser(ctx context.Context, handler inboundUserHandler, tag, email string) error {
-	err := handler.RemoveInboundUser(ctx, tag, email)
-	if isBenignUserRemovalError(err) {
+func removeInboundUser(ctx context.Context, handler inboundUserHandler, inbound *Inbound, email string) error {
+	err := handler.RemoveInboundUser(ctx, inbound.Tag, email)
+	if isBenignUserRemovalError(err, inbound, email) {
 		return nil
 	}
 	return err
 }
 
-func isBenignUserRemovalError(err error) bool {
+func isBenignUserRemovalError(err error, inbound *Inbound, email string) bool {
 	if err == nil || status.Code(err) == codes.NotFound {
 		return true
 	}
-	// Xray's HandlerService historically reports both of these idempotent
-	// conditions as Unknown rather than NotFound. An absent user cannot keep a
-	// credential alive, and API/non-user-manager inbounds cannot contain one.
-	// All transport and runtime failures stay visible to the caller.
-	if status.Code(err) != codes.Unknown {
+	// Xray sometimes collapses an absent-user result into Unknown. Only accept
+	// that ambiguous status when it is a real gRPC status and the authoritative
+	// inbound snapshot already confirms that no credential can be resurrected.
+	// This deliberately avoids message matching: transport/core failures and an
+	// Unknown result for a cached user remain actionable errors.
+	grpcStatus, ok := status.FromError(err)
+	if !ok || grpcStatus.Code() != codes.Unknown || inbound == nil {
 		return false
 	}
-	message := strings.ToLower(status.Convert(err).Message())
-	return strings.Contains(message, "not found") || strings.Contains(message, "not a usermanager")
+	return !inbound.hasUser(email)
 }
 
 func inboundFlow(inbound *Inbound) string {
@@ -181,7 +182,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		if err := removeInboundUser(ctx, handler, inbound.Tag, user.Email); err != nil {
+		if err := removeInboundUser(ctx, handler, inbound, user.Email); err != nil {
 			return fmt.Errorf("failed to remove user %q from inbound %q: %w", user.Email, inbound.Tag, err)
 		}
 		// Keep the restart snapshot aligned with every confirmed runtime
@@ -266,7 +267,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 	handler := x.inboundUserHandler()
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
-	var errMessage strings.Builder
+	var updateErrors []error
 
 	for tag, update := range updates {
 		removeEmails := make([]string, 0, len(update.removeEmailSet))
@@ -278,29 +279,31 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		inbound := inboundByTag[tag]
 
 		for _, email := range removeEmails {
-			if err := removeInboundUser(ctx, handler, tag, email); err != nil {
-				return fmt.Errorf("failed to remove user %q from inbound %q: %w", email, tag, err)
+			if err := removeInboundUser(ctx, handler, inbound, email); err != nil {
+				updateErrors = append(updateErrors, fmt.Errorf("failed to remove user %q from inbound %q: %w", email, tag, err))
+				continue
 			}
 			inbound.removeUser(email)
 		}
 
 		for _, account := range update.accounts {
 			email := account.GetEmail()
-			if err := removeInboundUser(ctx, handler, tag, email); err != nil {
-				return fmt.Errorf("failed to replace user %q in inbound %q: %w", email, tag, err)
+			if err := removeInboundUser(ctx, handler, inbound, email); err != nil {
+				updateErrors = append(updateErrors, fmt.Errorf("failed to replace user %q in inbound %q: %w", email, tag, err))
+				continue
 			}
 			inbound.removeUser(email)
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				log.Println(err)
-				errMessage.WriteString("\n" + err.Error())
+				updateErrors = append(updateErrors, fmt.Errorf("failed to add user %q to inbound %q: %w", email, tag, err))
 				continue
 			}
 			inbound.updateUser(account)
 		}
 	}
 
-	if errMessage.String() != "" {
-		return errors.New("failed to update users:" + errMessage.String())
+	if len(updateErrors) > 0 {
+		return fmt.Errorf("failed to update users: %w", errors.Join(updateErrors...))
 	}
 
 	return nil

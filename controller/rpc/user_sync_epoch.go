@@ -13,5 +13,9 @@ func userSyncError(err error) error {
 	if errors.As(err, &epochErr) {
 		return status.Error(codes.FailedPrecondition, epochErr.Error())
 	}
-	return err
+	code := status.Code(err)
+	if code == codes.Unknown {
+		code = codes.Internal
+	}
+	return status.Error(code, "user sync failed")
 }

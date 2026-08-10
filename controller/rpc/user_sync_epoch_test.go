@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,6 +18,40 @@ func TestGRPCUserSyncEpochErrorUsesFailedPrecondition(t *testing.T) {
 	err := userSyncError(&controller.UserSyncEpochError{Received: 2, Current: 3})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("expected FailedPrecondition, got %v", status.Code(err))
+	}
+}
+
+func TestGRPCUserSyncErrorUsesTypedStatusWithoutPII(t *testing.T) {
+	err := userSyncError(errors.New("failed for private@example.com"))
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("expected Internal, got %v", status.Code(err))
+	}
+	if strings.Contains(err.Error(), "private@example.com") {
+		t.Fatalf("gRPC error leaked user identity: %v", err)
+	}
+}
+
+func TestBufferedUserSyncConcurrencyIsBounded(t *testing.T) {
+	service := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	releases := make([]func(), 0, maxConcurrentBufferedUserSyncs)
+	for range maxConcurrentBufferedUserSyncs {
+		release, err := service.acquireBufferedUserSync(context.Background())
+		if err != nil {
+			t.Fatalf("failed to acquire permitted slot: %v", err)
+		}
+		releases = append(releases, release)
+	}
+	if _, err := service.acquireBufferedUserSync(context.Background()); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("excess stream status = %v, want ResourceExhausted", status.Code(err))
+	}
+	releases[0]()
+	release, err := service.acquireBufferedUserSync(context.Background())
+	if err != nil {
+		t.Fatalf("released slot was not reusable: %v", err)
+	}
+	release()
+	for _, release := range releases[1:] {
+		release()
 	}
 }
 
