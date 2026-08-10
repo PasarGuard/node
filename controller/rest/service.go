@@ -32,12 +32,12 @@ func (s *Service) setRouter() {
 	router.Use(middleware.Recoverer)
 
 	router.Post("/start", s.Start)
+	router.Put("/stop", s.Stop)
 	router.Get("/info", s.Base)
 
 	router.Group(func(private chi.Router) {
 		private.Use(s.checkBackendMiddleware)
 
-		private.Put("/stop", s.Stop)
 		private.Get("/logs", s.GetLogs)
 		// stats api
 		private.Route("/stats", func(statsGroup chi.Router) {
@@ -77,11 +77,7 @@ type Service struct {
 func StartHttpListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
 	s := New(cfg)
 
-	httpServer := &http.Server{
-		Addr:      addr,
-		TLSConfig: tlsConfig,
-		Handler:   s.Router,
-	}
+	httpServer := newHTTPServer(tlsConfig, addr, s.Router)
 
 	// Test if we can listen on the port before starting the goroutine
 	listener, err := tls.Listen("tcp", addr, tlsConfig)

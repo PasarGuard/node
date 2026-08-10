@@ -17,14 +17,14 @@ type stubBackend struct {
 	shutdowns atomic.Int32
 }
 
-func (s *stubBackend) Started() bool { return s.started.Load() }
-func (s *stubBackend) Version() string { return "test" }
-func (s *stubBackend) Logs() <-chan string { return nil }
-func (s *stubBackend) Restart() error { return nil }
-func (s *stubBackend) Shutdown() { s.shutdowns.Add(1); s.started.Store(false) }
-func (s *stubBackend) SyncUser(context.Context, *common.User) error { return nil }
-func (s *stubBackend) SyncUsers(context.Context, []*common.User) error { return nil }
-func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error { return nil }
+func (s *stubBackend) Started() bool                                               { return s.started.Load() }
+func (s *stubBackend) Version() string                                             { return "test" }
+func (s *stubBackend) Logs() <-chan string                                         { return nil }
+func (s *stubBackend) Restart() error                                              { return nil }
+func (s *stubBackend) Shutdown()                                                   { s.shutdowns.Add(1); s.started.Store(false) }
+func (s *stubBackend) SyncUser(context.Context, *common.User) error                { return nil }
+func (s *stubBackend) SyncUsers(context.Context, []*common.User) error             { return nil }
+func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error           { return nil }
 func (s *stubBackend) UpdateUsersAndRestart(context.Context, []*common.User) error { return nil }
 func (s *stubBackend) GetSysStats(context.Context) (*common.BackendStatsResponse, error) {
 	return &common.BackendStatsResponse{}, nil
@@ -49,7 +49,7 @@ func TestConnectCancelsPreviousStatsCollector(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancelFunc = cancel
 
-	c.Connect(0)
+	c.Connect("", 0)
 
 	select {
 	case <-ctx.Done():
@@ -110,5 +110,28 @@ func TestKeepAliveStaleIncludesGrace(t *testing.T) {
 	}
 	if !keepAliveStale(last, 10*time.Second, now.Add(keepAliveGrace)) {
 		t.Fatal("keep-alive must fire after keep_alive plus grace")
+	}
+}
+
+func TestStaleKeepAliveCannotDisconnectReplacementConnection(t *testing.T) {
+	c := New(&config.Config{})
+	c.Connect("old-client", 0)
+
+	c.mu.RLock()
+	staleGeneration := c.connectionGeneration
+	c.mu.RUnlock()
+
+	c.Connect("new-client", 0)
+	if c.keepAliveExpired(staleGeneration, 0) {
+		t.Fatal("a stale keep-alive tracker must not consider a replacement connection expired")
+	}
+	if got := c.Ip(); got != "new-client" {
+		t.Fatalf("replacement connection was changed: got %q", got)
+	}
+
+	// The stale tracker has already decided its old lease timed out. It must
+	// still be rejected after Start replaces the connection.
+	if c.keepAliveExpired(staleGeneration, time.Nanosecond) {
+		t.Fatal("stale keep-alive generation became valid after replacement")
 	}
 }

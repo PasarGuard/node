@@ -11,6 +11,8 @@ message BaseInfoResponse {
   bool started = 1;
   string core_version = 2;
   string node_version = 3;
+  bool user_sync_epoch_supported = 4;
+  uint64 user_sync_epoch = 5;
 }
 
 enum BackendType {
@@ -24,6 +26,7 @@ message Backend {
   repeated User users = 3;
   uint64 keep_alive = 4;
   repeated string exclude_inbounds = 5;
+  uint64 user_sync_epoch = 6;
 }
 
 // log
@@ -150,16 +153,19 @@ message User {
     string email = 1;
     Proxy proxies = 2;
     repeated string inbounds = 3;
+    uint64 user_sync_epoch = 4;
 }
 
 message Users {
   repeated User users = 1;
+  uint64 user_sync_epoch = 2;
 }
 
 message UsersChunk {
   repeated User users = 1;
   uint64 index = 2;
   bool last = 3;
+  uint64 user_sync_epoch = 4;
 }
 
 // Routing (mirrors xray app/router/command, node-friendly shapes)

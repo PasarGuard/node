@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -41,7 +42,41 @@ func Load() (*Config, error) {
 		log.Printf("[Warning] Failed to load env file, if you're using 'Docker' and you set 'environment' or 'env_file' variable, don't worry, everything is fine. Error: %v", err)
 	}
 
-	cfg := &Config{
+	cfg := defaultConfig()
+
+	if cfg.LogBufferSize <= 0 {
+		log.Printf("[Warning] LOG_BUFFER_SIZE must be greater than 0, got %d. Falling back to 1.", cfg.LogBufferSize)
+		cfg.LogBufferSize = 1
+	}
+	if cfg.StatsUpdateIntervalSeconds <= 0 || cfg.StatsCleanupIntervalSeconds <= 0 {
+		return nil, fmt.Errorf("STATS_UPDATE_INTERVAL_SECONDS and STATS_CLEANUP_INTERVAL_SECONDS must be greater than zero")
+	}
+
+	apiKey, err := GetEnvAsUUID("API_KEY")
+	if err != nil || apiKey == uuid.Nil {
+		if err != nil {
+			return nil, fmt.Errorf("invalid API_KEY: %w", err)
+		}
+		return nil, fmt.Errorf("invalid API_KEY: zero UUID is not allowed")
+	}
+	cfg.ApiKey = apiKey
+
+	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
+	ipPattern := `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`
+	re := regexp.MustCompile(ipPattern)
+
+	if re.MatchString(nodeHostStr) {
+		cfg.NodeHost = nodeHostStr
+	} else {
+		log.Println(nodeHostStr, " is not a valid IP address.\n NODE_HOST will be set to 127.0.0.1")
+		cfg.NodeHost = "127.0.0.1"
+	}
+
+	return cfg, nil
+}
+
+func defaultConfig() *Config {
+	return &Config{
 		ServicePort:                 GetEnvAsInt("SERVICE_PORT", 62050),
 		XrayExecutablePath:          GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
 		XrayAssetsPath:              GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
@@ -62,34 +97,11 @@ func Load() (*Config, error) {
 		WGRouteTable:         GetEnv("PG_NODE_WG_ROUTE_TABLE", ""),
 		WGRouteOutInterface:  GetEnv("PG_NODE_WG_ROUTE_OUT_INTERFACE", ""),
 	}
-
-	if cfg.LogBufferSize <= 0 {
-		log.Printf("[Warning] LOG_BUFFER_SIZE must be greater than 0, got %d. Falling back to 1.", cfg.LogBufferSize)
-		cfg.LogBufferSize = 1
-	}
-
-	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")
-	if err != nil {
-		log.Printf("[Error] Failed to load API Key, error: %v", err)
-	}
-
-	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
-	ipPattern := `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`
-	re := regexp.MustCompile(ipPattern)
-
-	if re.MatchString(nodeHostStr) {
-		cfg.NodeHost = nodeHostStr
-	} else {
-		log.Println(nodeHostStr, " is not a valid IP address.\n NODE_HOST will be set to 127.0.0.1")
-		cfg.NodeHost = "127.0.0.1"
-	}
-
-	return cfg, nil
 }
 
 // NewTestConfig creates a config for testing
 func NewTestConfig(generatedConfigPath string, key uuid.UUID) *Config {
-	cfg, _ := Load()
+	cfg := defaultConfig()
 	cfg.GeneratedConfigPath = generatedConfigPath
 	cfg.ApiKey = key
 	return cfg

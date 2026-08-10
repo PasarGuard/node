@@ -163,12 +163,14 @@ func (*Empty) Descriptor() ([]byte, []int) {
 
 // Base info response message
 type BaseInfoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Started       bool                   `protobuf:"varint,1,opt,name=started,proto3" json:"started,omitempty"`
-	CoreVersion   string                 `protobuf:"bytes,2,opt,name=core_version,json=coreVersion,proto3" json:"core_version,omitempty"`
-	NodeVersion   string                 `protobuf:"bytes,3,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Started                bool                   `protobuf:"varint,1,opt,name=started,proto3" json:"started,omitempty"`
+	CoreVersion            string                 `protobuf:"bytes,2,opt,name=core_version,json=coreVersion,proto3" json:"core_version,omitempty"`
+	NodeVersion            string                 `protobuf:"bytes,3,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"`
+	UserSyncEpochSupported bool                   `protobuf:"varint,4,opt,name=user_sync_epoch_supported,json=userSyncEpochSupported,proto3" json:"user_sync_epoch_supported,omitempty"`
+	UserSyncEpoch          uint64                 `protobuf:"varint,5,opt,name=user_sync_epoch,json=userSyncEpoch,proto3" json:"user_sync_epoch,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *BaseInfoResponse) Reset() {
@@ -222,6 +224,20 @@ func (x *BaseInfoResponse) GetNodeVersion() string {
 	return ""
 }
 
+func (x *BaseInfoResponse) GetUserSyncEpochSupported() bool {
+	if x != nil {
+		return x.UserSyncEpochSupported
+	}
+	return false
+}
+
+func (x *BaseInfoResponse) GetUserSyncEpoch() uint64 {
+	if x != nil {
+		return x.UserSyncEpoch
+	}
+	return 0
+}
+
 type Backend struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Type            BackendType            `protobuf:"varint,1,opt,name=type,proto3,enum=service.BackendType" json:"type,omitempty"`
@@ -229,6 +245,7 @@ type Backend struct {
 	Users           []*User                `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
 	KeepAlive       uint64                 `protobuf:"varint,4,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
 	ExcludeInbounds []string               `protobuf:"bytes,5,rep,name=exclude_inbounds,json=excludeInbounds,proto3" json:"exclude_inbounds,omitempty"`
+	UserSyncEpoch   uint64                 `protobuf:"varint,6,opt,name=user_sync_epoch,json=userSyncEpoch,proto3" json:"user_sync_epoch,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -296,6 +313,13 @@ func (x *Backend) GetExcludeInbounds() []string {
 		return x.ExcludeInbounds
 	}
 	return nil
+}
+
+func (x *Backend) GetUserSyncEpoch() uint64 {
+	if x != nil {
+		return x.UserSyncEpoch
+	}
+	return 0
 }
 
 // log
@@ -1386,6 +1410,7 @@ type User struct {
 	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
 	Proxies       *Proxy                 `protobuf:"bytes,2,opt,name=proxies,proto3" json:"proxies,omitempty"`
 	Inbounds      []string               `protobuf:"bytes,3,rep,name=inbounds,proto3" json:"inbounds,omitempty"`
+	UserSyncEpoch uint64                 `protobuf:"varint,4,opt,name=user_sync_epoch,json=userSyncEpoch,proto3" json:"user_sync_epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1441,9 +1466,17 @@ func (x *User) GetInbounds() []string {
 	return nil
 }
 
+func (x *User) GetUserSyncEpoch() uint64 {
+	if x != nil {
+		return x.UserSyncEpoch
+	}
+	return 0
+}
+
 type Users struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*User                `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	UserSyncEpoch uint64                 `protobuf:"varint,2,opt,name=user_sync_epoch,json=userSyncEpoch,proto3" json:"user_sync_epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1485,11 +1518,19 @@ func (x *Users) GetUsers() []*User {
 	return nil
 }
 
+func (x *Users) GetUserSyncEpoch() uint64 {
+	if x != nil {
+		return x.UserSyncEpoch
+	}
+	return 0
+}
+
 type UsersChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*User                `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
 	Index         uint64                 `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
 	Last          bool                   `protobuf:"varint,3,opt,name=last,proto3" json:"last,omitempty"`
+	UserSyncEpoch uint64                 `protobuf:"varint,4,opt,name=user_sync_epoch,json=userSyncEpoch,proto3" json:"user_sync_epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1543,6 +1584,13 @@ func (x *UsersChunk) GetLast() bool {
 		return x.Last
 	}
 	return false
+}
+
+func (x *UsersChunk) GetUserSyncEpoch() uint64 {
+	if x != nil {
+		return x.UserSyncEpoch
+	}
+	return 0
 }
 
 // Routing (mirrors xray app/router/command, node-friendly shapes)
@@ -2086,18 +2134,21 @@ var File_common_service_proto protoreflect.FileDescriptor
 const file_common_service_proto_rawDesc = "" +
 	"\n" +
 	"\x14common/service.proto\x12\aservice\"\a\n" +
-	"\x05Empty\"r\n" +
+	"\x05Empty\"\xd5\x01\n" +
 	"\x10BaseInfoResponse\x12\x18\n" +
 	"\astarted\x18\x01 \x01(\bR\astarted\x12!\n" +
 	"\fcore_version\x18\x02 \x01(\tR\vcoreVersion\x12!\n" +
-	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\xba\x01\n" +
+	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\x129\n" +
+	"\x19user_sync_epoch_supported\x18\x04 \x01(\bR\x16userSyncEpochSupported\x12&\n" +
+	"\x0fuser_sync_epoch\x18\x05 \x01(\x04R\ruserSyncEpoch\"\xe2\x01\n" +
 	"\aBackend\x12(\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\tR\x06config\x12#\n" +
 	"\x05users\x18\x03 \x03(\v2\r.service.UserR\x05users\x12\x1d\n" +
 	"\n" +
 	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\x12)\n" +
-	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\"\x1d\n" +
+	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\x12&\n" +
+	"\x0fuser_sync_epoch\x18\x06 \x01(\x04R\ruserSyncEpoch\"\x1d\n" +
 	"\x03Log\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\"X\n" +
 	"\x04Stat\x12\x12\n" +
@@ -2175,18 +2226,21 @@ const file_common_service_proto_rawDesc = "" +
 	"\x06trojan\x18\x03 \x01(\v2\x0f.service.TrojanR\x06trojan\x126\n" +
 	"\vshadowsocks\x18\x04 \x01(\v2\x14.service.ShadowsocksR\vshadowsocks\x120\n" +
 	"\twireguard\x18\x05 \x01(\v2\x12.service.WireguardR\twireguard\x12-\n" +
-	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"b\n" +
+	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"\x8a\x01\n" +
 	"\x04User\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12(\n" +
 	"\aproxies\x18\x02 \x01(\v2\x0e.service.ProxyR\aproxies\x12\x1a\n" +
-	"\binbounds\x18\x03 \x03(\tR\binbounds\",\n" +
+	"\binbounds\x18\x03 \x03(\tR\binbounds\x12&\n" +
+	"\x0fuser_sync_epoch\x18\x04 \x01(\x04R\ruserSyncEpoch\"T\n" +
 	"\x05Users\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\"[\n" +
+	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\x12&\n" +
+	"\x0fuser_sync_epoch\x18\x02 \x01(\x04R\ruserSyncEpoch\"\x83\x01\n" +
 	"\n" +
 	"UsersChunk\x12#\n" +
 	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\x04R\x05index\x12\x12\n" +
-	"\x04last\x18\x03 \x01(\bR\x04last\"K\n" +
+	"\x04last\x18\x03 \x01(\bR\x04last\x12&\n" +
+	"\x0fuser_sync_epoch\x18\x04 \x01(\x04R\ruserSyncEpoch\"K\n" +
 	"\vRoutingRule\x12!\n" +
 	"\foutbound_tag\x18\x01 \x01(\tR\voutboundTag\x12\x19\n" +
 	"\brule_tag\x18\x02 \x01(\tR\aruleTag\"B\n" +

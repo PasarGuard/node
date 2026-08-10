@@ -18,6 +18,10 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 
 		// check API key
 		apiKey := s.ApiKey()
+		if apiKey == uuid.Nil {
+			http.Error(w, "node API key is not configured", http.StatusServiceUnavailable)
+			return
+		}
 
 		key, err := uuid.Parse(apiKeyHeader)
 		switch {

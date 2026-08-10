@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/pasarguard/node/common"
@@ -17,15 +18,29 @@ func (s *Service) Start(w http.ResponseWriter, r *http.Request) {
 	data := &common.Backend{}
 
 	if err := common.ReadProtoBody(r.Body, data); err != nil {
+		if errors.Is(err, common.ErrProtoBodyTooLarge) {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if err := s.StartOrAttach(r.Context(), data); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	ip, ok := requestClientIP(r)
+	if !ok {
+		http.Error(w, "unknown ip", http.StatusServiceUnavailable)
 		return
 	}
 
+	if s.Backend() != nil && !s.IsCurrentClient(ip) {
+		http.Error(w, "node is controlled by another client", http.StatusForbidden)
+		return
+	}
+
+	if err := s.StartBackendControlled(r.Context(), data, ip); err != nil {
+		writeUserSyncError(w, err, http.StatusServiceUnavailable)
+		return
+	}
 	common.SendProtoResponse(w, s.BaseInfoResponse())
 }
 
@@ -33,7 +48,7 @@ func (s *Service) Stop(w http.ResponseWriter, _ *http.Request) {
 	s.LockControl()
 	defer s.UnlockControl()
 
-	s.Disconnect()
+	s.DisconnectControlled()
 
 	common.SendProtoResponse(w, &common.Empty{})
 }

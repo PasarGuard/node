@@ -6,12 +6,27 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+type inboundUserHandler interface {
+	AddInboundUser(context.Context, string, api.Account) error
+	RemoveInboundUser(context.Context, string, string) error
+}
+
+func (x *Xray) inboundUserHandler() inboundUserHandler {
+	if x.userHandler != nil {
+		return x.userHandler
+	}
+	return x.handler
+}
 
 func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	settings := api.ProxySettings{}
@@ -41,6 +56,32 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	}
 
 	return settings, nil
+}
+
+// removeInboundUser treats an already-absent runtime user as a successful
+// idempotent revoke, but never hides transport/core errors. A caller must not
+// report a revoked credential while Xray still accepts it.
+func removeInboundUser(ctx context.Context, handler inboundUserHandler, tag, email string) error {
+	err := handler.RemoveInboundUser(ctx, tag, email)
+	if isBenignUserRemovalError(err) {
+		return nil
+	}
+	return err
+}
+
+func isBenignUserRemovalError(err error) bool {
+	if err == nil || status.Code(err) == codes.NotFound {
+		return true
+	}
+	// Xray's HandlerService historically reports both of these idempotent
+	// conditions as Unknown rather than NotFound. An absent user cannot keep a
+	// credential alive, and API/non-user-manager inbounds cannot contain one.
+	// All transport and runtime failures stay visible to the caller.
+	if status.Code(err) != codes.Unknown {
+		return false
+	}
+	message := strings.ToLower(status.Convert(err).Message())
+	return strings.Contains(message, "not found") || strings.Contains(message, "not a usermanager")
 }
 
 func inboundFlow(inbound *Inbound) string {
@@ -128,7 +169,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		return err
 	}
 
-	handler := x.handler
+	handler := x.inboundUserHandler()
 	inbounds := x.config.InboundConfigs
 
 	var errMessage strings.Builder
@@ -140,17 +181,22 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
+		if err := removeInboundUser(ctx, handler, inbound.Tag, user.Email); err != nil {
+			return fmt.Errorf("failed to remove user %q from inbound %q: %w", user.Email, inbound.Tag, err)
+		}
+		// Keep the restart snapshot aligned with every confirmed runtime
+		// mutation. In particular, a failed replacement must not leave the old
+		// credential in the snapshot where a health restart could resurrect it.
+		inbound.removeUser(user.Email)
 		account, isActive := isActiveInbound(inbound, userInbounds, proxySetting)
 		if isActive {
-			inbound.updateUser(account)
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
+			} else {
+				inbound.updateUser(account)
 			}
-		} else {
-			inbound.removeUser(user.GetEmail())
 		}
 	}
 
@@ -218,7 +264,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
-	handler := x.handler
+	handler := x.inboundUserHandler()
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
 	var errMessage strings.Builder
 
@@ -227,20 +273,29 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		for email := range update.removeEmailSet {
 			removeEmails = append(removeEmails, email)
 		}
+		sort.Strings(removeEmails)
 
 		inbound := inboundByTag[tag]
-		inbound.updateUsers(update.accounts, removeEmails)
 
 		for _, email := range removeEmails {
-			handler.RemoveInboundUser(ctx, tag, email)
+			if err := removeInboundUser(ctx, handler, tag, email); err != nil {
+				return fmt.Errorf("failed to remove user %q from inbound %q: %w", email, tag, err)
+			}
+			inbound.removeUser(email)
 		}
 
 		for _, account := range update.accounts {
-			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+			email := account.GetEmail()
+			if err := removeInboundUser(ctx, handler, tag, email); err != nil {
+				return fmt.Errorf("failed to replace user %q in inbound %q: %w", email, tag, err)
+			}
+			inbound.removeUser(email)
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
+				continue
 			}
+			inbound.updateUser(account)
 		}
 	}
 

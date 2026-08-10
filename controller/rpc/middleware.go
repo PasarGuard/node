@@ -32,6 +32,9 @@ func validateApiKey(ctx context.Context, s *Service) error {
 	apiKeyHeader := apiKeys[0]
 
 	apiKey := s.ApiKey()
+	if apiKey == uuid.Nil {
+		return status.Errorf(codes.Unavailable, "node API key is not configured")
+	}
 	key, err := uuid.Parse(apiKeyHeader)
 	switch {
 	case err != nil:
@@ -190,7 +193,6 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/GetUserOnlineIpListStats": true,
 	"/service.NodeService/GetBackendStats":          true,
 	"/service.NodeService/GetSystemStats":           true,
-	"/service.NodeService/Stop":                     true,
 	"/service.NodeService/SyncUser":                 true,
 	"/service.NodeService/SyncUsers":                true,
 	"/service.NodeService/SyncUsersChunked":         true,

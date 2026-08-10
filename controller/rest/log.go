@@ -1,16 +1,19 @@
 package rest
 
-import (
-	"fmt"
-	"net/http"
-)
+import "net/http"
 
 func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	if err := disableWriteDeadline(w); err != nil {
+		http.Error(w, "Streaming deadline control unsupported", http.StatusInternalServerError)
+		return
+	}
+	stopContextWrites := stopWritesOnContext(r.Context(), w)
+	defer stopContextWrites()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -25,12 +28,9 @@ func (s *Service) GetLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			_, err := fmt.Fprintf(w, "%s\n", log)
-			if err != nil {
+			if err := writeLogLine(r.Context(), w, log, responseWriteTimeout); err != nil {
 				return
 			}
-
-			flusher.Flush()
 
 		case <-r.Context().Done():
 			return

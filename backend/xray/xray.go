@@ -13,14 +13,15 @@ import (
 )
 
 type Xray struct {
-	config     *Config
-	cfg        *config.Config
-	core       *Core
-	handler    *api.XrayHandler
-	metricPort int
-	cancelFunc context.CancelFunc
-	mu         sync.RWMutex
-	syncMu     sync.Mutex
+	config      *Config
+	cfg         *config.Config
+	core        *Core
+	handler     *api.XrayHandler
+	userHandler inboundUserHandler
+	metricPort  int
+	cancelFunc  context.CancelFunc
+	mu          sync.RWMutex
+	syncMu      sync.Mutex
 }
 
 func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort, metricPort int, cfg *config.Config) (*Xray, error) {
@@ -123,6 +124,9 @@ func (x *Xray) Started() bool {
 }
 
 func (x *Xray) Restart() error {
+	x.syncMu.Lock()
+	defer x.syncMu.Unlock()
+
 	return x.restartCoreWithConfig(x.config)
 }
 
