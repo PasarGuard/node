@@ -22,10 +22,16 @@ FROM alpine:latest
 
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
-RUN apk update && apk add --no-cache ca-certificates
+RUN apk update && apk add --no-cache ca-certificates \
+    && addgroup -S pgnode \
+    && adduser -S -G pgnode pgnode \
+    && mkdir -p /var/lib/pg-node/generated /var/lib/pg-node/certs \
+    && chown -R pgnode:pgnode /var/lib/pg-node
 
 WORKDIR /app
 COPY --from=builder /src/main /app/main
 COPY --from=builder /usr/local/bin/telemt /usr/local/bin/telemt
+RUN chown pgnode:pgnode /app/main /usr/local/bin/telemt
 
+USER pgnode
 ENTRYPOINT ["./main"]
