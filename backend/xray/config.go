@@ -527,6 +527,93 @@ func normalizeGeoIPPrivateRules(rules []json.RawMessage) ([]json.RawMessage, err
 	return normalized, nil
 }
 
+// canonicalAPIServices maps a lowercased service name to its canonical form.
+// ponytail: mirrors the switch in xray-core infra/conf/api.go APIConfig.Build().
+// Ceiling: this set must be synced by hand against xray-core on upgrade —
+// nothing detects drift automatically. TestSanitizeAPIServices pins the
+// expected names, so a hand-edit to this map breaks the test and forces the
+// expectations to be updated deliberately.
+var canonicalAPIServices = map[string]string{
+	"reflectionservice":  "ReflectionService",
+	"handlerservice":     "HandlerService",
+	"loggerservice":      "LoggerService",
+	"statsservice":       "StatsService",
+	"observatoryservice": "ObservatoryService",
+	"routingservice":     "RoutingService",
+}
+
+// requiredAPIServices are always present — the node's own gRPC clients depend on
+// HandlerService (users/inbounds) and StatsService (traffic); LoggerService
+// preserves current behavior.
+var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService"}
+
+// sanitizeAPIServices returns the required API services plus any valid
+// user-provided extras (canonicalized, deduped case-insensitively, sorted).
+// Unknown service names are dropped with a logged warning rather than failing
+// the backend, matching the rest of ApplyAPI's defensive normalization.
+func sanitizeAPIServices(userProvided []string) []string {
+	seen := make(map[string]struct{}, len(requiredAPIServices)+len(userProvided))
+	result := make([]string, 0, len(requiredAPIServices)+len(userProvided))
+
+	for _, s := range requiredAPIServices {
+		key := strings.ToLower(s)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, s)
+	}
+
+	extras := make([]string, 0, len(userProvided))
+	for _, s := range userProvided {
+		key := strings.ToLower(strings.TrimSpace(s))
+		if key == "" {
+			continue
+		}
+		canonical, ok := canonicalAPIServices[key]
+		if !ok {
+			log.Printf("xray config: dropping unknown API service %q", s)
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		extras = append(extras, canonical)
+	}
+
+	sort.Strings(extras)
+	return append(result, extras...)
+}
+
+const (
+	defaultObservatoryProbeURL      = "https://www.google.com/generate_204"
+	defaultObservatoryProbeInterval = "10s"
+)
+
+// defaultObservatory builds an observatory app that probes every eligible
+// outbound (a tag whose protocol is not in observatoryExcludedProtocols). It is
+// injected only when ObservatoryService is enabled but the operator configured
+// no observatory/burstObservatory — without the observatory feature xray-core
+// fails dependency resolution and the core exits. With no eligible outbounds it
+// still returns a valid object so the dependency resolves.
+func (c *Config) defaultObservatory() map[string]any {
+	protocolByTag := c.outboundProtocolByTag()
+	tags := make([]string, 0, len(protocolByTag))
+	for tag, protocol := range protocolByTag {
+		if _, excluded := observatoryExcludedProtocols[protocol]; excluded {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	return map[string]any{
+		"subjectSelector": tags,
+		"probeURL":        defaultObservatoryProbeURL,
+		"probeInterval":   defaultObservatoryProbeInterval,
+	}
+}
+
 func apiRuleSources() []string {
 	seen := map[string]struct{}{
 		"127.0.0.1": {},
@@ -704,9 +791,26 @@ func (c *Config) ApplyAPI(apiPort, metricPort int) (err error) {
 
 	apiTag := "API"
 
+	var userServices []string
+	if c.API != nil {
+		userServices = c.API.Services
+	}
+
+	services := sanitizeAPIServices(userServices)
 	c.API = &conf.APIConfig{
-		Services: []string{"HandlerService", "LoggerService", "StatsService"},
+		Services: services,
 		Tag:      apiTag,
+		// Listen intentionally left empty: the node exposes the API only via the
+		// loopback, source-restricted API_INBOUND below. Honoring a user listen
+		// would open a second, unguarded gRPC entry point.
+	}
+
+	// ObservatoryService has a hard dependency on the observatory feature; enabling
+	// it without an observatory/burstObservatory app makes xray exit on startup.
+	// Inject a functional default so the toggle is crash-free and immediately useful.
+	if slices.Contains(services, "ObservatoryService") &&
+		c.Observatory == nil && c.BurstObservatory == nil {
+		c.Observatory = c.defaultObservatory()
 	}
 
 	c.Metrics = map[string]any{

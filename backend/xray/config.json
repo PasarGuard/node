@@ -2,6 +2,9 @@
     "log": {
         "loglevel": "warning"
     },
+    "api": {
+        "services": ["RoutingService"]
+    },
     "inbounds": [
         {
             "tag": "Shadowsocks TCP",

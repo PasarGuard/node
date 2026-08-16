@@ -32,6 +32,12 @@ const (
 	NodeService_SyncUser_FullMethodName                 = "/service.NodeService/SyncUser"
 	NodeService_SyncUsers_FullMethodName                = "/service.NodeService/SyncUsers"
 	NodeService_SyncUsersChunked_FullMethodName         = "/service.NodeService/SyncUsersChunked"
+	NodeService_ListRoutingRules_FullMethodName         = "/service.NodeService/ListRoutingRules"
+	NodeService_GetBalancerInfo_FullMethodName          = "/service.NodeService/GetBalancerInfo"
+	NodeService_TestRoute_FullMethodName                = "/service.NodeService/TestRoute"
+	NodeService_AddRoutingRule_FullMethodName           = "/service.NodeService/AddRoutingRule"
+	NodeService_RemoveRoutingRule_FullMethodName        = "/service.NodeService/RemoveRoutingRule"
+	NodeService_OverrideBalancerTarget_FullMethodName   = "/service.NodeService/OverrideBalancerTarget"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -53,6 +59,12 @@ type NodeServiceClient interface {
 	SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error)
 	SyncUsers(ctx context.Context, in *Users, opts ...grpc.CallOption) (*Empty, error)
 	SyncUsersChunked(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UsersChunk, Empty], error)
+	ListRoutingRules(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RoutingRulesResponse, error)
+	GetBalancerInfo(ctx context.Context, in *BalancerInfoRequest, opts ...grpc.CallOption) (*BalancerInfoResponse, error)
+	TestRoute(ctx context.Context, in *TestRouteRequest, opts ...grpc.CallOption) (*RouteResult, error)
+	AddRoutingRule(ctx context.Context, in *AddRoutingRuleRequest, opts ...grpc.CallOption) (*Empty, error)
+	RemoveRoutingRule(ctx context.Context, in *RemoveRoutingRuleRequest, opts ...grpc.CallOption) (*Empty, error)
+	OverrideBalancerTarget(ctx context.Context, in *OverrideBalancerTargetRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type nodeServiceClient struct {
@@ -208,6 +220,66 @@ func (c *nodeServiceClient) SyncUsersChunked(ctx context.Context, opts ...grpc.C
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_SyncUsersChunkedClient = grpc.ClientStreamingClient[UsersChunk, Empty]
 
+func (c *nodeServiceClient) ListRoutingRules(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RoutingRulesResponse)
+	err := c.cc.Invoke(ctx, NodeService_ListRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) GetBalancerInfo(ctx context.Context, in *BalancerInfoRequest, opts ...grpc.CallOption) (*BalancerInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BalancerInfoResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetBalancerInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) TestRoute(ctx context.Context, in *TestRouteRequest, opts ...grpc.CallOption) (*RouteResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RouteResult)
+	err := c.cc.Invoke(ctx, NodeService_TestRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) AddRoutingRule(ctx context.Context, in *AddRoutingRuleRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_AddRoutingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) RemoveRoutingRule(ctx context.Context, in *RemoveRoutingRuleRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_RemoveRoutingRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) OverrideBalancerTarget(ctx context.Context, in *OverrideBalancerTargetRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_OverrideBalancerTarget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
@@ -227,6 +299,12 @@ type NodeServiceServer interface {
 	SyncUser(grpc.ClientStreamingServer[User, Empty]) error
 	SyncUsers(context.Context, *Users) (*Empty, error)
 	SyncUsersChunked(grpc.ClientStreamingServer[UsersChunk, Empty]) error
+	ListRoutingRules(context.Context, *Empty) (*RoutingRulesResponse, error)
+	GetBalancerInfo(context.Context, *BalancerInfoRequest) (*BalancerInfoResponse, error)
+	TestRoute(context.Context, *TestRouteRequest) (*RouteResult, error)
+	AddRoutingRule(context.Context, *AddRoutingRuleRequest) (*Empty, error)
+	RemoveRoutingRule(context.Context, *RemoveRoutingRuleRequest) (*Empty, error)
+	OverrideBalancerTarget(context.Context, *OverrideBalancerTargetRequest) (*Empty, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -275,6 +353,24 @@ func (UnimplementedNodeServiceServer) SyncUsers(context.Context, *Users) (*Empty
 }
 func (UnimplementedNodeServiceServer) SyncUsersChunked(grpc.ClientStreamingServer[UsersChunk, Empty]) error {
 	return status.Error(codes.Unimplemented, "method SyncUsersChunked not implemented")
+}
+func (UnimplementedNodeServiceServer) ListRoutingRules(context.Context, *Empty) (*RoutingRulesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRoutingRules not implemented")
+}
+func (UnimplementedNodeServiceServer) GetBalancerInfo(context.Context, *BalancerInfoRequest) (*BalancerInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBalancerInfo not implemented")
+}
+func (UnimplementedNodeServiceServer) TestRoute(context.Context, *TestRouteRequest) (*RouteResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestRoute not implemented")
+}
+func (UnimplementedNodeServiceServer) AddRoutingRule(context.Context, *AddRoutingRuleRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddRoutingRule not implemented")
+}
+func (UnimplementedNodeServiceServer) RemoveRoutingRule(context.Context, *RemoveRoutingRuleRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveRoutingRule not implemented")
+}
+func (UnimplementedNodeServiceServer) OverrideBalancerTarget(context.Context, *OverrideBalancerTargetRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method OverrideBalancerTarget not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -502,6 +598,114 @@ func _NodeService_SyncUsersChunked_Handler(srv interface{}, stream grpc.ServerSt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_SyncUsersChunkedServer = grpc.ClientStreamingServer[UsersChunk, Empty]
 
+func _NodeService_ListRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).ListRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_ListRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).ListRoutingRules(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_GetBalancerInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BalancerInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetBalancerInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetBalancerInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetBalancerInfo(ctx, req.(*BalancerInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_TestRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).TestRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_TestRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).TestRoute(ctx, req.(*TestRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_AddRoutingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddRoutingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).AddRoutingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_AddRoutingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).AddRoutingRule(ctx, req.(*AddRoutingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_RemoveRoutingRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveRoutingRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).RemoveRoutingRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_RemoveRoutingRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).RemoveRoutingRule(ctx, req.(*RemoveRoutingRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_OverrideBalancerTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OverrideBalancerTargetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).OverrideBalancerTarget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_OverrideBalancerTarget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).OverrideBalancerTarget(ctx, req.(*OverrideBalancerTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -548,6 +752,30 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncUsers",
 			Handler:    _NodeService_SyncUsers_Handler,
+		},
+		{
+			MethodName: "ListRoutingRules",
+			Handler:    _NodeService_ListRoutingRules_Handler,
+		},
+		{
+			MethodName: "GetBalancerInfo",
+			Handler:    _NodeService_GetBalancerInfo_Handler,
+		},
+		{
+			MethodName: "TestRoute",
+			Handler:    _NodeService_TestRoute_Handler,
+		},
+		{
+			MethodName: "AddRoutingRule",
+			Handler:    _NodeService_AddRoutingRule_Handler,
+		},
+		{
+			MethodName: "RemoveRoutingRule",
+			Handler:    _NodeService_RemoveRoutingRule_Handler,
+		},
+		{
+			MethodName: "OverrideBalancerTarget",
+			Handler:    _NodeService_OverrideBalancerTarget_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

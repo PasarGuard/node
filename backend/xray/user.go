@@ -131,7 +131,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	handler := x.handler
 	inbounds := x.config.InboundConfigs
 
-	var errMessage string
+	var errMessage strings.Builder
 
 	userInbounds := user.GetInbounds()
 
@@ -147,15 +147,15 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				log.Println(err)
-				errMessage += "\n" + err.Error()
+				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
 			inbound.removeUser(user.GetEmail())
 		}
 	}
 
-	if errMessage != "" {
-		return errors.New("failed to add user:" + errMessage)
+	if errMessage.String() != "" {
+		return errors.New("failed to add user:" + errMessage.String())
 	}
 	return nil
 }
@@ -220,7 +220,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
-	var errMessage string
+	var errMessage strings.Builder
 
 	for tag, update := range updates {
 		removeEmails := make([]string, 0, len(update.removeEmailSet))
@@ -239,13 +239,13 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				log.Println(err)
-				errMessage += "\n" + err.Error()
+				errMessage.WriteString("\n" + err.Error())
 			}
 		}
 	}
 
-	if errMessage != "" {
-		return errors.New("failed to update users:" + errMessage)
+	if errMessage.String() != "" {
+		return errors.New("failed to update users:" + errMessage.String())
 	}
 
 	return nil

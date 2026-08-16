@@ -73,7 +73,7 @@ func TestWireGuardRestartConcurrentWithShutdown(t *testing.T) {
 
 	go func() {
 		defer wgWait.Done()
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			_ = wg.Restart()
 		}
 	}()

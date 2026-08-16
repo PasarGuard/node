@@ -1,6 +1,9 @@
 package sysstats
 
 import (
+	"context"
+	"math"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -10,8 +13,31 @@ import (
 	"github.com/pasarguard/node/common"
 )
 
-func GetSystemStats() (*common.SystemStatsResponse, error) {
+const sampleInterval = time.Second
+
+var (
+	cpuCoresOnce sync.Once
+	cpuCores     uint64
+	cpuCoresErr  error
+)
+
+func cachedCPUCores() (uint64, error) {
+	cpuCoresOnce.Do(func() {
+		n, err := cpu.Counts(true)
+		if err != nil {
+			cpuCoresErr = err
+			return
+		}
+		cpuCores = uint64(n)
+	})
+	return cpuCores, cpuCoresErr
+}
+
+func GetSystemStats(ctx context.Context) (*common.SystemStatsResponse, error) {
 	stats := &common.SystemStatsResponse{}
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
 
 	vm, err := mem.VirtualMemory()
 	if err != nil {
@@ -20,46 +46,75 @@ func GetSystemStats() (*common.SystemStatsResponse, error) {
 	stats.MemTotal = vm.Total
 	stats.MemUsed = vm.Used
 
-	cores, err := cpu.Counts(true)
+	cores, err := cachedCPUCores()
 	if err != nil {
 		return stats, err
 	}
-	stats.CpuCores = uint64(cores)
+	stats.CpuCores = cores
 
-	percentages, err := cpu.Percent(time.Second, false)
+	cpuFirst, err := cpu.Times(false)
 	if err != nil {
 		return stats, err
 	}
-	if len(percentages) > 0 {
-		stats.CpuUsage = percentages[0]
+	netFirst, err := net.IOCounters(true)
+	if err != nil {
+		return stats, err
 	}
 
-	incomingSpeed, outgoingSpeed, err := getBandwidthSpeed()
+	if err := waitSample(ctx, sampleInterval); err != nil {
+		return stats, err
+	}
+
+	cpuSecond, err := cpu.Times(false)
 	if err != nil {
 		return stats, err
 	}
-	stats.IncomingBandwidthSpeed = incomingSpeed
-	stats.OutgoingBandwidthSpeed = outgoingSpeed
+	netSecond, err := net.IOCounters(true)
+	if err != nil {
+		return stats, err
+	}
+
+	if len(cpuFirst) > 0 && len(cpuSecond) > 0 {
+		stats.CpuUsage = cpuPercent(cpuFirst[0], cpuSecond[0])
+	}
+	stats.IncomingBandwidthSpeed, stats.OutgoingBandwidthSpeed = bandwidthDelta(netFirst, netSecond)
 
 	return stats, nil
 }
 
-// getBandwidthSpeed returns the aggregate incoming (rx) and outgoing (tx)
-// bandwidth in bytes per second, sampled over a 1-second interval.
-// Loopback interface (lo) is excluded from the calculation.
-func getBandwidthSpeed() (uint64, uint64, error) {
-	first, err := net.IOCounters(true)
-	if err != nil {
-		return 0, 0, err
+func waitSample(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
+}
 
-	time.Sleep(1 * time.Second)
+func cpuPercent(t1, t2 cpu.TimesStat) float64 {
+	t1All, t1Busy := cpuBusyTotal(t1)
+	t2All, t2Busy := cpuBusyTotal(t2)
 
-	second, err := net.IOCounters(true)
-	if err != nil {
-		return 0, 0, err
+	if t2Busy <= t1Busy {
+		return 0
 	}
+	if t2All <= t1All {
+		return 100
+	}
+	return math.Min(100, math.Max(0, (t2Busy-t1Busy)/(t2All-t1All)*100))
+}
 
+func cpuBusyTotal(t cpu.TimesStat) (all, busy float64) {
+	busy = t.User + t.System + t.Nice + t.Iowait + t.Irq + t.Softirq + t.Steal
+	return busy + t.Idle, busy
+}
+
+// bandwidthDelta returns aggregate incoming (rx) and outgoing (tx) bytes
+// between two IO counter snapshots. Loopback (lo) is excluded.
+func bandwidthDelta(first, second []net.IOCountersStat) (uint64, uint64) {
 	prev := make(map[string]net.IOCountersStat, len(first))
 	for _, c := range first {
 		if c.Name == "lo" {
@@ -79,5 +134,5 @@ func getBandwidthSpeed() (uint64, uint64, error) {
 		}
 	}
 
-	return totalRxBytes, totalTxBytes, nil
+	return totalRxBytes, totalTxBytes
 }

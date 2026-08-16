@@ -5,24 +5,14 @@ import (
 	"log"
 
 	"github.com/pasarguard/node/common"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func (s *Service) Start(ctx context.Context, data *common.Backend) (*common.BaseInfoResponse, error) {
 	s.LockControl()
 	defer s.UnlockControl()
 
-	clientIP := clientIPFromContext(ctx)
-	if clientIP == "" {
-		return nil, status.Errorf(codes.PermissionDenied, "unknown client ip")
-	}
-
 	if s.Backend() != nil {
-		if !s.IsCurrentClient(clientIP) {
-			return nil, status.Errorf(codes.PermissionDenied, "node is controlled by another client")
-		}
-		log.Println("New connection from ", clientIP, " core control access was taken away from previous client.")
+		log.Println("New connection, core control access was taken away from previous client.")
 		s.Disconnect()
 	}
 
@@ -30,7 +20,7 @@ func (s *Service) Start(ctx context.Context, data *common.Backend) (*common.Base
 		return nil, err
 	}
 
-	s.Connect(clientIP, data.GetKeepAlive())
+	s.Connect(data.GetKeepAlive())
 
 	return s.BaseInfoResponse(), nil
 }

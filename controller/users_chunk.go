@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 )
 
@@ -26,4 +28,11 @@ func BuildUsersFromChunks(chunks map[uint64][]*common.User, lastIndex uint64, sa
 	}
 
 	return users, nil
+}
+
+// ApplyChunkedUserUpdate applies chunked user payloads as targeted deltas.
+// Full replacement sync is handled by SyncUsers; this path must not restart
+// the core for large queued user updates.
+func ApplyChunkedUserUpdate(ctx context.Context, back backend.Backend, users []*common.User) error {
+	return back.UpdateUsers(ctx, users)
 }
