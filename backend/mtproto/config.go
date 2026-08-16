@@ -27,6 +27,7 @@ var (
 		"user_expirations",
 		"user_data_quota",
 		"user_max_unique_ips",
+		"user_enabled",
 	}
 )
 
@@ -154,6 +155,7 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 	userAdTags := make(map[string]any)
 	userMaxTCPConns := make(map[string]any)
 	userMaxUniqueIPs := make(map[string]any)
+	userEnabled := make(map[string]any)
 
 	usernames := make([]string, 0, len(users))
 	for username := range users {
@@ -176,13 +178,17 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 	}
 
 	if sentinel != nil {
+		// Keep [access.users] non-empty so telemt will start, but disable the
+		// sentinel so it cannot authenticate as a real MTProto client.
 		userSecrets[sentinel.Username] = sentinel.Secret
+		userEnabled[sentinel.Username] = false
 	}
 
 	access["users"] = userSecrets
 	writeOptionalMap(access, "user_ad_tags", userAdTags)
 	writeOptionalMap(access, "user_max_tcp_conns", userMaxTCPConns)
 	writeOptionalMap(access, "user_max_unique_ips", userMaxUniqueIPs)
+	writeOptionalMap(access, "user_enabled", userEnabled)
 
 	return nil
 }

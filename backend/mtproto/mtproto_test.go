@@ -2,6 +2,9 @@ package mtproto
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -43,6 +46,9 @@ func TestNewConfig_InboundTagAndValidation(t *testing.T) {
 	// panel must not set managed access keys
 	if _, err := NewConfig(`{"access":{"users":{"a":"x"}}}`); err == nil {
 		t.Errorf("expected error when panel sets access.users")
+	}
+	if _, err := NewConfig(`{"access":{"user_enabled":{"a":false}}}`); err == nil {
+		t.Errorf("expected error when panel sets access.user_enabled")
 	}
 
 	// empty / invalid JSON
@@ -113,6 +119,9 @@ func TestConfigRender_InjectsManagedSections(t *testing.T) {
 			t.Errorf("rendered config missing %q\n---\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "user_enabled") {
+		t.Errorf("real users must not disable anyone via user_enabled")
+	}
 
 	// empty users + sentinel keeps telemt happy (telemt rejects empty [access.users])
 	sentinel := &runtimeUser{Username: "pg-node-internal-x", Secret: testSecret}
@@ -122,6 +131,9 @@ func TestConfigRender_InjectsManagedSections(t *testing.T) {
 	}
 	if !strings.Contains(out, "pg-node-internal-x") {
 		t.Errorf("sentinel user missing from rendered config")
+	}
+	if !strings.Contains(out, "[access.user_enabled]") || !strings.Contains(out, "pg-node-internal-x = false") {
+		t.Errorf("sentinel must be rendered disabled, got:\n%s", out)
 	}
 
 	// empty users + no sentinel -> error (would crash telemt)
@@ -211,5 +223,81 @@ func TestGetOutboundsLatency_Empty(t *testing.T) {
 	}
 	if resp == nil || len(resp.GetLatencies()) != 0 {
 		t.Errorf("expected empty latency response, got %+v", resp)
+	}
+}
+
+func TestBuildPatchUserRequest_ClearsOptionalFields(t *testing.T) {
+	payload, err := buildPatchUserRequest(&runtimeUser{
+		Username: "alice",
+		Secret:   testSecret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(encoded)
+	for _, want := range []string{
+		`"secret":"` + testSecret + `"`,
+		`"user_ad_tag":null`,
+		`"max_tcp_conns":null`,
+		`"max_unique_ips":null`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("patch JSON missing %s: %s", want, got)
+		}
+	}
+
+	tag := "aabbccddeeff00112233445566778899"
+	setPayload, err := buildPatchUserRequest(&runtimeUser{
+		Username:     "alice",
+		Secret:       testSecret,
+		UserAdTag:    tag,
+		MaxTCPConns:  4,
+		MaxUniqueIPs: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setPayload.UserAdTag == nil || *setPayload.UserAdTag != tag {
+		t.Errorf("user_ad_tag = %v, want %s", setPayload.UserAdTag, tag)
+	}
+	if setPayload.MaxTCPConns == nil || *setPayload.MaxTCPConns != 4 {
+		t.Errorf("max_tcp_conns = %v, want 4", setPayload.MaxTCPConns)
+	}
+	if setPayload.MaxUniqueIPs == nil || *setPayload.MaxUniqueIPs != 2 {
+		t.Errorf("max_unique_ips = %v, want 2", setPayload.MaxUniqueIPs)
+	}
+}
+
+func TestGetStats_MetricsUnavailable(t *testing.T) {
+	m := metricsUnavailableBackend()
+
+	stats, err := m.GetStats(context.Background(), &common.StatRequest{Type: common.StatType_UsersStat})
+	if err != nil {
+		t.Fatalf("GetStats should be best-effort, got %v", err)
+	}
+	if stats == nil || len(stats.GetStats()) != 0 {
+		t.Errorf("expected empty stats, got %+v", stats)
+	}
+
+	online, err := m.GetUserOnlineStats(context.Background(), "alice")
+	if err != nil {
+		t.Fatalf("GetUserOnlineStats should be best-effort, got %v", err)
+	}
+	if online == nil || online.GetName() != "alice" || online.GetValue() != 0 {
+		t.Errorf("expected zero online count, got %+v", online)
+	}
+}
+
+func metricsUnavailableBackend() *MTProto {
+	return &MTProto{
+		config:         &Config{InboundTag: "mtproto"},
+		process:        &processManager{cmd: &exec.Cmd{Process: &os.Process{Pid: 1}}},
+		metricsScraper: newMetricsScraper("http://127.0.0.1:1/metrics"),
+		tracker:        newTrafficTracker(),
+		desired:        map[string]*runtimeUser{"alice": {Username: "alice", Secret: testSecret}},
 	}
 }

@@ -219,8 +219,10 @@ func (m *MTProto) GetStats(ctx context.Context, request *common.StatRequest) (*c
 		return nil, errors.New("mtproto backend is not started")
 	}
 
+	// Prometheus only binds after telemt's data plane is up (Telegram egress).
+	// Treat a scrape miss as empty stats rather than failing the panel poll.
 	if err := m.refreshTracker(ctx); err != nil {
-		return nil, err
+		return &common.StatResponse{Stats: []*common.Stat{}}, nil
 	}
 
 	link := m.config.InboundTag
@@ -263,7 +265,7 @@ func (m *MTProto) GetUserOnlineStats(ctx context.Context, email string) (*common
 	// via the metrics scrape, rather than a per-user API call.
 	snapshot, err := m.metricsScraper.Scrape(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scrape telemt metrics: %w", err)
+		return &common.OnlineStatResponse{Name: email, Value: 0}, nil
 	}
 
 	return &common.OnlineStatResponse{

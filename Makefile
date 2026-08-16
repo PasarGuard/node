@@ -29,7 +29,7 @@ XRAY_INSTALL_ARGS   := $(strip $(if $(XRAY_OS_EFFECTIVE),--os $(XRAY_OS_EFFECTIV
 
 # telemt (MTProto backend) — pinned release; static musl tarball + sha256 verify
 TELEMT_REPOSITORY ?= telemt/telemt
-TELEMT_VERSION    ?= 3.4.19
+TELEMT_VERSION    ?= 3.4.25
 TELEMT_OS   ?=
 TELEMT_ARCH ?=
 TELEMT_ARCH_MAP_amd64 = x86_64

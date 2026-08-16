@@ -99,13 +99,17 @@ func TestIntegration_LifecycleAndUsers(t *testing.T) {
 	}
 
 	// Traffic + online-count stats come from telemt's Prometheus endpoint, which
-	// only binds once the data plane is up (needs Telegram connectivity). Treat
-	// these as best-effort so the test still runs in offline/CI sandboxes.
-	if _, err := mt.GetStats(ctx, &common.StatRequest{Type: common.StatType_UsersStat}); err != nil {
-		t.Logf("GetStats unavailable (metrics endpoint needs live data plane): %v", err)
+	// only binds once the data plane is up (needs Telegram connectivity). A miss
+	// must still succeed with empty/zero results so the panel poll does not fail.
+	if stats, err := mt.GetStats(ctx, &common.StatRequest{Type: common.StatType_UsersStat}); err != nil {
+		t.Errorf("GetStats: %v", err)
+	} else if stats == nil {
+		t.Error("GetStats returned nil")
 	}
-	if _, err := mt.GetUserOnlineStats(ctx, "bob"); err != nil {
-		t.Logf("GetUserOnlineStats unavailable (metrics endpoint needs live data plane): %v", err)
+	if online, err := mt.GetUserOnlineStats(ctx, "bob"); err != nil {
+		t.Errorf("GetUserOnlineStats: %v", err)
+	} else if online == nil || online.GetName() != "bob" {
+		t.Errorf("GetUserOnlineStats = %+v", online)
 	}
 
 	// These do not depend on metrics: IP list comes from the control API, sys

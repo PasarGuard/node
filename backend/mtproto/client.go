@@ -65,11 +65,14 @@ type telemtCreateUserRequest struct {
 	MaxUniqueIPs *int   `json:"max_unique_ips,omitempty"`
 }
 
+// telemtPatchUserRequest uses JSON Merge Patch: omitted fields are unchanged,
+// JSON null removes the per-user override, and a value sets it. omitempty is
+// therefore not used on the clearable fields.
 type telemtPatchUserRequest struct {
-	Secret       string `json:"secret,omitempty"`
-	UserAdTag    string `json:"user_ad_tag,omitempty"`
-	MaxTCPConns  *int   `json:"max_tcp_conns,omitempty"`
-	MaxUniqueIPs *int   `json:"max_unique_ips,omitempty"`
+	Secret       string  `json:"secret,omitempty"`
+	UserAdTag    *string `json:"user_ad_tag"`
+	MaxTCPConns  *int    `json:"max_tcp_conns"`
+	MaxUniqueIPs *int    `json:"max_unique_ips"`
 }
 
 type apiStatusError struct {
@@ -161,6 +164,10 @@ func buildCreateUserRequest(user *runtimeUser) (*telemtCreateUserRequest, error)
 }
 
 func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
+	if user == nil {
+		return nil, errors.New("mtproto user is nil")
+	}
+
 	maxTCPConns, err := optionalPositiveInt(user.MaxTCPConns, "max_tcp_conns")
 	if err != nil {
 		return nil, err
@@ -172,9 +179,12 @@ func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
 
 	request := &telemtPatchUserRequest{
 		Secret:       user.Secret,
-		UserAdTag:    user.UserAdTag,
 		MaxTCPConns:  maxTCPConns,
 		MaxUniqueIPs: maxUniqueIPs,
+	}
+	if user.UserAdTag != "" {
+		tag := user.UserAdTag
+		request.UserAdTag = &tag
 	}
 	return request, nil
 }
