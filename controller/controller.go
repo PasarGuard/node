@@ -20,6 +20,10 @@ import (
 
 const NodeVersion = "0.5.4"
 
+// keepAliveGrace is added to the configured keep-alive so a panel whose
+// health interval equals keep_alive does not trip the watchdog on jitter.
+const keepAliveGrace = 5 * time.Second
+
 type Service interface {
 	Disconnect()
 }
@@ -69,10 +73,13 @@ func (c *Controller) Connect(keepAlive uint64) {
 }
 
 func (c *Controller) Disconnect() {
-	c.cancelFunc()
-
 	c.mu.Lock()
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+		c.cancelFunc = nil
+	}
 	backend := c.backend
+	c.backend = nil
 	c.mu.Unlock()
 
 	// Shutdown backend outside of lock to avoid deadlock
@@ -84,7 +91,6 @@ func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.backend = nil
 	c.apiPort = netutil.FindFreePort()
 	c.metricPort = netutil.FindFreePort()
 }
@@ -101,6 +107,25 @@ func (c *Controller) NewRequest() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastRequest = time.Now()
+}
+
+// StartOrAttach starts the core, or refreshes keep-alive if it is already running.
+// Caller must hold LockControl. A second Start from another panel worker must not
+// tear down a core that just finished starting.
+func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
+	if back := c.Backend(); back != nil && back.Started() {
+		c.Connect(data.GetKeepAlive())
+		return nil
+	}
+	if c.Backend() != nil {
+		log.Println("Replacing a backend that is no longer running")
+		c.Disconnect()
+	}
+	if err := c.StartBackend(ctx, data); err != nil {
+		return err
+	}
+	c.Connect(data.GetKeepAlive())
+	return nil
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) error {
@@ -150,22 +175,36 @@ func (c *Controller) Backend() backend.Backend {
 	return c.backend
 }
 
+func keepAliveStale(lastRequest time.Time, keepAlive time.Duration, now time.Time) bool {
+	return now.Sub(lastRequest) >= keepAlive+keepAliveGrace
+}
+
 func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Duration) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			c.mu.RLock()
-			lastRequest := c.lastRequest
+			stale := keepAliveStale(c.lastRequest, keepAlive, time.Now())
 			c.mu.RUnlock()
-			if time.Since(lastRequest) >= keepAlive {
+			if !stale {
+				continue
+			}
+
+			// Serialize with Start/Stop so a late watchdog cannot kill a core
+			// that StartBackend just created.
+			c.LockControl()
+			c.mu.RLock()
+			stale = keepAliveStale(c.lastRequest, keepAlive, time.Now())
+			c.mu.RUnlock()
+			if stale {
 				log.Println("disconnect automatically due to keep alive timeout")
 				c.Disconnect()
 			}
+			c.UnlockControl()
 		}
 	}
 }
