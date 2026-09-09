@@ -15,6 +15,10 @@ import (
 type blockingBackend struct {
 	shutdownStarted chan struct{}
 	allowShutdown   chan struct{}
+	shutdownCalls   int
+	syncUsersCalls  int
+	users           []*common.User
+	syncUsersErr    error
 }
 
 func (b *blockingBackend) Started() bool       { return true }
@@ -22,11 +26,20 @@ func (b *blockingBackend) Version() string     { return "test" }
 func (b *blockingBackend) Logs() <-chan string { return nil }
 func (b *blockingBackend) Restart() error      { return nil }
 func (b *blockingBackend) Shutdown() {
-	close(b.shutdownStarted)
-	<-b.allowShutdown
+	b.shutdownCalls++
+	if b.shutdownStarted != nil {
+		close(b.shutdownStarted)
+	}
+	if b.allowShutdown != nil {
+		<-b.allowShutdown
+	}
 }
-func (b *blockingBackend) SyncUser(context.Context, *common.User) error                { return nil }
-func (b *blockingBackend) SyncUsers(context.Context, []*common.User) error             { return nil }
+func (b *blockingBackend) SyncUser(context.Context, *common.User) error { return nil }
+func (b *blockingBackend) SyncUsers(_ context.Context, users []*common.User) error {
+	b.syncUsersCalls++
+	b.users = append([]*common.User(nil), users...)
+	return b.syncUsersErr
+}
 func (b *blockingBackend) UpdateUsers(context.Context, []*common.User) error           { return nil }
 func (b *blockingBackend) UpdateUsersAndRestart(context.Context, []*common.User) error { return nil }
 func (b *blockingBackend) GetSysStats(context.Context) (*common.BackendStatsResponse, error) {

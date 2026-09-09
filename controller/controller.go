@@ -262,6 +262,16 @@ func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) 
 func (c *Controller) StartBackendControlled(ctx context.Context, data *common.Backend, clientIP string) error {
 	return c.ApplyUserSyncEpoch(data.GetUserSyncEpoch(), func() error {
 		if back := c.Backend(); back != nil && back.Started() {
+			// An epoch-aware Start carries an authoritative full snapshot. The
+			// Bridge releases its startup reconciliation lease after this call
+			// succeeds, so attaching to an existing core must apply the snapshot
+			// before acknowledging the request. Legacy epoch-zero duplicate starts
+			// retain their keep-alive-only behavior during rollout.
+			if data.GetUserSyncEpoch() > 0 {
+				if err := back.SyncUsers(ctx, data.GetUsers()); err != nil {
+					return err
+				}
+			}
 			c.Connect(clientIP, data.GetKeepAlive())
 			return nil
 		}

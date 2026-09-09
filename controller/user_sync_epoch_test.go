@@ -200,4 +200,104 @@ func TestStaleStartIsRejectedBeforeDisconnect(t *testing.T) {
 	if c.Backend() != oldBackend {
 		t.Fatal("stale start replaced the current backend")
 	}
+	if oldBackend.syncUsersCalls != 0 {
+		t.Fatalf("stale start applied %d snapshots", oldBackend.syncUsersCalls)
+	}
+}
+
+func TestEpochAwareStartAppliesSnapshotWithoutReplacingBackend(t *testing.T) {
+	c := newEpochTestController(t)
+	oldUser := &common.User{Email: "removed@example.com"}
+	changedUser := &common.User{Email: "changed@example.com", Inbounds: []string{"new-inbound"}}
+	back := &blockingBackend{users: []*common.User{
+		oldUser,
+		{Email: "changed@example.com", Inbounds: []string{"old-inbound"}},
+	}}
+	c.backend = back
+
+	err := c.StartBackendControlled(t.Context(), &common.Backend{
+		UserSyncEpoch: 70,
+		Users:         []*common.User{changedUser},
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("epoch-aware attach failed: %v", err)
+	}
+	defer c.Disconnect()
+
+	if back.syncUsersCalls != 1 || !reflect.DeepEqual(back.users, []*common.User{changedUser}) {
+		t.Fatalf("running backend snapshot = %#v after %d calls", back.users, back.syncUsersCalls)
+	}
+	if c.Backend() != back || back.shutdownCalls != 0 {
+		t.Fatal("epoch-aware attach replaced the running backend")
+	}
+	if c.Ip() != "127.0.0.1" {
+		t.Fatalf("successful attach client IP = %q", c.Ip())
+	}
+}
+
+func TestEpochAwareStartAppliesEmptySnapshotToRunningBackend(t *testing.T) {
+	c := newEpochTestController(t)
+	back := &blockingBackend{users: []*common.User{{Email: "removed@example.com"}}}
+	c.backend = back
+
+	err := c.StartBackendControlled(t.Context(), &common.Backend{UserSyncEpoch: 71}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("empty authoritative snapshot failed: %v", err)
+	}
+	defer c.Disconnect()
+
+	if back.syncUsersCalls != 1 || len(back.users) != 0 {
+		t.Fatalf("empty snapshot left %d users after %d calls", len(back.users), back.syncUsersCalls)
+	}
+	if c.Backend() != back || back.shutdownCalls != 0 {
+		t.Fatal("empty snapshot replaced the running backend")
+	}
+}
+
+func TestEpochAwareStartSnapshotFailureIsNotAcknowledged(t *testing.T) {
+	c := newEpochTestController(t)
+	wantErr := errors.New("snapshot failed")
+	back := &blockingBackend{syncUsersErr: wantErr}
+	c.backend = back
+
+	err := c.StartBackendControlled(t.Context(), &common.Backend{
+		UserSyncEpoch: 72,
+		Users:         []*common.User{{Email: "authoritative@example.com"}},
+	}, "127.0.0.1")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("snapshot failure = %v, want %v", err, wantErr)
+	}
+	if back.syncUsersCalls != 1 || c.Ip() != "" || c.connectionGeneration != 0 {
+		t.Fatalf("failed snapshot was acknowledged: calls=%d ip=%q generation=%d", back.syncUsersCalls, c.Ip(), c.connectionGeneration)
+	}
+	if c.Backend() != back || back.shutdownCalls != 0 {
+		t.Fatal("failed snapshot replaced the running backend")
+	}
+	if c.UserSyncEpoch() != 72 {
+		t.Fatalf("failed snapshot epoch = %d, want consumed epoch 72", c.UserSyncEpoch())
+	}
+}
+
+func TestRepeatedLegacyStartLeavesRunningUsersUnchanged(t *testing.T) {
+	c := newEpochTestController(t)
+	original := []*common.User{{Email: "existing@example.com"}}
+	back := &blockingBackend{users: append([]*common.User(nil), original...)}
+	c.backend = back
+
+	for _, users := range [][]*common.User{
+		{{Email: "ignored@example.com"}},
+		{},
+	} {
+		if err := c.StartBackendControlled(t.Context(), &common.Backend{Users: users}, "127.0.0.1"); err != nil {
+			t.Fatalf("legacy duplicate start failed: %v", err)
+		}
+	}
+	defer c.Disconnect()
+
+	if back.syncUsersCalls != 0 || !reflect.DeepEqual(back.users, original) {
+		t.Fatalf("legacy duplicate start mutated users: %#v after %d calls", back.users, back.syncUsersCalls)
+	}
+	if c.Backend() != back || back.shutdownCalls != 0 {
+		t.Fatal("legacy duplicate start restarted the running backend")
+	}
 }
