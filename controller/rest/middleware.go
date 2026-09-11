@@ -2,7 +2,6 @@ package rest
 
 import (
 	"log"
-	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,14 +31,6 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-func requestClientIP(r *http.Request) (string, bool) {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return "", false
-	}
-	return ip, true
 }
 
 func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {

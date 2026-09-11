@@ -65,6 +65,11 @@ func TestDetectLogType(t *testing.T) {
 			logMessage:    "2025/10/06 11:28:34.723790 [Debug] app/stats: create new counter outbound>>>DIRECT>>>traffic>>>uplink",
 			expectInError: true,
 		},
+		{
+			name:          "Error log - from/accepted fragments without access pattern",
+			logMessage:    "[Warning] rejected request from 10.0.0.1:443: connection not accepted by destination",
+			expectInError: true,
+		},
 	}
 
 	for _, tt := range tests {

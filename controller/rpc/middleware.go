@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,20 +14,6 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
-
-func clientIPFromContext(ctx context.Context) string {
-	if p, ok := peer.FromContext(ctx); ok {
-		if tcpAddr, ok := p.Addr.(*net.TCPAddr); ok {
-			return tcpAddr.IP.String()
-		}
-		addr := p.Addr.String()
-		if host, _, err := net.SplitHostPort(addr); err == nil {
-			return host
-		}
-		return addr
-	}
-	return ""
-}
 
 func validateApiKey(ctx context.Context, s *Service) error {
 	// Extract metadata
