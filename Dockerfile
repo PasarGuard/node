@@ -2,6 +2,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG XRAY_TAG=v26.7.11
 
 RUN apk update && apk add --no-cache make
 
@@ -12,7 +13,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_xray
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} XRAY_TAG=${XRAY_TAG} make install_xray
 
 FROM alpine:latest
 

@@ -205,4 +205,5 @@ type ProxySettings struct {
 	Shadowsocks     *ShadowsocksTcpAccount
 	Shadowsocks2022 *ShadowsocksAccount
 	Hysteria        *HysteriaAccount
+	Wireguard       *WireguardAccount
 }

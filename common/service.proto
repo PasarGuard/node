@@ -131,6 +131,7 @@ message Shadowsocks {
 message Wireguard {
     string public_key = 1;
     repeated string peer_ips = 2;
+    string pre_shared_key = 3;
 }
 
 message Hysteria {
