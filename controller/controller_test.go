@@ -58,35 +58,60 @@ func TestConnectCancelsPreviousStatsCollector(t *testing.T) {
 	}
 }
 
-func TestStartOrAttachAlwaysRestartsRunningBackend(t *testing.T) {
+// TestStartOrAttachHeartbeat: same config + running backend → no restart, just refresh keep-alive.
+func TestStartOrAttachHeartbeat(t *testing.T) {
 	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
 	t.Cleanup(c.Disconnect)
 
 	running := &stubBackend{}
 	running.started.Store(true)
 	c.backend = running
+	// Simulate that this backend was started with a specific config.
+	c.activeData = &common.Backend{Type: common.BackendType_XRAY, Config: "cfg1", KeepAlive: 30}
 
-	// StartOrAttach with an invalid type so StartBackend fails — we only care
-	// that the existing running backend was shut down (reconnect must restart).
 	c.LockControl()
-	err := c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType(99)})
+	err := c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType_XRAY, Config: "cfg1", KeepAlive: 60})
 	c.UnlockControl()
-	if err == nil {
-		t.Fatal("expected StartBackend to fail on invalid type")
+	if err != nil {
+		t.Fatalf("StartOrAttach heartbeat: %v", err)
 	}
-	if running.shutdowns.Load() != 1 {
-		t.Fatalf("running backend shutdowns = %d, want 1 (reconnect must restart)", running.shutdowns.Load())
+	if c.Backend() != running {
+		t.Fatal("heartbeat: StartOrAttach replaced a running backend with same config")
 	}
-	if c.Backend() != nil {
-		t.Fatal("failed StartBackend left a backend attached")
+	if running.shutdowns.Load() != 0 {
+		t.Fatal("heartbeat: StartOrAttach shut down a running backend")
 	}
 }
 
+// TestStartOrAttachConfigChanged: different config + running backend → restart.
+func TestStartOrAttachConfigChanged(t *testing.T) {
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	running := &stubBackend{}
+	running.started.Store(true)
+	c.backend = running
+	c.activeData = &common.Backend{Type: common.BackendType_XRAY, Config: "cfg1"}
+
+	// Send a new config — StartBackend will fail (no real xray), but we only
+	// care that the old backend was shut down first.
+	c.LockControl()
+	err := c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType_XRAY, Config: "cfg2_changed"})
+	c.UnlockControl()
+	if err == nil {
+		t.Fatal("expected StartBackend to fail with fake config")
+	}
+	if running.shutdowns.Load() != 1 {
+		t.Fatalf("config change: running backend shutdowns = %d, want 1", running.shutdowns.Load())
+	}
+}
+
+// TestStartOrAttachReplacesDeadBackend: backend exists but stopped → restart.
 func TestStartOrAttachReplacesDeadBackend(t *testing.T) {
 	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
 	t.Cleanup(c.Disconnect)
 
-	dead := &stubBackend{}
+	dead := &stubBackend{} // started = false
 	c.backend = dead
 
 	c.LockControl()

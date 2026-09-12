@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/wireguard"
@@ -30,6 +31,7 @@ type Service interface {
 
 type Controller struct {
 	backend     backend.Backend
+	activeData  *common.Backend // descriptor used to start the current backend
 	cfg         *config.Config
 	apiPort     int
 	metricPort  int
@@ -80,6 +82,7 @@ func (c *Controller) Disconnect() {
 	}
 	backend := c.backend
 	c.backend = nil
+	c.activeData = nil
 	c.mu.Unlock()
 
 	// Shutdown backend outside of lock to avoid deadlock
@@ -109,14 +112,54 @@ func (c *Controller) NewRequest() {
 	c.lastRequest = time.Now()
 }
 
-// StartOrAttach starts the core with the provided configuration.
-// If a backend is already running it is shut down first so the new config,
-// users, and every other field from data are applied — a reconnect must never
-// silently ignore the payload sent by the panel.
+// sameBackendConfig reports whether two Backend descriptors describe the same
+// running configuration. Users are intentionally excluded — they are managed
+// through their own sync RPCs, so a Start that only differs in the user list
+// is still a heartbeat and must not cause a restart.
+func sameBackendConfig(active, incoming *common.Backend) bool {
+	if active == nil || incoming == nil {
+		return false
+	}
+	if active.GetType() != incoming.GetType() {
+		return false
+	}
+	if active.GetConfig() != incoming.GetConfig() {
+		return false
+	}
+	// Compare exclude_inbounds as an ordered proto repeated field.
+	tmp1 := &common.Backend{ExcludeInbounds: active.GetExcludeInbounds()}
+	tmp2 := &common.Backend{ExcludeInbounds: incoming.GetExcludeInbounds()}
+	return proto.Equal(tmp1, tmp2)
+}
+
+// StartOrAttach starts the core, or refreshes keep-alive if the same core is
+// already running (heartbeat case). It only restarts when:
+//   - No backend is running, or
+//   - The running backend has stopped, or
+//   - The incoming config differs from what started the current backend.
+//
 // Caller must hold LockControl.
 func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
-	if c.Backend() != nil {
-		log.Println("New connection received; restarting backend to apply new configuration.")
+	back := c.Backend()
+	if back != nil && back.Started() {
+		c.mu.RLock()
+		active := c.activeData
+		c.mu.RUnlock()
+
+		if sameBackendConfig(active, data) {
+			// Same config, backend healthy: this is a heartbeat. Just refresh.
+			log.Println("StartOrAttach: backend already running with same config, refreshing keep-alive.")
+			c.Connect(data.GetKeepAlive())
+			return nil
+		}
+		// Config changed while core is running: panel is sending a new config.
+		log.Println("StartOrAttach: config changed, restarting backend.")
+	} else if back != nil {
+		// Backend object exists but has stopped.
+		log.Println("StartOrAttach: replacing a backend that is no longer running.")
+	}
+
+	if back != nil {
 		c.Disconnect()
 	}
 	if err := c.StartBackend(ctx, data); err != nil {
@@ -164,6 +207,7 @@ func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) 
 		return errors.New("invalid backend type")
 	}
 
+	c.activeData = backend
 	return nil
 }
 
