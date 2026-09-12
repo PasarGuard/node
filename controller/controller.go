@@ -217,7 +217,8 @@ func (c *Controller) Backend() backend.Backend {
 	return c.backend
 }
 
-func keepAliveStale(lastRequest time.Time, keepAlive time.Duration, now time.Time) bool {
+func keepAliveStale(lastRequest time.Time, keepAlive time.Duration) bool {
+	now:= time.Now()
 	return now.Sub(lastRequest) >= keepAlive+keepAliveGrace
 }
 
@@ -230,7 +231,7 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 			return
 		case <-ticker.C:
 			c.mu.RLock()
-			stale := keepAliveStale(c.lastRequest, keepAlive, time.Now())
+			stale := keepAliveStale(c.lastRequest, keepAlive)
 			c.mu.RUnlock()
 			if !stale {
 				continue
@@ -240,7 +241,7 @@ func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Durati
 			// that StartBackend just created.
 			c.LockControl()
 			c.mu.RLock()
-			stale = keepAliveStale(c.lastRequest, keepAlive, time.Now())
+			stale = keepAliveStale(c.lastRequest, keepAlive)
 			c.mu.RUnlock()
 			if stale {
 				log.Println("disconnect automatically due to keep alive timeout")
