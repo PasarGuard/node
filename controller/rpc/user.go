@@ -9,54 +9,108 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/controller"
 )
 
+func addUserSyncStreamPayload(total int64, message proto.Message) (int64, error) {
+	next := total + int64(proto.Size(message))
+	if next > common.MaxProtoBodyBytes {
+		return total, status.Error(codes.ResourceExhausted, "user sync stream payload too large")
+	}
+	return next, nil
+}
+
 func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common.Empty]) error {
-	backend, err := s.backend()
+	release, err := s.acquireBufferedUserSync(stream.Context())
 	if err != nil {
 		return err
 	}
+	defer release()
+
+	users := make([]*common.User, 0)
+	var epochBatch controller.UserSyncEpochBatch
+	var streamBytes int64
 
 	for {
 		user, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			return stream.SendAndClose(&common.Empty{})
+			return sanitizedStreamReceiveError(err, "failed to receive user stream")
 		}
 
 		if user.GetEmail() == "" {
-			return errors.New("email is required")
+			return status.Error(codes.InvalidArgument, "email is required")
+		}
+		streamBytes, err = addUserSyncStreamPayload(streamBytes, user)
+		if err != nil {
+			return err
+		}
+		if err = epochBatch.Add(user.GetUserSyncEpoch()); err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
-		log.Printf("Got user: %v", user.GetEmail())
-
-		if err = backend.SyncUser(stream.Context(), user); err != nil {
-			log.Printf("Error syncing user: %v", err)
-			return status.Errorf(codes.Internal, "failed to update user: %v", err)
-		}
+		users = append(users, user)
 	}
+
+	if len(users) == 0 {
+		return stream.SendAndClose(&common.Empty{})
+	}
+
+	if err := s.ApplyUserSyncEpoch(epochBatch.Epoch(), func() error {
+		back, err := s.backend()
+		if err != nil {
+			return err
+		}
+		for _, user := range users {
+			if err = back.SyncUser(stream.Context(), user); err != nil {
+				log.Printf("user sync backend mutation failed")
+				return status.Error(codes.Internal, "failed to update user")
+			}
+		}
+		return nil
+	}); err != nil {
+		return userSyncError(err)
+	}
+
+	return stream.SendAndClose(&common.Empty{})
 }
 
 func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.Empty, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
+	if err := s.ApplyUserSyncEpoch(users.GetUserSyncEpoch(), func() error {
+		back, err := s.backend()
+		if err != nil {
+			return err
+		}
+		if err = back.SyncUsers(ctx, users.GetUsers()); err != nil {
+			log.Printf("bulk user sync backend mutation failed")
+			return status.Error(codes.Internal, "failed to update users")
+		}
+		return nil
+	}); err != nil {
+		return nil, userSyncError(err)
 	}
 
-	if err := backend.SyncUsers(ctx, users.GetUsers()); err != nil {
-		return nil, err
-	}
-
-	return nil, nil
+	return &common.Empty{}, nil
 }
 
 func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.UsersChunk, common.Empty]) error {
+	release, err := s.acquireBufferedUserSync(stream.Context())
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	chunks := make(map[uint64][]*common.User)
 	var (
-		lastIndex uint64
-		sawLast   bool
+		lastIndex   uint64
+		sawLast     bool
+		epochBatch  controller.UserSyncEpochBatch
+		streamBytes int64
 	)
 
 	for {
@@ -65,7 +119,14 @@ func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.User
 			break
 		}
 		if err != nil {
-			return status.Errorf(codes.Internal, "failed to receive chunk: %v", err)
+			return sanitizedStreamReceiveError(err, "failed to receive user chunk stream")
+		}
+		streamBytes, err = addUserSyncStreamPayload(streamBytes, chunk)
+		if err != nil {
+			return err
+		}
+		if err = epochBatch.Add(chunk.GetUserSyncEpoch()); err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
 		}
 
 		chunks[chunk.GetIndex()] = append(chunks[chunk.GetIndex()], chunk.GetUsers()...)
@@ -82,14 +143,29 @@ func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.User
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	backend, err := s.backend()
-	if err != nil {
-		return err
-	}
-
-	if err := controller.ApplyChunkedUserUpdate(stream.Context(), backend, users); err != nil {
-		return status.Errorf(codes.Internal, "failed to update users: %v", err)
+	if err := s.ApplyUserSyncEpoch(epochBatch.Epoch(), func() error {
+		back, err := s.backend()
+		if err != nil {
+			return err
+		}
+		if err = controller.ApplyChunkedUserUpdate(stream.Context(), back, users); err != nil {
+			log.Printf("chunked user sync backend mutation failed")
+			return status.Error(codes.Internal, "failed to update users")
+		}
+		return nil
+	}); err != nil {
+		return userSyncError(err)
 	}
 
 	return stream.SendAndClose(&common.Empty{})
+}
+
+func sanitizedStreamReceiveError(err error, message string) error {
+	if code := status.Code(err); code != codes.Unknown {
+		return status.Error(code, message)
+	}
+	if contextErr := status.FromContextError(err); contextErr.Code() != codes.Unknown {
+		return status.Error(contextErr.Code(), message)
+	}
+	return status.Error(codes.Internal, message)
 }

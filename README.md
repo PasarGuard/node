@@ -17,6 +17,21 @@
 # Documentation
 You can find a full guide in docs https://docs.pasarguard.org/en/node/
 
+## Upgrade notes
+
+This release makes startup configuration validation strict:
+
+- `API_KEY` is required and must be a non-zero UUID. Generate a new value for
+  each node (for example, with `uuidgen`) and configure the same value in the
+  panel before restarting the node. The placeholder from older `.env` files is
+  not valid.
+- `STATS_UPDATE_INTERVAL_SECONDS` and `STATS_CLEANUP_INTERVAL_SECONDS`, when
+  set, must be positive integers. Remove old zero or negative overrides to use
+  the defaults (`10` and `300` seconds), or replace them with positive values.
+
+The node now exits during startup with a configuration error instead of running
+with an unauthenticated key or invalid statistics intervals.
+
 # One-Click Installation (Recommended)
 The easiest way to install PasarGuard Node is using our automated installation script:
 

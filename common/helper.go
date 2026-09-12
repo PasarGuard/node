@@ -3,6 +3,7 @@ package common
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -12,12 +13,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const MaxProtoBodyBytes int64 = 64 * 1024 * 1024
+
+var ErrProtoBodyTooLarge = errors.New("protobuf request body exceeds the maximum size")
+
 func ReadProtoBody(body io.ReadCloser, message proto.Message) error {
-	data, err := io.ReadAll(body)
+	defer body.Close()
+	data, err := io.ReadAll(io.LimitReader(body, MaxProtoBodyBytes+1))
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	if int64(len(data)) > MaxProtoBodyBytes {
+		return ErrProtoBodyTooLarge
+	}
 
 	// Decode into a map
 	if err = proto.Unmarshal(data, message); err != nil {

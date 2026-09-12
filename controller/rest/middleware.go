@@ -2,11 +2,20 @@ package rest
 
 import (
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 )
+
+func requestClientIP(r *http.Request) (string, bool) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return "", false
+	}
+	return ip, true
+}
 
 func (s *Service) validateApiKey(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -18,6 +27,10 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 
 		// check API key
 		apiKey := s.ApiKey()
+		if apiKey == uuid.Nil {
+			http.Error(w, "node API key is not configured", http.StatusServiceUnavailable)
+			return
+		}
 
 		key, err := uuid.Parse(apiKeyHeader)
 		switch {

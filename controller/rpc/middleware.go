@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,6 +15,20 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+func clientIPFromContext(ctx context.Context) string {
+	if p, ok := peer.FromContext(ctx); ok {
+		if tcpAddr, ok := p.Addr.(*net.TCPAddr); ok {
+			return tcpAddr.IP.String()
+		}
+		addr := p.Addr.String()
+		if host, _, err := net.SplitHostPort(addr); err == nil {
+			return host
+		}
+		return addr
+	}
+	return ""
+}
 
 func validateApiKey(ctx context.Context, s *Service) error {
 	// Extract metadata
@@ -32,6 +47,9 @@ func validateApiKey(ctx context.Context, s *Service) error {
 	apiKeyHeader := apiKeys[0]
 
 	apiKey := s.ApiKey()
+	if apiKey == uuid.Nil {
+		return status.Errorf(codes.Unavailable, "node API key is not configured")
+	}
 	key, err := uuid.Parse(apiKeyHeader)
 	switch {
 	case err != nil:
@@ -190,7 +208,6 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/GetUserOnlineIpListStats": true,
 	"/service.NodeService/GetBackendStats":          true,
 	"/service.NodeService/GetSystemStats":           true,
-	"/service.NodeService/Stop":                     true,
 	"/service.NodeService/SyncUser":                 true,
 	"/service.NodeService/SyncUsers":                true,
 	"/service.NodeService/SyncUsersChunked":         true,

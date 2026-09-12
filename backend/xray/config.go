@@ -307,6 +307,13 @@ func (i *Inbound) removeUser(email string) {
 	}
 }
 
+func (i *Inbound) hasUser(email string) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	_, ok := i.clients[email]
+	return ok
+}
+
 type Stats struct{}
 
 func (c *Config) ToBytes() ([]byte, error) {
