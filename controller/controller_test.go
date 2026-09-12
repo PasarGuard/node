@@ -58,7 +58,7 @@ func TestConnectCancelsPreviousStatsCollector(t *testing.T) {
 	}
 }
 
-func TestStartOrAttachDoesNotReplaceRunningBackend(t *testing.T) {
+func TestStartOrAttachAlwaysRestartsRunningBackend(t *testing.T) {
 	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
 	t.Cleanup(c.Disconnect)
 
@@ -66,17 +66,19 @@ func TestStartOrAttachDoesNotReplaceRunningBackend(t *testing.T) {
 	running.started.Store(true)
 	c.backend = running
 
+	// StartOrAttach with an invalid type so StartBackend fails — we only care
+	// that the existing running backend was shut down (reconnect must restart).
 	c.LockControl()
-	err := c.StartOrAttach(context.Background(), &common.Backend{KeepAlive: 60})
+	err := c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType(99)})
 	c.UnlockControl()
-	if err != nil {
-		t.Fatalf("StartOrAttach: %v", err)
+	if err == nil {
+		t.Fatal("expected StartBackend to fail on invalid type")
 	}
-	if c.Backend() != running {
-		t.Fatal("StartOrAttach replaced a running backend")
+	if running.shutdowns.Load() != 1 {
+		t.Fatalf("running backend shutdowns = %d, want 1 (reconnect must restart)", running.shutdowns.Load())
 	}
-	if running.shutdowns.Load() != 0 {
-		t.Fatal("StartOrAttach shut down a running backend")
+	if c.Backend() != nil {
+		t.Fatal("failed StartBackend left a backend attached")
 	}
 }
 

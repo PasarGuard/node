@@ -109,16 +109,14 @@ func (c *Controller) NewRequest() {
 	c.lastRequest = time.Now()
 }
 
-// StartOrAttach starts the core, or refreshes keep-alive if it is already running.
-// Caller must hold LockControl. A second Start from another panel worker must not
-// tear down a core that just finished starting.
+// StartOrAttach starts the core with the provided configuration.
+// If a backend is already running it is shut down first so the new config,
+// users, and every other field from data are applied — a reconnect must never
+// silently ignore the payload sent by the panel.
+// Caller must hold LockControl.
 func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
-	if back := c.Backend(); back != nil && back.Started() {
-		c.Connect(data.GetKeepAlive())
-		return nil
-	}
 	if c.Backend() != nil {
-		log.Println("Replacing a backend that is no longer running")
+		log.Println("New connection received; restarting backend to apply new configuration.")
 		c.Disconnect()
 	}
 	if err := c.StartBackend(ctx, data); err != nil {
