@@ -74,11 +74,14 @@ func wrapPermissionDeniedError(action string, err error) error {
 
 // Manager handles WireGuard interface management using wgctrl
 type Manager struct {
-	client    wgClient
-	iFaceName string
-	nl        netlinkOps
-	configure configureDeviceFunc
-	mu        sync.RWMutex
+	client     wgClient
+	iFaceName  string
+	nl         netlinkOps
+	configure  configureDeviceFunc
+	setLinkMTU func(netlink.Link, int) error
+	defaultMTU int
+	mtuManaged bool
+	mu         sync.RWMutex
 }
 
 // NewManager creates a new WireGuard manager
@@ -126,8 +129,16 @@ func buildInitialWGConfig(privateKey wgtypes.Key, listenPort int, peers []wgtype
 
 // InitializeWithPeers sets up the WireGuard interface with initial configuration and optional full peer snapshot.
 func (m *Manager) InitializeWithPeers(privateKey wgtypes.Key, listenPort int, serverIPs []string, peers []wgtypes.PeerConfig) error {
+	return m.initializeWithPeers(privateKey, listenPort, serverIPs, peers, nil)
+}
+
+func (m *Manager) initializeWithPeers(privateKey wgtypes.Key, listenPort int, serverIPs []string, peers []wgtypes.PeerConfig, mtu *int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if err := validateMTU(mtu); err != nil {
+		return err
+	}
 
 	if m.client == nil {
 		return fmt.Errorf("wgctrl client is not initialized")
@@ -172,6 +183,11 @@ func (m *Manager) InitializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 	link2, err := nl.LinkByName(m.iFaceName)
 	if err != nil {
 		return fmt.Errorf("failed to get link: %w", err)
+	}
+	m.defaultMTU = link2.Attrs().MTU
+	m.mtuManaged = false
+	if err := m.applyMTULocked(mtu); err != nil {
+		return err
 	}
 
 	for _, addr := range parsedAddrs {
@@ -226,6 +242,10 @@ func (m *Manager) ApplyPeersReplaceAll(peers []wgtypes.PeerConfig) error {
 
 // ApplyConfig safely configures the device with the given configuration under lock.
 func (m *Manager) ApplyConfig(config wgtypes.Config) error {
+	return m.applyConfig(config, nil)
+}
+
+func (m *Manager) applyConfig(config wgtypes.Config, mtu *int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -233,8 +253,41 @@ func (m *Manager) ApplyConfig(config wgtypes.Config) error {
 		return fmt.Errorf("wgctrl client is not initialized")
 	}
 
+	if err := m.applyMTULocked(mtu); err != nil {
+		return err
+	}
 	configure := m.getConfigureDevice()
 	return configure(m.client, m.iFaceName, config)
+}
+
+// applyMTULocked preserves the kernel default until an explicit MTU is configured.
+// Clearing that setting restores the MTU captured when the interface was created.
+func (m *Manager) applyMTULocked(mtu *int) error {
+	if err := validateMTU(mtu); err != nil {
+		return err
+	}
+	if mtu == nil && !m.mtuManaged {
+		return nil
+	}
+	target := m.defaultMTU
+	if mtu != nil {
+		target = *mtu
+	}
+	link, err := m.getNetlinkOps().LinkByName(m.iFaceName)
+	if err != nil {
+		return fmt.Errorf("failed to get link for MTU update: %w", err)
+	}
+	if link.Attrs().MTU != target {
+		setMTU := m.setLinkMTU
+		if setMTU == nil {
+			setMTU = netlink.LinkSetMTU
+		}
+		if err := setMTU(link, target); err != nil {
+			return fmt.Errorf("failed to set interface MTU: %w", wrapPermissionDeniedError("setting wireguard interface MTU", err))
+		}
+	}
+	m.mtuManaged = mtu != nil
+	return nil
 }
 
 // GetDevice returns the current WireGuard device statistics
