@@ -184,7 +184,7 @@ func (m *Manager) initializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 	if err != nil {
 		return fmt.Errorf("failed to get link: %w", err)
 	}
-	m.defaultMTU = link2.Attrs().MTU
+	m.defaultMTU = 0
 	m.mtuManaged = false
 	if err := m.applyMTULocked(mtu); err != nil {
 		return err
@@ -261,7 +261,7 @@ func (m *Manager) applyConfig(config wgtypes.Config, mtu *int) error {
 }
 
 // applyMTULocked preserves the kernel default until an explicit MTU is configured.
-// Clearing that setting restores the MTU captured when the interface was created.
+// Clearing that setting restores the MTU captured before the first override.
 func (m *Manager) applyMTULocked(mtu *int) error {
 	if err := validateMTU(mtu); err != nil {
 		return err
@@ -276,6 +276,9 @@ func (m *Manager) applyMTULocked(mtu *int) error {
 	link, err := m.getNetlinkOps().LinkByName(m.iFaceName)
 	if err != nil {
 		return fmt.Errorf("failed to get link for MTU update: %w", err)
+	}
+	if m.defaultMTU == 0 {
+		m.defaultMTU = link.Attrs().MTU
 	}
 	if link.Attrs().MTU != target {
 		setMTU := m.setLinkMTU
