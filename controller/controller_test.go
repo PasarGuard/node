@@ -132,10 +132,10 @@ func TestKeepAliveStaleIncludesGrace(t *testing.T) {
 	now := time.Now()
 	last := now.Add(-10 * time.Second)
 
-	if keepAliveStale(last, 10*time.Second, now) {
+	if keepAliveStale(last, 10*time.Second) {
 		t.Fatal("keep-alive must not fire when silence equals keep_alive")
 	}
-	if !keepAliveStale(last, 10*time.Second, now.Add(keepAliveGrace)) {
+	if !keepAliveStale(last.Add(-keepAliveGrace), 10*time.Second) {
 		t.Fatal("keep-alive must fire after keep_alive plus grace")
 	}
 }

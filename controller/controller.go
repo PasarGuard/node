@@ -218,7 +218,7 @@ func (c *Controller) Backend() backend.Backend {
 }
 
 func keepAliveStale(lastRequest time.Time, keepAlive time.Duration) bool {
-	now:= time.Now()
+	now := time.Now()
 	return now.Sub(lastRequest) >= keepAlive+keepAliveGrace
 }
 
