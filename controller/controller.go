@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/mtproto"
 	"github.com/pasarguard/node/backend/wireguard"
 	"github.com/pasarguard/node/backend/xray"
 	"github.com/pasarguard/node/common"
@@ -199,6 +200,16 @@ func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) 
 			return err
 		}
 		newBackend, err := wireguard.New(c.cfg, config, backend.GetUsers())
+		if err != nil {
+			return err
+		}
+		c.backend = newBackend
+	case common.BackendType_MTPROTO:
+		config, err := mtproto.NewConfig(backend.GetConfig())
+		if err != nil {
+			return err
+		}
+		newBackend, err := mtproto.New(ctx, c.cfg, config, backend.GetUsers())
 		if err != nil {
 			return err
 		}
