@@ -43,5 +43,8 @@ jobs:
       - name: Run regular test suite
         run: TEST_INTEGRATION=true go test ./... -v -p 1
 
+      - name: Check Xray process status races
+        run: go test -race ./backend/xray -run '^TestCoreStarted' -count=10 -timeout=120s
+
       - name: Run wireguard integration tests
         run: sudo -E make test-integration-wireguard
