@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -296,6 +297,28 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 	for _, email := range removeEmails {
 		delete(i.clients, email)
 	}
+}
+
+func (i *Inbound) hasAccount(account api.Account) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	current, ok := i.clients[account.GetEmail()]
+	return ok && reflect.DeepEqual(current, account)
+}
+
+func (i *Inbound) changedAccounts(accounts []api.Account) []api.Account {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	changed := make([]api.Account, 0, len(accounts))
+	for _, account := range accounts {
+		current, ok := i.clients[account.GetEmail()]
+		if !ok || !reflect.DeepEqual(current, account) {
+			changed = append(changed, account)
+		}
+	}
+	return changed
 }
 
 func (i *Inbound) removeUser(email string) {
