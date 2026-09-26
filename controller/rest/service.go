@@ -33,6 +33,9 @@ func (s *Service) setRouter() {
 
 	router.Post("/start", s.Start)
 	router.Get("/info", s.Base)
+	// Receipt replay and ACK remain available while the backend is stopped.
+	router.Post("/usage/collect", s.CollectUsage)
+	router.Post("/usage/ack", s.AcknowledgeUsage)
 
 	router.Group(func(private chi.Router) {
 		private.Use(s.checkBackendMiddleware)
