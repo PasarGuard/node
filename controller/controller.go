@@ -17,6 +17,7 @@ import (
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/netutil"
 	"github.com/pasarguard/node/pkg/sysstats"
+	"github.com/pasarguard/node/pkg/usage"
 )
 
 const NodeVersion = "0.5.4"
@@ -40,6 +41,7 @@ type Controller struct {
 	cancelFunc  context.CancelFunc
 	mu          sync.RWMutex
 	controlMu   sync.Mutex
+	usageStore  *usage.Store
 }
 
 func New(cfg *config.Config) *Controller {
@@ -49,6 +51,7 @@ func New(cfg *config.Config) *Controller {
 		apiPort:    netutil.FindFreePort(),
 		metricPort: netutil.FindFreePort(),
 		cancelFunc: cancel,
+		usageStore: &usage.Store{Path: cfg.UsageJournalPath},
 	}
 }
 
