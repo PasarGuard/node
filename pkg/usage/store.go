@@ -2,8 +2,10 @@
 package usage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -23,6 +25,9 @@ import (
 // process death. bbolt serializes even independent processes using the same file.
 // Its default synchronous commits must never be replaced by NoSync writes.
 type Store struct{ Path string }
+
+// Read-only replays must not rewrite bbolt metadata or fsync the journal.
+var errUnchanged = errors.New("usage journal unchanged")
 
 type Snapshot func(context.Context) (epoch string, stats *common.StatResponse, err error)
 
@@ -56,7 +61,7 @@ func (s *Store) update(fn func(*bolt.Tx) error) error {
 		return fmt.Errorf("open usage journal: %w", err)
 	}
 	defer db.Close()
-	return db.Update(func(tx *bolt.Tx) error {
+	err = db.Update(func(tx *bolt.Tx) error {
 		// Persist the new journal's directory entry before publishing any receipt.
 		// bbolt synchronizes file contents; directory creation needs its own sync.
 		// Retry a failed directory sync: existence of the file alone is not proof
@@ -79,6 +84,10 @@ func (s *Store) update(fn func(*bolt.Tx) error) error {
 		}
 		return fn(tx)
 	})
+	if errors.Is(err, errUnchanged) {
+		return nil
+	}
+	return err
 }
 
 func load(bucket *bolt.Bucket, key []byte) (*streamState, error) {
@@ -98,6 +107,9 @@ func save(bucket *bolt.Bucket, key []byte, state *streamState) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
+	}
+	if bytes.Equal(bucket.Get(key), data) {
+		return errUnchanged
 	}
 	return bucket.Put(key, data)
 }
@@ -125,7 +137,10 @@ func (s *Store) Collect(ctx context.Context, kind common.StatType, snapshot Snap
 		}
 		if len(state.Pending) != 0 {
 			receipt = new(common.UsageReceipt)
-			return proto.Unmarshal(state.Pending, receipt)
+			if err := proto.Unmarshal(state.Pending, receipt); err != nil {
+				return err
+			}
+			return errUnchanged
 		}
 		epoch, counters, err := snapshot(ctx)
 		if err != nil {
@@ -205,15 +220,18 @@ func (s *Store) Acknowledge(ctx context.Context, kind common.StatType, id string
 			return status.Error(codes.FailedPrecondition, "usage stream not initialized")
 		}
 		state, err := load(bucket, key)
-		if err != nil || len(state.Pending) == 0 {
+		if err != nil {
 			return err
+		}
+		if len(state.Pending) == 0 {
+			return errUnchanged
 		}
 		receipt := new(common.UsageReceipt)
 		if err := proto.Unmarshal(state.Pending, receipt); err != nil {
 			return err
 		}
 		if receipt.GetReceiptId() != id {
-			return nil
+			return errUnchanged
 		}
 		state.Pending = nil
 		return save(bucket, key, state)
