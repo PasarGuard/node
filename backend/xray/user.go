@@ -39,6 +39,9 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	if user.GetProxies().GetHysteria() != nil {
 		settings.Hysteria = api.NewHysteriaAccount(user)
 	}
+	if user.GetProxies().GetMasque() != nil {
+		settings.Masque = api.NewMasqueAccount(user)
+	}
 
 	return settings, nil
 }
@@ -114,6 +117,12 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Hysteria, true
+
+		case Masque:
+			if settings.Masque == nil {
+				return nil, false
+			}
+			return settings.Masque, true
 		}
 	}
 	return nil, false

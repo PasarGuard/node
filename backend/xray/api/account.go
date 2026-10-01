@@ -9,6 +9,7 @@ import (
 	"github.com/xtls/xray-core/proxy/trojan"
 	"github.com/xtls/xray-core/proxy/vless"
 	"github.com/xtls/xray-core/proxy/vmess"
+	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/pasarguard/node/common"
 )
@@ -198,6 +199,29 @@ func NewHysteriaAccount(user *common.User) *HysteriaAccount {
 	}
 }
 
+type MasqueAccount struct {
+	BaseAccount
+	Pass string `json:"pass"`
+}
+
+func (ma *MasqueAccount) Message() (*serial.TypedMessage, error) {
+	// Xray's proxy/masque/config.proto defines Account.password as string field 1.
+	// Encode it directly until the pinned Xray dependency includes MASQUE.
+	var data []byte
+	if ma.Pass != "" {
+		data = protowire.AppendTag(data, 1, protowire.BytesType)
+		data = protowire.AppendString(data, ma.Pass)
+	}
+	return &serial.TypedMessage{Type: "xray.proxy.masque.Account", Value: data}, nil
+}
+
+func NewMasqueAccount(user *common.User) *MasqueAccount {
+	return &MasqueAccount{
+		BaseAccount: BaseAccount{Email: user.GetEmail(), Level: 0},
+		Pass:        user.GetProxies().GetMasque().GetPass(),
+	}
+}
+
 type ProxySettings struct {
 	Vmess           *VmessAccount
 	Vless           *VlessAccount
@@ -205,4 +229,5 @@ type ProxySettings struct {
 	Shadowsocks     *ShadowsocksTcpAccount
 	Shadowsocks2022 *ShadowsocksAccount
 	Hysteria        *HysteriaAccount
+	Masque          *MasqueAccount
 }
