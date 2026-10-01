@@ -8,6 +8,8 @@ import (
 
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
+	"github.com/xtls/xray-core/infra/conf"
+	"github.com/xtls/xray-core/proxy/masque"
 )
 
 const masqueConfig = `{"log":{},"inbounds":[{
@@ -38,6 +40,31 @@ func assertMasqueClients(t *testing.T, cfg *Config, want map[string]string) {
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
+	}
+	var xrayConfig conf.Config
+	if err := json.Unmarshal(data, &xrayConfig); err != nil {
+		t.Fatal(err)
+	}
+	built, err := xrayConfig.InboundConfigs[0].Build()
+	if err != nil {
+		t.Fatalf("Xray rejected MASQUE inbound: %v", err)
+	}
+	settings, err := built.ProxySettings.GetInstance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, ok := settings.(*masque.ServerConfig)
+	if !ok || len(server.Users) != len(want) {
+		t.Fatalf("unexpected Xray MASQUE server config: %v", settings)
+	}
+	for _, user := range server.Users {
+		account, err := user.Account.GetInstance()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if account.(*masque.Account).Password != want[user.Email] {
+			t.Fatalf("unexpected Xray credential for %q", user.Email)
+		}
 	}
 	inbound := decoded.Inbounds[0]
 	if inbound.Settings.Clients == nil {

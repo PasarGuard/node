@@ -4,12 +4,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/serial"
 	hysteria "github.com/xtls/xray-core/proxy/hysteria/account"
+	"github.com/xtls/xray-core/proxy/masque"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
 	"github.com/xtls/xray-core/proxy/vless"
 	"github.com/xtls/xray-core/proxy/vmess"
-	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/pasarguard/node/common"
 )
@@ -205,14 +205,7 @@ type MasqueAccount struct {
 }
 
 func (ma *MasqueAccount) Message() (*serial.TypedMessage, error) {
-	// Xray's proxy/masque/config.proto defines Account.password as string field 1.
-	// Encode it directly until the pinned Xray dependency includes MASQUE.
-	var data []byte
-	if ma.Pass != "" {
-		data = protowire.AppendTag(data, 1, protowire.BytesType)
-		data = protowire.AppendString(data, ma.Pass)
-	}
-	return &serial.TypedMessage{Type: "xray.proxy.masque.Account", Value: data}, nil
+	return ToTypedMessage(&masque.Account{Password: ma.Pass})
 }
 
 func NewMasqueAccount(user *common.User) *MasqueAccount {

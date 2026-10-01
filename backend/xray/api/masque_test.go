@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/pasarguard/node/common"
+	"github.com/xtls/xray-core/proxy/masque"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -35,6 +36,13 @@ func TestMasqueAccountEncoding(t *testing.T) {
 	// From Xray proxy/masque/config.proto: Account { string password = 1; }.
 	if message.Type != "xray.proxy.masque.Account" || !bytes.Equal(message.Value, []byte{0x0a, 3, 'p', ':', 'q'}) {
 		t.Fatalf("unexpected Xray account message: %v", message)
+	}
+	xrayAccount := new(masque.Account)
+	if err := proto.Unmarshal(message.Value, xrayAccount); err != nil {
+		t.Fatal(err)
+	}
+	if xrayAccount.Password != account.Pass {
+		t.Fatalf("Xray decoded password = %q, want %q", xrayAccount.Password, account.Pass)
 	}
 	data, err = json.Marshal(account)
 	if err != nil {
