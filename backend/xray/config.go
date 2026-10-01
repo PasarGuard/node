@@ -26,6 +26,7 @@ const (
 	Trojan      = "trojan"
 	Shadowsocks = "shadowsocks"
 	Hysteria    = "hysteria"
+	Masque      = "masque"
 )
 
 type Config struct {
@@ -200,6 +201,16 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				i.clients[user.GetEmail()] = api.NewHysteriaAccount(user)
 			}
 		}
+
+	case Masque:
+		for _, user := range users {
+			if user.GetProxies().GetMasque() == nil {
+				continue
+			}
+			if slices.Contains(user.Inbounds, i.Tag) {
+				i.clients[user.GetEmail()] = api.NewMasqueAccount(user)
+			}
+		}
 	}
 }
 
@@ -235,6 +246,9 @@ func (i *Inbound) updateUser(account api.Account) {
 		}
 
 	case *api.HysteriaAccount:
+		i.clients[email] = a
+
+	case *api.MasqueAccount:
 		i.clients[email] = a
 	}
 }
@@ -289,6 +303,13 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 	case Hysteria:
 		for _, account := range accounts {
 			if a, ok := account.(*api.HysteriaAccount); ok {
+				i.clients[account.GetEmail()] = a
+			}
+		}
+
+	case Masque:
+		for _, account := range accounts {
+			if a, ok := account.(*api.MasqueAccount); ok {
 				i.clients[account.GetEmail()] = a
 			}
 		}
@@ -406,6 +427,15 @@ func (c *Config) ToBytes() ([]byte, error) {
 			for _, account := range i.clients {
 				if hyAccount, ok := account.(*api.HysteriaAccount); ok {
 					clients = append(clients, hyAccount)
+				}
+			}
+			i.Settings["clients"] = clients
+
+		case Masque:
+			clients := make([]*api.MasqueAccount, 0, len(i.clients))
+			for _, account := range i.clients {
+				if masqueAccount, ok := account.(*api.MasqueAccount); ok {
+					clients = append(clients, masqueAccount)
 				}
 			}
 			i.Settings["clients"] = clients

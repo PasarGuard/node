@@ -137,6 +137,10 @@ message Hysteria {
     string auth = 1;
 }
 
+message Masque {
+    string pass = 1;
+}
+
 message Proxy {
     Vmess vmess = 1;
     Vless vless = 2;
@@ -144,6 +148,7 @@ message Proxy {
     Shadowsocks shadowsocks = 4;
     Wireguard wireguard = 5;
     Hysteria hysteria = 6;
+    Masque masque = 7;
 }
 
 message User {
