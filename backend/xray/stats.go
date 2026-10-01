@@ -41,3 +41,12 @@ func (x *Xray) GetStats(ctx context.Context, request *common.StatRequest) (*comm
 		return nil, errors.New("not implemented stat type")
 	}
 }
+
+// UsageSnapshot holds the lifecycle lock across the read, binding cumulative
+// counters to precisely one core generation, even during a health restart.
+func (x *Xray) UsageSnapshot(ctx context.Context, kind common.StatType) (string, *common.StatResponse, error) {
+	x.mu.RLock()
+	defer x.mu.RUnlock()
+	stats, err := x.GetStats(ctx, &common.StatRequest{Type: kind, Reset_: false})
+	return x.usageEpoch, stats, err
+}

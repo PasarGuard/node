@@ -58,6 +58,23 @@ message StatRequest {
   StatType type = 3;
 }
 
+// Accounting reads never reset core counters. Receipts survive until the panel
+// acknowledges them after committing its own durable transaction.
+message UsageRequest {
+  StatType type = 1;
+}
+
+message UsageReceipt {
+  string receipt_id = 1;
+  int64 collected_at = 2; // Unix milliseconds
+  repeated Stat stats = 3;
+}
+
+message UsageAck {
+  StatType type = 1;
+  string receipt_id = 2;
+}
+
 message OnlineStatResponse {
   string name = 1;
   int64 value = 2;
@@ -220,6 +237,8 @@ service NodeService {
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}
 
   rpc GetStats (StatRequest) returns (StatResponse) {}
+  rpc CollectUsage (UsageRequest) returns (UsageReceipt) {}
+  rpc AcknowledgeUsage (UsageAck) returns (Empty) {}
   rpc GetOutboundsLatency (LatencyRequest) returns (LatencyResponse) {}
 
   rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
