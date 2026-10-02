@@ -1,10 +1,15 @@
 # sing-box flavour: node + a stats-capable sing-box binary (built from source
 # with -tags with_v2ray_api; official releases omit it).
+# Supply chain: source is pinned to a tag AND a full commit SHA; the stats
+# tag is forced by `go build -tags`, and the produced binary is smoke-checked
+# whenever it is executable on the build host (same-arch builds).
 FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
 ARG SINGBOX_VERSION=1.14.2
+# commit of the v${SINGBOX_VERSION} tag (git rev-parse on the release)
+ARG SINGBOX_SHA=af6e64c3b69e6132ebaee0e1a3d24e93903f6709
 
 RUN apk update && apk add --no-cache make git
 
@@ -16,12 +21,24 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 
-RUN git clone --depth 1 --branch v${SINGBOX_VERSION} https://github.com/SagerNet/sing-box /tmp/sing-box-src
+RUN git clone --depth 1 --branch v${SINGBOX_VERSION} https://github.com/SagerNet/sing-box /tmp/sing-box-src && \
+    cd /tmp/sing-box-src && \
+    actual="$(git rev-parse HEAD)" && \
+    if [ "$actual" != "$SINGBOX_SHA" ]; then \
+      echo "sing-box tag v${SINGBOX_SHA} != pinned SHA $SINGBOX_SHA (got $actual)"; exit 1; \
+    fi
+
 RUN cd /tmp/sing-box-src && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -tags "with_v2ray_api,with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" \
       -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION}' -s -w" \
-      -o sing-box ./cmd/sing-box
+      -o sing-box ./cmd/sing-box && \
+    if [ "$(go env GOARCH)" = "${TARGETARCH}" ] && [ "$(go env GOOS)" = "${TARGETOS}" ]; then \
+      ./sing-box version && \
+      ./sing-box version | grep -F "with_v2ray_api" || { echo "built binary is missing with_v2ray_api"; exit 1; }; \
+    else \
+      echo "skipping binary smoke check (cross-build ${TARGETOS}/${TARGETARCH})"; \
+    fi
 
 FROM alpine:latest
 
@@ -30,5 +47,8 @@ LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 WORKDIR /app
 COPY --from=builder /src/main /app/main
 COPY --from=builder /tmp/sing-box-src/sing-box /usr/local/bin/sing-box
+
+# fail fast at container start if the binary ever loses the stats tag
+RUN /usr/local/bin/sing-box version | grep -F "with_v2ray_api"
 
 ENTRYPOINT ["./main"]

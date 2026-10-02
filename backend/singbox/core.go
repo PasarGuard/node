@@ -46,7 +46,10 @@ type Core struct {
 	mu             sync.Mutex
 }
 
-func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogTailSize int) (*Core, error) {
+// NewSingBoxCore probes the binary and, unless allowMissing is set
+// (SINGBOX_ALLOW_MISSING_V2RAY_API=1), refuses a build without the
+// v2ray_api tag — running it would silently lose per-user stats.
+func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogTailSize int, allowMissing bool) (*Core, error) {
 	if startupLogTailSize <= 0 {
 		startupLogTailSize = 200
 	}
@@ -68,8 +71,15 @@ func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogT
 		return nil, err
 	}
 	core.version = version
+	if !hasV2rayAPI && !allowMissing {
+		return nil, fmt.Errorf(
+			"sing-box at %s was built WITHOUT -tags with_v2ray_api: per-user traffic stats would silently stay at zero. "+
+				"Install a stats-capable build (make build_singbox_v2api / Dockerfile.singbox) or set SINGBOX_ALLOW_MISSING_V2RAY_API=1 to run without usage accounting",
+			executablePath,
+		)
+	}
 	if !hasV2rayAPI {
-		log.Printf("warning: sing-box at %s was built WITHOUT -tags with_v2ray_api; per-user traffic stats will not work", executablePath)
+		log.Printf("WARNING: sing-box at %s runs without -tags with_v2ray_api (SINGBOX_ALLOW_MISSING_V2RAY_API=1); per-user usage will NOT be recorded", executablePath)
 	}
 
 	return core, nil

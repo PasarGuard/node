@@ -160,7 +160,7 @@ func TestSingBoxEndToEnd(t *testing.T) {
 	cfg2.SingBoxExecutablePath = exe
 
 	// pass1: config must be valid before users (schema check)
-	core, err := NewSingBoxCore(exe, filepath.Join(cfg2.GeneratedConfigPath), 1000, 50)
+	core, err := NewSingBoxCore(exe, filepath.Join(cfg2.GeneratedConfigPath), 1000, 50, false)
 	if err != nil {
 		t.Fatalf("NewSingBoxCore: %v", err)
 	}

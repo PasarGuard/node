@@ -18,6 +18,7 @@ type Config struct {
 	XrayAssetsPath              string
 	SingBoxExecutablePath       string
 	SingBoxSyncDebounce         time.Duration
+	SingBoxAllowNoV2RayAPI      bool
 	SslCertFile                 string
 	SslKeyFile                  string
 	ApiKey                      uuid.UUID
@@ -50,6 +51,7 @@ func Load() (*Config, error) {
 		XrayAssetsPath:              GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
 		SingBoxExecutablePath:       GetEnv("SINGBOX_EXECUTABLE_PATH", "/usr/local/bin/sing-box"),
 		SingBoxSyncDebounce:         time.Duration(GetEnvAsInt("SINGBOX_SYNC_DEBOUNCE_SECONDS", 30)) * time.Second,
+		SingBoxAllowNoV2RayAPI:      GetEnvAsBool("SINGBOX_ALLOW_MISSING_V2RAY_API", false),
 		SslCertFile:                 GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
 		SslKeyFile:                  GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),
 		GeneratedConfigPath:         GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
