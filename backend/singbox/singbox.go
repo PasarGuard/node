@@ -22,6 +22,23 @@ type SingBox struct {
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
 	syncMu     sync.Mutex
+
+	// debounced sync (SINGBOX_SYNC_DEBOUNCE_SECONDS): user changes update the
+	// desired state immediately but materialize with one coalesced restart.
+	debounceTimer *time.Timer
+	lastFlushAt   time.Time
+	flushFailures int
+	restartCount  int
+	shuttingDown  bool
+	pendingStats  map[string]int64 // counters flushed before a planned restart
+}
+
+// RestartCount reports how many planned core restarts the backend has done
+// (used by tests to prove coalescing: N rapid changes -> 1 restart).
+func (s *SingBox) RestartCount() int {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	return s.restartCount
 }
 
 func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, metricPort int, cfg *config.Config) (*SingBox, error) {
@@ -37,9 +54,10 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 	xCtx, xCancel := context.WithCancel(context.Background())
 
 	sb := &SingBox{
-		cancelFunc: xCancel,
-		cfg:        cfg,
-		apiPort:    apiPort,
+		cancelFunc:   xCancel,
+		cfg:          cfg,
+		apiPort:      apiPort,
+		pendingStats: map[string]int64{},
 	}
 
 	start := time.Now()
@@ -128,6 +146,14 @@ func (s *SingBox) setConfig(config *Config) {
 }
 
 func (s *SingBox) Shutdown() {
+	s.syncMu.Lock()
+	s.shuttingDown = true
+	if s.debounceTimer != nil {
+		s.debounceTimer.Stop()
+		s.debounceTimer = nil
+	}
+	s.syncMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

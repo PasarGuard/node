@@ -73,7 +73,73 @@ func (s *SingBox) GetStats(ctx context.Context, request *common.StatRequest) (*c
 	if err != nil {
 		return nil, err
 	}
-	return buildStatResponse(raw), nil
+	return s.mergePendingStats(raw, request.GetReset_()), nil
+}
+
+// mergePendingStats folds counters that were drained before a planned restart
+// into the live response, so usage survives the restart window. Pending
+// entries are dropped once the caller consumes them with reset=true (the
+// panel's poll mode).
+func (s *SingBox) mergePendingStats(live []*command.Stat, consume bool) *common.StatResponse {
+	s.syncMu.Lock()
+	pending := s.pendingStats
+	if consume && len(pending) > 0 {
+		s.pendingStats = map[string]int64{}
+	}
+	s.syncMu.Unlock()
+
+	merged := make(map[string]int64, len(live)+len(pending))
+	order := make([]string, 0, len(live)+len(pending))
+	add := func(name, statType, link string, v int64) {
+		key := name + "|" + statType + "|" + link
+		if _, seen := merged[key]; !seen {
+			order = append(order, key)
+		}
+		merged[key] += v
+	}
+	for _, st := range live {
+		name, link, statType, ok := parseStatName(st.GetName())
+		if !ok {
+			continue
+		}
+		add(name, statType, link, st.GetValue())
+	}
+	for key, v := range pending {
+		var name, statType, link string
+		if parts := splitKey(key); len(parts) == 3 {
+			name, statType, link = parts[0], parts[1], parts[2]
+		} else {
+			continue
+		}
+		add(name, statType, link, v)
+	}
+
+	resp := &common.StatResponse{}
+	for _, key := range order {
+		parts := splitKey(key)
+		if len(parts) != 3 {
+			continue
+		}
+		resp.Stats = append(resp.Stats, &common.Stat{
+			Name:  parts[0],
+			Type:  parts[1],
+			Link:  parts[2],
+			Value: merged[key],
+		})
+	}
+	return resp
+}
+
+func splitKey(key string) []string {
+	out := make([]string, 0, 3)
+	start := 0
+	for i := 0; i < len(key); i++ {
+		if key[i] == '|' {
+			out = append(out, key[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, key[start:])
 }
 
 // GetUserOnlineStats: sing-box's v2ray_api exposes no online counters

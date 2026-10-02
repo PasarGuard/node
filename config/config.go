@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -16,6 +17,7 @@ type Config struct {
 	XrayExecutablePath          string
 	XrayAssetsPath              string
 	SingBoxExecutablePath       string
+	SingBoxSyncDebounce         time.Duration
 	SslCertFile                 string
 	SslKeyFile                  string
 	ApiKey                      uuid.UUID
@@ -47,6 +49,7 @@ func Load() (*Config, error) {
 		XrayExecutablePath:          GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
 		XrayAssetsPath:              GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
 		SingBoxExecutablePath:       GetEnv("SINGBOX_EXECUTABLE_PATH", "/usr/local/bin/sing-box"),
+		SingBoxSyncDebounce:         time.Duration(GetEnvAsInt("SINGBOX_SYNC_DEBOUNCE_SECONDS", 30)) * time.Second,
 		SslCertFile:                 GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
 		SslKeyFile:                  GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),
 		GeneratedConfigPath:         GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
@@ -94,6 +97,8 @@ func NewTestConfig(generatedConfigPath string, key uuid.UUID) *Config {
 	cfg, _ := Load()
 	cfg.GeneratedConfigPath = generatedConfigPath
 	cfg.ApiKey = key
+	// tests assert synchronous apply; debounce tests set this explicitly
+	cfg.SingBoxSyncDebounce = 0
 	return cfg
 }
 
