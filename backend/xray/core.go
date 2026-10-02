@@ -381,13 +381,6 @@ func (c *Core) Logs() <-chan string {
 	return c.logsChan
 }
 
-// ProcessInfo holds information about a process
-type ProcessInfo struct {
-	PID      int
-	PPID     int
-	IsZombie bool
-}
-
 // cleanupOrphanedProcesses finds and kills xray processes that are:
 // 1. Zombie processes (orphaned from their parent)
 // 2. Processes where the node itself is the parent (PPID matches node PID)
