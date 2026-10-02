@@ -1,0 +1,1088 @@
+diff --git a/experimental/v2rayapi/quota.go b/experimental/v2rayapi/quota.go
+new file mode 100644
+index 0000000..f68ef41
+--- /dev/null
++++ b/experimental/v2rayapi/quota.go
+@@ -0,0 +1,653 @@
++package v2rayapi
++
++// Per-user data quota enforcement (PasarGuard patch, upstream sing-box
++// v1.14.2 / af6e64c3b69e).
++//
++// Upstream v2ray_api only *counts* traffic. This file makes the counters
++// binding: each user carries a byte budget, and a connection may not move more
++// bytes than that budget still allows. When the budget runs out the connection
++// is closed rather than being counted after the fact.
++//
++// Truncate-then-close, not check-then-count: sing copies through buffers that
++// grow to 512KB (sing/common/bufio.DefaultIncreaseBufferAfter), so "read, then
++// see if we went over" overshoots by up to a whole buffer. Charging the budget
++// *before* the transfer and shrinking the transfer to what remains is what
++// makes the guarantee "total transferred <= limit" hold instead of being
++// approximate.
++//
++// Accounting is symmetric with the panel: one budget covers uplink + downlink
++// combined, matching how User.used_traffic sums both links
++// (panel app/jobs/record_usages.py adds uplink and downlink together).
++//
++// A user with no budget is never wrapped, so unlimited users pay nothing and
++// an operator who never configures quotas gets byte-identical upstream
++// behaviour.
++//
++// NOTE ON UNWRAP: sing's copy loop calls N.UnwrapCountReader/Writer. If a type
++// answers that interface, the wrapper is stripped and the transfer runs against
++// the next reader with only CountFuncs applied — which would drop both the
++// upstream byte counters and this cap. These types therefore implement the
++// unwrap contract by handing back a *capping* inner reader plus the counters,
++// so the loop stops on the capping type rather than the raw socket.
++
++import (
++	"encoding/json"
++	"io"
++	"net"
++	"net/http"
++	"os"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/sagernet/sing/common/buf"
++	E "github.com/sagernet/sing/common/exceptions"
++	M "github.com/sagernet/sing/common/metadata"
++	N "github.com/sagernet/sing/common/network"
++)
++
++// ErrQuotaExhausted ends a session whose budget is spent. sing treats any
++// non-nil read error as end-of-connection, so the session dies instead of being
++// served past the limit.
++var ErrQuotaExhausted = E.New("user data quota exhausted")
++
++// quotaState is the live, shared budget for one user. One state per user, not
++// per connection: several simultaneous connections of the same user contend for
++// this single counter, which is what stops a multi-connection user from getting
++// the full limit once per connection.
++//
++// consumed counts bytes that actually moved. inflight counts bytes reserved by
++// a transfer that has started but not finished. The grantable amount is
++// limit - consumed - inflight, so concurrent connections can never collectively
++// reserve more than the budget.
++//
++// The split matters: sing reads through buffers that can reach 512KB, so
++// reserving "what this read might deliver" routinely overshoots the real payload
++// and the difference is refunded in settle(). Judging exhaustion on the
++// pre-refund number would cut a user whose budget was only momentarily
++// reserved, which is how an early version of this patch stopped at ~30% of the
++// real limit.
++type quotaState struct {
++	user string
++	// limit < 0 means unlimited / no budget pushed yet.
++	limit     atomic.Int64
++	consumed  atomic.Int64
++	inflight  atomic.Int64
++	mu        sync.Mutex
++	exhausted bool
++	conns     map[io.Closer]struct{}
++}
++
++var (
++	quotasMu sync.RWMutex
++	quotas   = map[string]*quotaState{}
++)
++
++func lookupQuota(user string) *quotaState {
++	if user == "" {
++		return nil
++	}
++	quotasMu.RLock()
++	state, ok := quotas[user]
++	quotasMu.RUnlock()
++	if !ok {
++		return nil
++	}
++	if state.limit.Load() < 0 {
++		// No budget for this user. Cutting them would be worse than overshooting.
++		return nil
++	}
++	return state
++}
++
++// SetQuota installs or replaces one user's budget. remaining < 0 means
++// unlimited. The node pushes this at start, after every sync, and on any limit
++// change or reset.
++//
++// consumed is preserved across a raise/reset: the panel owns the authoritative
++// used_traffic and pushes limit - used, so re-basing consumed to zero here would
++// let a reset user immediately spend a second full budget.
++func SetQuota(user string, remaining int64) {
++	if user == "" {
++		return
++	}
++	quotasMu.Lock()
++	state, ok := quotas[user]
++	if !ok {
++		state = &quotaState{user: user, conns: map[io.Closer]struct{}{}}
++		quotas[user] = state
++	}
++	quotasMu.Unlock()
++
++	state.mu.Lock()
++	defer state.mu.Unlock()
++	state.limit.Store(remaining)
++	if remaining < 0 {
++		state.consumed.Store(0)
++		state.inflight.Store(0)
++	}
++	// A raised or reset budget re-opens a user we had already cut.
++	state.exhausted = remaining <= 0
++}
++
++// LoadQuotas installs the budgets that came in with the config. Called while
++// the process is still starting, so a limited user never sees a moment with no
++// budget after a restart.
++func LoadQuotas(users map[string]int64) {
++	if len(users) == 0 {
++		return
++	}
++	for user, remaining := range users {
++		SetQuota(user, remaining)
++	}
++}
++
++// QuotaRemaining reports a user's still-grantable budget, for panel
++// diagnostics.
++func QuotaRemaining(user string) (int64, bool) {
++	quotasMu.RLock()
++	state, ok := quotas[user]
++	quotasMu.RUnlock()
++	if !ok {
++		return 0, false
++	}
++	remaining := state.limit.Load() - state.consumed.Load() - state.inflight.Load()
++	if remaining < 0 {
++		remaining = 0
++	}
++	return remaining, true
++}
++
++// QuotaEnabled reports whether any user carries a budget. An unpatched or
++// unconfigured core reports false here, which is what the node uses to decide
++// whether mode B is actually active.
++func QuotaEnabled() bool {
++	quotasMu.RLock()
++	defer quotasMu.RUnlock()
++	for _, state := range quotas {
++		if state.limit.Load() >= 0 {
++			return true
++		}
++	}
++	return false
++}
++
++// reserve claims up to n bytes of budget and returns how many may actually be
++// transferred. Concurrent connections of one user contend for the same
++// limit/consumed/inflight triple, so the sum of their reservations can never
++// exceed the limit.
++func (s *quotaState) reserve(n int) int {
++	if n <= 0 {
++		return 0
++	}
++	for {
++		limit := s.limit.Load()
++		if limit < 0 {
++			return n
++		}
++		current := s.inflight.Load()
++		available := limit - s.consumed.Load() - current
++		if available <= 0 {
++			return 0
++		}
++		granted := int64(n)
++		if granted > available {
++			granted = available
++		}
++		if s.inflight.CompareAndSwap(current, current+granted) {
++			return int(granted)
++		}
++	}
++}
++
++// settle converts a reservation into real consumption: inflight drops by what
++// was reserved and consumed rises by what actually moved.
++//
++// Exhaustion is judged on consumed alone, never on consumed+inflight. Cutting
++// on the reserved total would kill connections whose short reads had not yet
++// been refunded, stranding the user well short of the budget they paid for.
++// Correctness does not depend on this: reserve() already refuses to grant more
++// than limit - consumed - inflight, so no transfer can ever push the user past
++// the limit regardless of when the connections are dropped.
++func (s *quotaState) settle(reserved int, actual int) {
++	if actual < 0 {
++		actual = 0
++	}
++	s.inflight.Add(-int64(reserved))
++	s.consumed.Add(int64(actual))
++
++	if s.consumed.Load() < s.limit.Load() {
++		return
++	}
++
++	s.mu.Lock()
++	already := s.exhausted
++	s.exhausted = true
++	targets := make([]io.Closer, 0, len(s.conns))
++	if !already {
++		for conn := range s.conns {
++			targets = append(targets, conn)
++			delete(s.conns, conn)
++		}
++	}
++	s.mu.Unlock()
++
++	for _, conn := range targets {
++		_ = conn.Close()
++	}
++}
++
++func (s *quotaState) track(conn io.Closer) {
++	s.mu.Lock()
++	cut := s.exhausted
++	if !cut {
++		s.conns[conn] = struct{}{}
++	}
++	s.mu.Unlock()
++	if cut {
++		_ = conn.Close()
++	}
++}
++
++// refundLocked releases an outstanding reservation. It runs only when a
++// transfer errored out (so its bytes never moved), which is what keeps a
++// dropped connection from stranding budget the user already paid for.
++func (s *quotaState) refund(reserved int) {
++	if reserved > 0 {
++		s.inflight.Add(-int64(reserved))
++	}
++}
++
++func (s *quotaState) untrack(conn io.Closer) {
++	s.mu.Lock()
++	delete(s.conns, conn)
++	s.mu.Unlock()
++}
++
++func toCountFuncs(counters []*atomic.Int64) []N.CountFunc {
++	if len(counters) == 0 {
++		return nil
++	}
++	funcs := make([]N.CountFunc, 0, len(counters))
++	for _, counter := range counters {
++		funcs = append(funcs, func(n int64) { counter.Add(n) })
++	}
++	return funcs
++}
++
++// quotaConn enforces a budget on one TCP connection.
++//
++// raw is the socket underneath the stat-counter wrapper. It is kept separate so
++// UnwrapReader/Writer can hand the copy loop a capping reader on the *socket*
++// while letting the loop apply the stat counters itself — exactly what upstream
++// CounterConn.UnwrapReader does. Layering the capping reader on top of the
++// counter wrapper instead would count every byte twice.
++type quotaConn struct {
++	N.ExtendedConn
++	raw           net.Conn
++	state         *quotaState
++	readCounters  []N.CountFunc
++	writeCounters []N.CountFunc
++}
++
++func (c *quotaConn) Read(p []byte) (int, error) {
++	allowed := c.state.reserve(len(p))
++	if allowed <= 0 {
++		return 0, ErrQuotaExhausted
++	}
++	n, err := c.ExtendedConn.Read(p[:allowed])
++	if err != nil && n == 0 {
++		// Nothing moved, so the whole reservation is released rather than
++		// stranded until the connection object is collected.
++		c.state.refund(allowed)
++		return n, err
++	}
++	c.state.settle(allowed, n)
++	return n, err
++}
++
++// ReadBuffer caps the window to what the budget can pay for.
++//
++// buffer.Start() is the front headroom sing reserves for protocol headers; it
++// must be preserved. Calling Resize(0, allowed) instead would slide the window
++// to offset 0, so the length measured afterwards would no longer describe the
++// bytes that actually moved, and the budget would drift by the headroom on
++// every transfer.
++func (c *quotaConn) ReadBuffer(buffer *buf.Buffer) error {
++	window := buffer.Len()
++	allowed := c.state.reserve(window)
++	if allowed <= 0 {
++		return ErrQuotaExhausted
++	}
++	start := buffer.Start()
++	buffer.Resize(start, allowed)
++	err := c.ExtendedConn.ReadBuffer(buffer)
++	moved := buffer.Len()
++	if err != nil && moved == 0 {
++		c.state.refund(allowed)
++		return err
++	}
++	c.state.settle(allowed, moved)
++	return err
++}
++
++func (c *quotaConn) Write(p []byte) (int, error) {
++	allowed := c.state.reserve(len(p))
++	if allowed <= 0 {
++		return 0, ErrQuotaExhausted
++	}
++	n, err := c.ExtendedConn.Write(p[:allowed])
++	if err != nil && n == 0 {
++		c.state.refund(allowed)
++		return n, err
++	}
++	c.state.settle(allowed, n)
++	return n, err
++}
++
++func (c *quotaConn) WriteBuffer(buffer *buf.Buffer) error {
++	window := buffer.Len()
++	allowed := c.state.reserve(window)
++	if allowed <= 0 {
++		return ErrQuotaExhausted
++	}
++	// Keep the front headroom; only the writable tail is trimmed.
++	buffer.Resize(buffer.Start(), allowed)
++	err := c.ExtendedConn.WriteBuffer(buffer)
++	if err != nil {
++		// The payload was not committed by the socket, so nothing was spent.
++		c.state.refund(allowed)
++		return err
++	}
++	c.state.settle(allowed, allowed)
++	return nil
++}
++
++// UnwrapReader hands back a capping reader plus this connection's stat
++// counters. The copy loop unwraps once, stops here (quotaReader is not itself
++// an unwrap candidate), and so both the counters and the cap stay in force.
++func (c *quotaConn) UnwrapReader() (io.Reader, []N.CountFunc) {
++	return &quotaReader{conn: c.raw, state: c.state}, c.readCounters
++}
++
++func (c *quotaConn) conn() net.Conn {
++	return c.raw
++}
++
++func (c *quotaConn) Close() error {
++	c.state.untrack(c)
++	return c.ExtendedConn.Close()
++}
++
++// quotaReader is the type sing's copy loop ultimately reads from. It exposes no
++// upstream hooks, so unwrapping stops here by construction.
++type quotaReader struct {
++	conn  net.Conn
++	state *quotaState
++}
++
++func (r *quotaReader) Read(p []byte) (int, error) {
++	allowed := r.state.reserve(len(p))
++	if allowed <= 0 {
++		return 0, ErrQuotaExhausted
++	}
++	n, err := r.conn.Read(p[:allowed])
++	if err != nil && n == 0 {
++		r.state.refund(allowed)
++		return n, err
++	}
++	r.state.settle(allowed, n)
++	return n, err
++}
++
++type quotaWriter struct {
++	conn  net.Conn
++	state *quotaState
++}
++
++func (c *quotaConn) UnwrapWriter() (io.Writer, []N.CountFunc) {
++	return &quotaWriter{conn: c.conn(), state: c.state}, c.writeCounters
++}
++
++func (w *quotaWriter) Write(p []byte) (int, error) {
++	allowed := w.state.reserve(len(p))
++	if allowed <= 0 {
++		return 0, ErrQuotaExhausted
++	}
++	n, err := w.conn.Write(p[:allowed])
++	if err != nil && n == 0 {
++		w.state.refund(allowed)
++		return n, err
++	}
++	w.state.settle(allowed, n)
++	return n, err
++}
++
++// quotaPacketConn enforces the same budget on a UDP association, covering
++// Hysteria2 and TUIC. The budget is claimed before the datagram is forwarded,
++// so a packet that no longer fits is not sent on.
++type quotaPacketConn struct {
++	N.PacketConn
++	raw           N.PacketConn
++	state         *quotaState
++	readCounters  []N.CountFunc
++	writeCounters []N.CountFunc
++}
++
++func (c *quotaPacketConn) ReadPacket(buffer *buf.Buffer) (M.Socksaddr, error) {
++	// The datagram size is unknown before reading, so claim the whole buffer
++	// window first and settle the unused part afterwards.
++	allowed := c.state.reserve(buffer.Len())
++	if allowed <= 0 {
++		return M.Socksaddr{}, ErrQuotaExhausted
++	}
++	buffer.Resize(buffer.Start(), allowed)
++	destination, err := c.PacketConn.ReadPacket(buffer)
++	if err != nil && buffer.Len() == 0 {
++		c.state.refund(allowed)
++		return destination, err
++	}
++	c.state.settle(allowed, buffer.Len())
++	return destination, err
++}
++
++func (c *quotaPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
++	allowed := c.state.reserve(buffer.Len())
++	if allowed <= 0 {
++		return ErrQuotaExhausted
++	}
++	buffer.Resize(buffer.Start(), allowed)
++	if err := c.PacketConn.WritePacket(buffer, destination); err != nil {
++		c.state.refund(allowed)
++		return err
++	}
++	c.state.settle(allowed, allowed)
++	return nil
++}
++
++func (c *quotaPacketConn) UnwrapPacketReader() (N.PacketReader, []N.CountFunc) {
++	return &quotaPacketReader{conn: c.raw, state: c.state}, c.readCounters
++}
++
++func (c *quotaPacketConn) UnwrapPacketWriter() (N.PacketWriter, []N.CountFunc) {
++	return &quotaPacketWriter{conn: c.raw, state: c.state}, c.writeCounters
++}
++
++func (c *quotaPacketConn) conn() N.PacketConn {
++	return c.PacketConn
++}
++
++func (c *quotaPacketConn) Close() error {
++	c.state.untrack(c)
++	return c.PacketConn.Close()
++}
++
++type quotaPacketReader struct {
++	conn  N.PacketConn
++	state *quotaState
++}
++
++func (r *quotaPacketReader) ReadPacket(buffer *buf.Buffer) (M.Socksaddr, error) {
++	allowed := r.state.reserve(buffer.Len())
++	if allowed <= 0 {
++		return M.Socksaddr{}, ErrQuotaExhausted
++	}
++	buffer.Resize(buffer.Start(), allowed)
++	destination, err := r.conn.ReadPacket(buffer)
++	if err != nil && buffer.Len() == 0 {
++		r.state.refund(allowed)
++		return destination, err
++	}
++	r.state.settle(allowed, buffer.Len())
++	return destination, err
++}
++
++type quotaPacketWriter struct {
++	conn  N.PacketConn
++	state *quotaState
++}
++
++func (w *quotaPacketWriter) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
++	allowed := w.state.reserve(buffer.Len())
++	if allowed <= 0 {
++		return ErrQuotaExhausted
++	}
++	buffer.Resize(buffer.Start(), allowed)
++	if err := w.conn.WritePacket(buffer, destination); err != nil {
++		w.state.refund(allowed)
++		return err
++	}
++	w.state.settle(allowed, allowed)
++	return nil
++}
++
++type quotaRequest struct {
++	User      string `json:"user"`
++	Remaining int64  `json:"remaining"`
++}
++
++type quotaControl struct {
++	Quotas   []quotaRequest `json:"quotas,omitempty"`
++	ClearAll bool           `json:"clear_all,omitempty"`
++}
++
++type quotaStatus struct {
++	Enabled bool             `json:"enabled"`
++	Patch   string           `json:"patch"`
++	Users   map[string]int64 `json:"users"`
++	// Consumed is what the patch has charged, kept separate from Users (the
++	// remaining budget) so a harness can compare "charged" against "actually
++	// delivered" and spot an accounting mismatch instead of guessing.
++	Consumed map[string]int64 `json:"consumed"`
++	Inflight map[string]int64 `json:"inflight"`
++}
++
++// QuotaControlHandler serves the node's budget API. It is bound to loopback by
++// ServeQuotaControl and gated on the shared secret, so it is not reachable from
++// the sing-box config surface.
++func QuotaControlHandler(secret string) http.Handler {
++	mux := http.NewServeMux()
++	mux.HandleFunc("/quota", func(w http.ResponseWriter, r *http.Request) {
++		if secret == "" || r.Header.Get("X-Quota-Secret") != secret {
++			http.Error(w, "unauthorized", http.StatusUnauthorized)
++			return
++		}
++		switch r.Method {
++		case http.MethodGet:
++			quotasMu.RLock()
++			status := quotaStatus{
++				Enabled:  QuotaEnabled(),
++				Patch:    patchLevel,
++				Users:    make(map[string]int64, len(quotas)),
++				Consumed: make(map[string]int64, len(quotas)),
++				Inflight: make(map[string]int64, len(quotas)),
++			}
++			for user, state := range quotas {
++				remaining := state.limit.Load() - state.consumed.Load() - state.inflight.Load()
++				if remaining < 0 {
++					remaining = 0
++				}
++				status.Users[user] = remaining
++				status.Consumed[user] = state.consumed.Load()
++				status.Inflight[user] = state.inflight.Load()
++			}
++			quotasMu.RUnlock()
++			writeJSON(w, status)
++		case http.MethodPost:
++			var control quotaControl
++			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&control); err != nil {
++				http.Error(w, "bad request", http.StatusBadRequest)
++				return
++			}
++			for _, q := range control.Quotas {
++				SetQuota(q.User, q.Remaining)
++			}
++			if control.ClearAll {
++				quotasMu.RLock()
++				states := make([]*quotaState, 0, len(quotas))
++				for _, state := range quotas {
++					states = append(states, state)
++				}
++				quotasMu.RUnlock()
++				for _, state := range states {
++					state.SetUnlimited()
++				}
++			}
++			writeJSON(w, quotaStatus{Enabled: QuotaEnabled(), Patch: patchLevel})
++		default:
++			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
++		}
++	})
++	return mux
++}
++
++// SetUnlimited clears a budget so the user is no longer capped.
++func (s *quotaState) SetUnlimited() {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.limit.Store(-1)
++	s.consumed.Store(0)
++	s.inflight.Store(0)
++	s.exhausted = false
++}
++
++func writeJSON(w http.ResponseWriter, payload any) {
++	w.Header().Set("Content-Type", "application/json")
++	_ = json.NewEncoder(w).Encode(payload)
++}
++
++// ServeQuotaControl starts the loopback-only control endpoint. A non-loopback
++// address is refused: this API can hand out unlimited budget, so binding it
++// publicly would be a remote quota bypass.
++func ServeQuotaControl(listen string, secret string) (*http.Server, error) {
++	if secret == "" {
++		return nil, os.ErrInvalid
++	}
++	host, _, err := net.SplitHostPort(listen)
++	if err != nil {
++		return nil, err
++	}
++	ip := net.ParseIP(host)
++	if ip == nil || !ip.IsLoopback() {
++		return nil, os.ErrPermission
++	}
++	listener, err := net.Listen("tcp", listen)
++	if err != nil {
++		return nil, err
++	}
++	server := &http.Server{
++		Handler:           QuotaControlHandler(secret),
++		ReadHeaderTimeout: 5 * time.Second,
++	}
++	go func() { _ = server.Serve(listener) }()
++	return server, nil
++}
++
++// patchLevel identifies this quota patch to the node, which refuses to run
++// mode B (and falls back to polling) when it cannot read it.
++const patchLevel = "quota-v1"
++
++// PatchLevel reports the quota patch level implemented by this binary.
++func PatchLevel() string {
++	return patchLevel
++}
+\ No newline at end of file
+diff --git a/experimental/v2rayapi/quota_test.go b/experimental/v2rayapi/quota_test.go
+new file mode 100644
+index 0000000..8a53471
+--- /dev/null
++++ b/experimental/v2rayapi/quota_test.go
+@@ -0,0 +1,266 @@
++package v2rayapi
++
++// These tests exist because the cap's correctness depends on a non-obvious
++// interaction with sing's copy loop: bufio.CopyWithIncreateBuffer unwraps any
++// reader that implements N.UnwrapCountReader and then runs the transfer
++// against whatever it finds. If the unwrap handed back the raw socket, the
++// budget would be silently bypassed; if it handed back no CountFuncs, the
++// upstream per-user traffic counters would stop. The first test proves both
++// properties at once against the real copy function.
++
++import (
++	"bytes"
++	"io"
++	"net"
++	"sync"
++	"sync/atomic"
++	"testing"
++
++	"github.com/sagernet/sing/common/bufio"
++)
++
++func tcpPair(t *testing.T) (net.Conn, net.Conn) {
++	t.Helper()
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	accepted := make(chan net.Conn, 1)
++	go func() {
++		conn, err := listener.Accept()
++		if err == nil {
++			accepted <- conn
++		}
++	}()
++	client, err := net.Dial("tcp", listener.Addr().String())
++	if err != nil {
++		t.Fatalf("dial: %v", err)
++	}
++	server := <-accepted
++	listener.Close()
++	t.Cleanup(func() {
++		_ = client.Close()
++		_ = server.Close()
++	})
++	return client, server
++}
++
++func newTestQuotaConn(t *testing.T, state *quotaState, conn net.Conn) (*quotaConn, []*atomic.Int64) {
++	t.Helper()
++	// The exact construction stats.go performs, so the test exercises the real
++	// wrapper chain rather than a simplified stand-in.
++	uplink := &atomic.Int64{}
++	downlink := &atomic.Int64{}
++	readCounters := []*atomic.Int64{uplink}
++	writeCounters := []*atomic.Int64{downlink}
++	counted := bufio.NewInt64CounterConn(conn, readCounters, writeCounters)
++	wrapped := &quotaConn{
++		ExtendedConn:  bufio.NewExtendedConn(counted),
++		raw:           conn,
++		state:         state,
++		readCounters:  toCountFuncs(readCounters),
++		writeCounters: toCountFuncs(writeCounters),
++	}
++	return wrapped, []*atomic.Int64{uplink, downlink}
++}
++
++func TestCopyRespectsBudgetAndKeepsCounters(t *testing.T) {
++	resetQuotas(t)
++
++	const budget = 200_000
++	SetQuota("alice", budget)
++	state := lookupQuota("alice")
++	if state == nil {
++		t.Fatal("expected a quota state for alice")
++	}
++
++	client, server := tcpPair(t)
++	wrapped, counters := newTestQuotaConn(t, state, server)
++
++	// The copy loop the proxy actually uses. It unwraps our wrapper, so this
++	// is the path that would break if the unwrap returned the raw socket.
++	var received bytes.Buffer
++	reader := io.Reader(wrapped)
++	writer := io.Writer(&received)
++
++	stop := make(chan struct{})
++	var wg sync.WaitGroup
++	wg.Add(1)
++	go func() {
++		defer wg.Done()
++		payload := bytes.Repeat([]byte("x"), 64*1024)
++		for {
++			select {
++			case <-stop:
++				return
++			default:
++			}
++			if _, err := client.Write(payload); err != nil {
++				return
++			}
++		}
++	}()
++
++	_, copyErr := bufio.Copy(writer, reader)
++	close(stop)
++	wg.Wait()
++
++	// Consume whatever the copy did not take, then compare.
++	extra, _ := io.Copy(&received, wrapped)
++	_ = extra
++
++	transferred := received.Len()
++	if transferred > budget {
++		t.Fatalf("transferred %d bytes, budget was %d (over by %d)", transferred, budget, transferred-budget)
++	}
++	if transferred < budget {
++		t.Fatalf("transferred %d bytes, expected to consume the whole budget of %d", transferred, budget)
++	}
++	if copyErr == nil {
++		t.Fatal("expected the copy to end with a quota error, got nil")
++	}
++
++	// Counters must still be fed: this is the regression the unwrap risks.
++	counted := int(counters[0].Load())
++	if counted != budget {
++		t.Fatalf("uplink counter reported %d bytes, budget was %d", counted, budget)
++	}
++}
++
++func TestBudgetIsSharedAcrossConnections(t *testing.T) {
++	resetQuotas(t)
++
++	const budget = 100
++	SetQuota("bob", budget)
++	state := lookupQuota("bob")
++
++	if got := state.reserve(60); got != 60 {
++		t.Fatalf("first reserve returned %d, want 60", got)
++	}
++	state.settle(60, 60)
++
++	// A second connection sees only the remainder, not a fresh budget.
++	if got := state.reserve(60); got != 40 {
++		t.Fatalf("second reserve returned %d, want the 40 bytes left", got)
++	}
++	state.settle(40, 40)
++
++	if remaining, _ := QuotaRemaining("bob"); remaining != 0 {
++		t.Fatalf("remaining = %d, want 0", remaining)
++	}
++	if got := state.reserve(1); got != 0 {
++		t.Fatalf("reserve after exhaustion returned %d, want 0", got)
++	}
++}
++
++// A buffer-sized reservation that turns out to be short must NOT cut the user:
++// the budget was only momentarily reserved, not spent. This is the regression
++// that made an earlier version stop at ~30% of the real limit.
++func TestShortReadDoesNotExhaustBudget(t *testing.T) {
++	resetQuotas(t)
++
++	const budget = 1_000_000
++	SetQuota("frank", budget)
++	state := lookupQuota("frank")
++
++	// Four connections each reserve a large buffer; the limit is fully
++	// reserved before any of them settles.
++	reserved := make([]int, 4)
++	for i := range reserved {
++		reserved[i] = state.reserve(budget / 4)
++		if reserved[i] == 0 {
++			t.Fatalf("connection %d got nothing reserved", i)
++		}
++	}
++
++	// Each settles having moved far less than it reserved.
++	for _, r := range reserved {
++		state.settle(r, r/10)
++	}
++
++	remaining, _ := QuotaRemaining("frank")
++	if remaining < budget/2 {
++		t.Fatalf("remaining = %d, want >= %d; a short read must not burn the budget",
++			remaining, budget/2)
++	}
++	if state.exhausted {
++		t.Fatal("budget must not be declared exhausted while bytes were merely reserved")
++	}
++}
++
++func TestShortReadRefundsUnusedReservation(t *testing.T) {
++	resetQuotas(t)
++
++	SetQuota("carol", 50)
++	state := lookupQuota("carol")
++
++	reserved := state.reserve(50)
++	state.settle(reserved, 10) // only 10 bytes actually moved
++
++	remaining, _ := QuotaRemaining("carol")
++	if remaining != 40 {
++		t.Fatalf("remaining = %d, want 40 (the 40 untransferred bytes refunded)", remaining)
++	}
++	if state.reserve(40) != 40 {
++		t.Fatal("refunded bytes should be claimable again")
++	}
++}
++
++func TestUnlimitedUserIsNotWrapped(t *testing.T) {
++	resetQuotas(t)
++
++	if lookupQuota("nobody") != nil {
++		t.Fatal("a user with no budget must be unlimited, not wrapped")
++	}
++
++	// An explicitly negative budget means unlimited, used for resets.
++	SetQuota("dave", -1)
++	if lookupQuota("dave") != nil {
++		t.Fatal("negative remaining must mean unlimited")
++	}
++}
++
++func TestConcurrentReserveNeverExceedsBudget(t *testing.T) {
++	resetQuotas(t)
++
++	const budget = 50_000
++	SetQuota("erin", budget)
++	state := lookupQuota("erin")
++
++	var total atomic.Int64
++	var wg sync.WaitGroup
++	for i := 0; i < 8; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for {
++				got := state.reserve(128)
++				if got == 0 {
++					return
++				}
++				state.settle(got, got)
++				total.Add(int64(got))
++			}
++		}()
++	}
++	wg.Wait()
++
++	if total.Load() != budget {
++		t.Fatalf("eight concurrent connections delivered %d bytes, budget was %d", total.Load(), budget)
++	}
++}
++
++// resetQuotas clears package state between tests; the package is global by
++// design because the patch must reach connections created deep inside sing.
++func resetQuotas(t *testing.T) {
++	t.Helper()
++	quotasMu.Lock()
++	saved := quotas
++	quotas = map[string]*quotaState{}
++	quotasMu.Unlock()
++	t.Cleanup(func() {
++		quotasMu.Lock()
++		quotas = saved
++		quotasMu.Unlock()
++	})
++}
+\ No newline at end of file
+diff --git a/experimental/v2rayapi/server.go b/experimental/v2rayapi/server.go
+index 8ebae1c..ee7810b 100644
+--- a/experimental/v2rayapi/server.go
++++ b/experimental/v2rayapi/server.go
+@@ -10,6 +10,7 @@ import (
+ 	"github.com/sagernet/sing-box/log"
+ 	"github.com/sagernet/sing-box/option"
+ 	"github.com/sagernet/sing/common"
++	E "github.com/sagernet/sing/common/exceptions"
+ 
+ 	"google.golang.org/grpc"
+ 	"google.golang.org/grpc/credentials/insecure"
+@@ -22,16 +23,18 @@ func init() {
+ var _ adapter.V2RayServer = (*Server)(nil)
+ 
+ type Server struct {
+-	logger       log.Logger
+-	listen       string
+-	tcpListener  net.Listener
+-	grpcServer   *grpc.Server
+-	statsService *StatsService
++	logger        log.Logger
++	listen        string
++	tcpListener   net.Listener
++	grpcServer    *grpc.Server
++	statsService  *StatsService
++	quotaControl  *http.Server
+ }
+ 
+ func NewServer(logger log.Logger, options option.V2RayAPIOptions) (adapter.V2RayServer, error) {
+ 	grpcServer := grpc.NewServer(grpc.Creds(insecure.NewCredentials()))
+-	statsService := NewStatsService(common.PtrValueOrDefault(options.Stats))
++	statsOptions := common.PtrValueOrDefault(options.Stats)
++	statsService := NewStatsService(statsOptions)
+ 	if statsService != nil {
+ 		RegisterStatsServiceServer(grpcServer, statsService)
+ 	}
+@@ -41,6 +44,18 @@ func NewServer(logger log.Logger, options option.V2RayAPIOptions) (adapter.V2Ray
+ 		grpcServer:   grpcServer,
+ 		statsService: statsService,
+ 	}
++	var err error
++	// Budgets were already installed by NewStatsService (that happens during
++	// construction, before any listener exists). Serving the control endpoint
++	// here, still inside the constructor, keeps the node able to update budgets
++	// on a running core without a restart.
++	if statsService != nil && statsOptions.Quota != nil && statsOptions.Quota.Listen != "" {
++		server.quotaControl, err = ServeQuotaControl(statsOptions.Quota.Listen, statsOptions.Quota.Secret)
++		if err != nil {
++			return nil, E.Extend(err, "start quota control endpoint")
++		}
++		logger.Info("quota control endpoint started at ", statsOptions.Quota.Listen)
++	}
+ 	return server, nil
+ }
+ 
+@@ -71,6 +86,9 @@ func (s *Server) Close() error {
+ 	if s.grpcServer != nil {
+ 		s.grpcServer.Stop()
+ 	}
++	if s.quotaControl != nil {
++		_ = s.quotaControl.Close()
++	}
+ 	return common.Close(
+ 		common.PtrOrNil(s.grpcServer),
+ 		s.tcpListener,
+diff --git a/experimental/v2rayapi/stats.go b/experimental/v2rayapi/stats.go
+index 6f38fdd..61c005b 100644
+--- a/experimental/v2rayapi/stats.go
++++ b/experimental/v2rayapi/stats.go
+@@ -52,6 +52,11 @@ func NewStatsService(options option.V2RayStatsServiceOptions) *StatsService {
+ 	for _, user := range options.Users {
+ 		users[user] = true
+ 	}
++	// Budgets arrive in the config so they exist before the first inbound can
++	// accept a connection; without this a restart would open an unlimited window.
++	if options.Quota != nil && len(options.Quota.Users) > 0 {
++		LoadQuotas(options.Quota.Users)
++	}
+ 	return &StatsService{
+ 		createdAt: time.Now(),
+ 		inbounds:  inbounds,
+@@ -87,7 +92,24 @@ func (s *StatsService) RoutedConnection(ctx context.Context, conn net.Conn, meta
+ 		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
+ 	}
+ 	s.access.Unlock()
+-	return bufio.NewInt64CounterConn(conn, readCounter, writeCounter)
++	countedConn := bufio.NewInt64CounterConn(conn, readCounter, writeCounter)
++	// A capped user gets a budget-enforcing wrapper *outside* the counter
++	// wrapper: the cap decides how many bytes move, and the counter observes
++	// exactly those bytes. raw points at the socket so the unwrap layers the
++	// capping reader directly on it rather than on the counter wrapper, which
++	// would count every byte twice.
++	if state := lookupQuota(user); state != nil {
++		quota := &quotaConn{
++			ExtendedConn:  bufio.NewExtendedConn(countedConn),
++			raw:           conn,
++			state:         state,
++			readCounters:  toCountFuncs(readCounter),
++			writeCounters: toCountFuncs(writeCounter),
++		}
++		state.track(quota)
++		return quota
++	}
++	return countedConn
+ }
+ 
+ func (s *StatsService) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
+@@ -116,7 +138,22 @@ func (s *StatsService) RoutedPacketConnection(ctx context.Context, conn N.Packet
+ 		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
+ 	}
+ 	s.access.Unlock()
+-	return bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
++	countedPacketConn := bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
++	// UDP/QUIC (Hysteria2, TUIC) is capped on the same combined budget, so a
++	// UDP user cannot spend more than a TCP one. raw is the socket for the same
++	// no-double-count reason as the TCP path.
++	if state := lookupQuota(user); state != nil {
++		quota := &quotaPacketConn{
++			PacketConn:    countedPacketConn,
++			raw:           conn,
++			state:         state,
++			readCounters:  toCountFuncs(readCounter),
++			writeCounters: toCountFuncs(writeCounter),
++		}
++		state.track(quota)
++		return quota
++	}
++	return countedPacketConn
+ }
+ 
+ func (s *StatsService) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
+diff --git a/option/experimental.go b/option/experimental.go
+index 5cf6f51..283098d 100644
+--- a/option/experimental.go
++++ b/option/experimental.go
+@@ -51,4 +51,18 @@ type V2RayStatsServiceOptions struct {
+ 	Inbounds  []string `json:"inbounds,omitempty"`
+ 	Outbounds []string `json:"outbounds,omitempty"`
+ 	Users     []string `json:"users,omitempty"`
++	// Quota is a PasarGuard extension: per-user byte budgets enforced in the
++	// traffic accounting path. Budgets are also passed here in the config so
++	// they exist before any inbound accepts a connection (see quota.go).
++	Quota *QuotaOptions `json:"quota,omitempty"`
++}
++
++type QuotaOptions struct {
++	// Users maps user name -> remaining bytes. A user absent from this map is
++	// unlimited, which is what an untouched upstream config produces.
++	Users map[string]int64 `json:"users,omitempty"`
++	// Listen is the loopback control endpoint used for live budget updates.
++	Listen string `json:"listen,omitempty"`
++	// Secret gates that endpoint; without it Listen is not served.
++	Secret string `json:"secret,omitempty"`
+ }
