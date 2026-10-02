@@ -126,11 +126,9 @@ func (c *Config) syncUsers(users []*common.User) {
 		if tag == "" || c.excluded[tag] {
 			continue
 		}
-		inboundType, _ := inbound["type"].(string)
-
 		injected := make([]any, 0, len(users))
 		for _, user := range users {
-			userObj, ok := userEntryFor(inboundType, user)
+			userObj, ok := userEntryFor(inbound, user)
 			if !ok {
 				continue
 			}
@@ -184,14 +182,17 @@ func (c *Config) refreshStatsUsers() {
 	stats["users"] = names
 }
 
-// userEntryFor builds the sing-box users[] element for an inbound type from the
+// userEntryFor builds the sing-box users[] element for an inbound from the
 // user's credentials. Returns ok=false when the user has no credential for it.
-func userEntryFor(inboundType string, user *common.User) (map[string]any, bool) {
+// The inbound map is consulted for admin-authored per-inbound defaults (e.g.
+// the vless flow used by Reality cores — the panel has no per-user flow field).
+func userEntryFor(inbound map[string]any, user *common.User) (map[string]any, bool) {
 	name := user.GetEmail()
 	proxies := user.GetProxies()
 	if name == "" || proxies == nil {
 		return nil, false
 	}
+	inboundType, _ := inbound["type"].(string)
 
 	switch inboundType {
 	case "vless":
@@ -200,7 +201,13 @@ func userEntryFor(inboundType string, user *common.User) (map[string]any, bool) 
 			return nil, false
 		}
 		entry := map[string]any{"name": name, "uuid": v.GetId()}
-		if flow := v.GetFlow(); flow != "" {
+		// flow priority: user-level (bridge proto) then the admin-authored
+		// inbound template (where Reality cores normally carry it)
+		flow := v.GetFlow()
+		if flow == "" {
+			flow = templateVlessFlow(inbound)
+		}
+		if flow != "" {
 			entry["flow"] = flow
 		}
 		return entry, true
@@ -267,4 +274,21 @@ func userEntryFor(inboundType string, user *common.User) (map[string]any, bool) 
 		// unknown inbound type (wireguard endpoints, mixed, http, ...): no injection
 		return nil, false
 	}
+}
+
+// templateVlessFlow reads the flow from the admin-authored users[] template of
+// a vless inbound (the panel does not model per-user flow; Reality cores put
+// xtls-rprx-vision on the inbound's user entries).
+func templateVlessFlow(inbound map[string]any) string {
+	users, _ := inbound["users"].([]any)
+	for _, u := range users {
+		m, _ := u.(map[string]any)
+		if m == nil {
+			continue
+		}
+		if flow, _ := m["flow"].(string); flow != "" {
+			return flow
+		}
+	}
+	return ""
 }
