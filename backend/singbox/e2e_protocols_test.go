@@ -108,15 +108,13 @@ func TestSingBoxProtocolMatrix(t *testing.T) {
 	fullProxies := &common.Proxy{
 		Vless:       &common.Vless{Id: userID},
 		Trojan:      &common.Trojan{Password: "tj-pw"},
-		Shadowsocks: &common.Shadowsocks{Password: "8JCsPssfgS8tiRwiMlhARg=="},
+		Shadowsocks: &common.Shadowsocks{Password: "SyXAMRozxYUo2DyZFjPrwQ=="},
 		Hysteria:    &common.Hysteria{Auth: "hy2-pw"},
 	}
-	// SS-2022 is server-PSK scoped: no per-user identity, so its traffic is
-	// attributed to the inbound, not to a user. Every other inbound gets its
-	// own user entry.
 	cfg.syncUsers([]*common.User{
 		{Email: "vless-user", Proxies: fullProxies, Inbounds: []string{"vless-in"}},
 		{Email: "trojan-user", Proxies: fullProxies, Inbounds: []string{"trojan-in"}},
+		{Email: "ss-user", Proxies: fullProxies, Inbounds: []string{"ss-in"}},
 		{Email: "hy2-user", Proxies: fullProxies, Inbounds: []string{"hy2-in"}},
 		{Email: "tuic-user", Proxies: fullProxies, Inbounds: []string{"tuic-in"}},
 	})
@@ -146,7 +144,7 @@ func TestSingBoxProtocolMatrix(t *testing.T) {
 	}()
 
 	for name, wantUser := range map[string]string{
-		"vless": "vless-user", "trojan": "trojan-user", "hy2": "hy2-user", "tuic": "tuic-user", "ss": "",
+		"vless": "vless-user", "trojan": "trojan-user", "hy2": "hy2-user", "tuic": "tuic-user", "ss": "ss-user",
 	} {
 		t.Run(name, func(t *testing.T) {
 			port := freePort(t)
@@ -164,11 +162,6 @@ func TestSingBoxProtocolMatrix(t *testing.T) {
 
 			received := socksFetch(t, port, targetPort, 2048)
 			t.Logf("%s: received %d bytes", name, received)
-			if wantUser == "" {
-				// SS-2022 has no per-user identity; connectivity is the assertion
-				return
-			}
-
 			deadline := time.Now().Add(20 * time.Second)
 			var up, down int64
 			for time.Now().Before(deadline) {
@@ -254,7 +247,8 @@ func clientOutboundFor(name string, serverPort int, userID string) map[string]an
 	case "ss":
 		return map[string]any{
 			"type": "shadowsocks", "tag": "proxy", "server": "127.0.0.1", "server_port": serverPort,
-			"method": "2022-blake3-aes-128-gcm", "password": "8JCsPssfgS8tiRwiMlhARg==",
+			"method":   "2022-blake3-aes-128-gcm",
+			"password": "8JCsPssfgS8tiRwiMlhARg==:SyXAMRozxYUo2DyZFjPrwQ==",
 		}
 	case "hy2":
 		return map[string]any{

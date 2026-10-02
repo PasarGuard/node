@@ -220,12 +220,19 @@ func userEntryFor(inboundType string, user *common.User) (map[string]any, bool) 
 		return map[string]any{"name": name, "password": t.GetPassword()}, true
 
 	case "shadowsocks":
-		// SS-2022 derives its EIH subkey from the inbound PSK, so a per-user
-		// password can never match it (upstream: sing-shadowsocks
-		// service_multi.go returns ErrInvalidRequest). Classic AEAD methods
-		// have no users[] at all; multi-user SS-2022 stays server-PSK scoped.
-		_ = proxies.GetShadowsocks()
-		return nil, false
+		// Multi-user shadowsocks: sing-box switches to MultiInbound whenever
+		// users[] is present (protocol/shadowsocks/inbound.go). For 2022
+		// methods the client password must be "serverKey:userKey" (see
+		// sing-shadowsocks shadowaead_2022/protocol.go NewWithPassword —
+		// it splits on ":"), and the server keeps its own PSK at the inbound
+		// top level; for classic methods each user simply carries their own
+		// password and the server tries each key. users[].name is the stats
+		// identity either way.
+		s := proxies.GetShadowsocks()
+		if s == nil || s.GetPassword() == "" {
+			return nil, false
+		}
+		return map[string]any{"name": name, "password": s.GetPassword()}, true
 
 	case "shadowtls":
 		// shadowtls v3 wraps an inner shadowsocks inbound; the v3 password is

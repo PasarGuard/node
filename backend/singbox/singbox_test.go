@@ -68,12 +68,10 @@ func TestSingBoxConfigUserInjection(t *testing.T) {
 
 	cfg.syncUsers([]*common.User{testUser("42")})
 
-	// SS-2022 has no per-user identities (EIH derives from the server PSK),
-	// so it is expected to stay empty while the rest get one entry each.
 	want := map[string]int{
 		"vless-in":  1,
 		"trojan-in": 1,
-		"ss2022-in": 0,
+		"ss2022-in": 1,
 		"hy2-in":    1,
 		"tuic-in":   1,
 	}
