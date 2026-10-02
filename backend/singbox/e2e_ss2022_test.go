@@ -162,3 +162,89 @@ func TestSS2022MultiUserStats(t *testing.T) {
 	}
 	t.Logf("SS-2022 per-user counters: u1=%d u2=%d", totals["u1"], totals["u2"])
 }
+
+// TestRealityTLSDefaultsFilled proves the node fills server_name/alpn for a
+// Reality inbound that omits them. Found by passing live traffic through a
+// panel-managed Reality core: without these, clients fail with
+// "reality verification failed" even though `sing-box check` passes.
+func TestRealityTLSDefaultsFilled(t *testing.T) {
+	cfg, err := NewConfig(`{
+      "inbounds": [
+        {"type":"vless","tag":"r","listen":"0.0.0.0","listen_port":443,"users":[],
+         "tls":{"enabled":true,
+           "reality":{"enabled":true,
+             "handshake":{"server":"www.microsoft.com","server_port":443},
+             "private_key":"aDDe6dyBwu2nRFwnalSvl2JcGOU_ajXw1ya-LXoJdEw",
+             "short_id":["0123456789abcdef"]}}}
+      ],
+      "outbounds": [{"type":"direct","tag":"direct"}]
+    }`, nil)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	tls := cfg.inbounds()[0]["tls"].(map[string]any)
+	if tls["server_name"] != "www.microsoft.com" {
+		t.Errorf("server_name = %v, want www.microsoft.com", tls["server_name"])
+	}
+	alpn, _ := tls["alpn"].([]any)
+	if len(alpn) != 2 {
+		t.Errorf("alpn = %v, want [h2 http/1.1]", tls["alpn"])
+	}
+}
+
+// TestVlessFlowFromInboundTemplate proves users inherit `flow` from the
+// admin-authored inbound template (the panel models flow per-inbound).
+func TestVlessFlowFromInboundTemplate(t *testing.T) {
+	cfg, err := NewConfig(`{
+      "inbounds": [
+        {"type":"vless","tag":"r","listen":"0.0.0.0","listen_port":443,
+         "users":[{"name":"template","uuid":"00000000-0000-0000-0000-000000000000","flow":"xtls-rprx-vision"}]}
+      ],
+      "outbounds": [{"type":"direct","tag":"direct"}]
+    }`, nil)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	cfg.syncUsers([]*common.User{{
+		Email:    "1",
+		Proxies:  &common.Proxy{Vless: &common.Vless{Id: uuid.New().String()}},
+		Inbounds: []string{"r"},
+	}})
+	users, _ := cfg.inbounds()[0]["users"].([]any)
+	if len(users) != 1 {
+		t.Fatalf("injected %d users, want 1", len(users))
+	}
+	entry := users[0].(map[string]any)
+	if entry["flow"] != "xtls-rprx-vision" {
+		t.Errorf("injected flow = %v, want xtls-rprx-vision", entry["flow"])
+	}
+}
+
+// TestRealityFlowDefault: even with an empty users template, users injected
+// into a Reality inbound must carry xtls-rprx-vision.
+func TestRealityFlowDefault(t *testing.T) {
+	cfg, err := NewConfig(`{
+      "inbounds": [
+        {"type":"vless","tag":"r","listen":"0.0.0.0","listen_port":443,"users":[],
+         "tls":{"enabled":true,
+           "reality":{"enabled":true,
+             "handshake":{"server":"www.microsoft.com","server_port":443},
+             "private_key":"aDDe6dyBwu2nRFwnalSvl2JcGOU_ajXw1ya-LXoJdEw",
+             "short_id":["0123456789abcdef"]}}}
+      ],
+      "outbounds": [{"type":"direct","tag":"direct"}]
+    }`, nil)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	cfg.syncUsers([]*common.User{{
+		Email:    "1",
+		Proxies:  &common.Proxy{Vless: &common.Vless{Id: uuid.New().String()}},
+		Inbounds: []string{"r"},
+	}})
+	users, _ := cfg.inbounds()[0]["users"].([]any)
+	entry := users[0].(map[string]any)
+	if entry["flow"] != "xtls-rprx-vision" {
+		t.Errorf("flow = %v, want default xtls-rprx-vision on a reality inbound", entry["flow"])
+	}
+}

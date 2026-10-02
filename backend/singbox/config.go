@@ -28,7 +28,37 @@ func NewConfig(config string, exclude []string) (*Config, error) {
 		excluded[tag] = true
 	}
 
-	return &Config{raw: raw, excluded: excluded}, nil
+	c := &Config{raw: raw, excluded: excluded}
+	c.normalizeRealityTLS()
+	return c, nil
+}
+
+// normalizeRealityTLS fills tls.server_name / tls.alpn for Reality inbounds
+// that omit them. The panel does the same when it validates a core, but a
+// stored config (or one written before that validation existed) reaches the
+// node unchanged, and a Reality inbound without the SNI the server
+// impersonates fails every client with "reality verification failed".
+func (c *Config) normalizeRealityTLS() {
+	for _, inbound := range c.inbounds() {
+		tls, _ := inbound["tls"].(map[string]any)
+		if tls == nil || tls["enabled"] != true {
+			continue
+		}
+		reality, _ := tls["reality"].(map[string]any)
+		if reality == nil || reality["enabled"] != true {
+			continue
+		}
+		if name, _ := tls["server_name"].(string); name == "" {
+			if handshake, _ := reality["handshake"].(map[string]any); handshake != nil {
+				if server, _ := handshake["server"].(string); server != "" {
+					tls["server_name"] = server
+				}
+			}
+		}
+		if _, ok := tls["alpn"].([]any); !ok {
+			tls["alpn"] = []any{"h2", "http/1.1"}
+		}
+	}
 }
 
 // Clone deep-copies the config (used for rollback around failed restarts).
@@ -207,6 +237,13 @@ func userEntryFor(inbound map[string]any, user *common.User) (map[string]any, bo
 		if flow == "" {
 			flow = templateVlessFlow(inbound)
 		}
+		if flow == "" && inboundEnablesReality(inbound) {
+			// Reality inbounds effectively require xtls-rprx-vision: without
+			// it clients fail with "reality verification failed" (verified
+			// against sing-box 1.14.2). Default it so an admin-authored
+			// config needs no per-user flow at all.
+			flow = "xtls-rprx-vision"
+		}
 		if flow != "" {
 			entry["flow"] = flow
 		}
@@ -291,4 +328,14 @@ func templateVlessFlow(inbound map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// inboundEnablesReality reports whether the inbound runs a Reality TLS block.
+func inboundEnablesReality(inbound map[string]any) bool {
+	tls, _ := inbound["tls"].(map[string]any)
+	if tls == nil || tls["enabled"] != true {
+		return false
+	}
+	reality, _ := tls["reality"].(map[string]any)
+	return reality != nil && reality["enabled"] == true
 }
