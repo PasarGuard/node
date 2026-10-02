@@ -19,7 +19,7 @@
         },
         {
             "tag": "Shadowsocks 2022",
-            "port": 1234,
+            "port": 8888,
             "protocol": "shadowsocks",
             "settings": {
                 "method": "2022-blake3-aes-128-gcm",
