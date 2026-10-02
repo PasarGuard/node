@@ -179,3 +179,45 @@ test-race-wireguard:
 
 serve:
 	go run ./cmd/node
+
+SINGBOX_VERSION ?= 1.14.2
+
+# Install the official sing-box release. Official binaries do NOT include
+# v2ray_api (per-user traffic stats); use `make build_singbox_v2api` for a
+# stats-capable build (see docs/singbox/README.md).
+install_singbox: update_os
+ifeq ($(UNAME_S),Linux)
+	@echo "Installing sing-box $(SINGBOX_VERSION)..."
+	@arch=$$(uname -m); \
+	case $$arch in \
+		x86_64)  sb_arch=amd64 ;; \
+		aarch64) sb_arch=arm64 ;; \
+		armv7l)  sb_arch=armv7 ;; \
+		*) echo "unsupported architecture: $$arch"; exit 1 ;; \
+	esac; \
+	curl -fsSL -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v$(SINGBOX_VERSION)/sing-box-$(SINGBOX_VERSION)-linux-$$sb_arch.tar.gz" && \
+	(tar -xzf /tmp/sing-box.tar.gz -C /tmp || sudo tar -xzf /tmp/sing-box.tar.gz -C /tmp) && \
+	(install /tmp/sing-box-$(SINGBOX_VERSION)-linux-$$sb_arch/sing-box /usr/local/bin/sing-box || \
+	 sudo install /tmp/sing-box-$(SINGBOX_VERSION)-linux-$$sb_arch/sing-box /usr/local/bin/sing-box) && \
+	rm -rf /tmp/sing-box* && \
+	sing-box version
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
+# Build sing-box from source with -tags with_v2ray_api and install it to
+# /usr/local/bin/sing-box. Required for per-user traffic stats; needs a Go
+# toolchain (>= the version sing-box requires for this tag release).
+build_singbox_v2api:
+	@echo "Building sing-box $(SINGBOX_VERSION) with with_v2ray_api..."
+	rm -rf /tmp/sing-box-src
+	git clone --depth 1 --branch v$(SINGBOX_VERSION) https://github.com/SagerNet/sing-box /tmp/sing-box-src
+	cd /tmp/sing-box-src && go build \
+		-tags "with_v2ray_api,with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" \
+		-ldflags "-X 'github.com/sagernet/sing-box/constant.Version=$(SINGBOX_VERSION)' -s -w" \
+		-o sing-box ./cmd/sing-box
+	(install /tmp/sing-box-src/sing-box /usr/local/bin/sing-box || \
+	 sudo install /tmp/sing-box-src/sing-box /usr/local/bin/sing-box)
+	rm -rf /tmp/sing-box-src
+	sing-box version
