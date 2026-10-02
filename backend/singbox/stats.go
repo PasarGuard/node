@@ -73,7 +73,7 @@ func (s *SingBox) GetStats(ctx context.Context, request *common.StatRequest) (*c
 	if err != nil {
 		return nil, err
 	}
-	return s.mergePendingStats(raw, request.GetReset_()), nil
+	return s.mergePendingStats(raw, reset), nil
 }
 
 // mergePendingStats folds counters that were drained before a planned restart
