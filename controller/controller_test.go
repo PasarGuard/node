@@ -17,14 +17,14 @@ type stubBackend struct {
 	shutdowns atomic.Int32
 }
 
-func (s *stubBackend) Started() bool { return s.started.Load() }
-func (s *stubBackend) Version() string { return "test" }
-func (s *stubBackend) Logs() <-chan string { return nil }
-func (s *stubBackend) Restart() error { return nil }
-func (s *stubBackend) Shutdown() { s.shutdowns.Add(1); s.started.Store(false) }
-func (s *stubBackend) SyncUser(context.Context, *common.User) error { return nil }
-func (s *stubBackend) SyncUsers(context.Context, []*common.User) error { return nil }
-func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error { return nil }
+func (s *stubBackend) Started() bool                                               { return s.started.Load() }
+func (s *stubBackend) Version() string                                             { return "test" }
+func (s *stubBackend) Logs() <-chan string                                         { return nil }
+func (s *stubBackend) Restart() error                                              { return nil }
+func (s *stubBackend) Shutdown()                                                   { s.shutdowns.Add(1); s.started.Store(false) }
+func (s *stubBackend) SyncUser(context.Context, *common.User) error                { return nil }
+func (s *stubBackend) SyncUsers(context.Context, []*common.User) error             { return nil }
+func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error           { return nil }
 func (s *stubBackend) UpdateUsersAndRestart(context.Context, []*common.User) error { return nil }
 func (s *stubBackend) GetSysStats(context.Context) (*common.BackendStatsResponse, error) {
 	return &common.BackendStatsResponse{}, nil
@@ -103,6 +103,112 @@ func TestStartOrAttachConfigChanged(t *testing.T) {
 	}
 	if running.shutdowns.Load() != 1 {
 		t.Fatalf("config change: running backend shutdowns = %d, want 1", running.shutdowns.Load())
+	}
+}
+
+// TestStartOrAttachStartWithNoUsersIsNotAHeartbeat: a Start carrying no users
+// must not be mistaken for a heartbeat.
+//
+// The panel filters core_users by status, so once every user is limited the Start
+// it sends has an empty user list. Treating that as "same config, keep what you
+// have" left the core running with the users it already had; treating it as a
+// restart built a config with no users at all. Either way the user that made
+// the restart necessary lost their budget. The node must apply it.
+func TestStartOrAttachStartWithNoUsersIsNotAHeartbeat(t *testing.T) {
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	running := &stubBackend{}
+	running.started.Store(true)
+	c.backend = running
+	c.activeData = &common.Backend{
+		Type:   common.BackendType_SINGBOX,
+		Config: "cfg1",
+		Users:  []*common.User{{Email: "1", Quota: 4_000_000}},
+	}
+
+	c.LockControl()
+	// StartBackend fails on the fake config; what matters is that it was
+	// attempted, i.e. the running backend was shut down and rebuilt.
+	err := c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType_SINGBOX, Config: "cfg1"})
+	c.UnlockControl()
+	if err == nil {
+		t.Fatal("expected StartBackend to fail with the fake config")
+	}
+	if running.shutdowns.Load() != 1 {
+		t.Fatalf("empty-user Start did not restart the core: shutdowns = %d, want 1", running.shutdowns.Load())
+	}
+}
+
+// TestStartOrAttachChangedCredentialsIsNotAHeartbeat: a Start whose user carries
+// different credentials must be applied, not skipped.
+func TestStartOrAttachChangedCredentialsIsNotAHeartbeat(t *testing.T) {
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	running := &stubBackend{}
+	running.started.Store(true)
+	c.backend = running
+	c.activeData = &common.Backend{
+		Type:   common.BackendType_SINGBOX,
+		Config: "cfg1",
+		Users: []*common.User{{
+			Email:   "1",
+			Proxies: &common.Proxy{Vless: &common.Vless{Id: "aaaaaaaa-0000-0000-0000-000000000001"}},
+		}},
+	}
+
+	c.LockControl()
+	// StartBackend fails on the fake config; what matters is that it was
+	// attempted, i.e. the running backend was shut down and rebuilt.
+	err := c.StartOrAttach(context.Background(), &common.Backend{
+		Type:   common.BackendType_SINGBOX,
+		Config: "cfg1",
+		Users: []*common.User{{
+			Email:   "1",
+			Proxies: &common.Proxy{Vless: &common.Vless{Id: "bbbbbbbb-0000-0000-0000-000000000002"}},
+		}},
+	})
+	c.UnlockControl()
+	if err == nil {
+		t.Fatal("expected StartBackend to fail with the fake config")
+	}
+	if running.shutdowns.Load() != 1 {
+		t.Fatalf("changed-credential Start did not restart the core: shutdowns = %d, want 1", running.shutdowns.Load())
+	}
+}
+
+// TestStartOrAttachQuotaOnlyChangeIsAHeartbeat: a Start that differs only in the
+// remaining budget must NOT restart the core.
+//
+// The panel recomputes quota on every usage tick, so a heartbeat would otherwise
+// restart the core once per tick per node. A moved budget is carried by
+// SyncUser/UpdateUsers, which exist precisely to deliver it without a restart.
+func TestStartOrAttachQuotaOnlyChangeIsAHeartbeat(t *testing.T) {
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	running := &stubBackend{}
+	running.started.Store(true)
+	c.backend = running
+	c.activeData = &common.Backend{
+		Type:   common.BackendType_SINGBOX,
+		Config: "cfg1",
+		Users:  []*common.User{{Email: "1", Quota: 4_000_000}},
+	}
+
+	c.LockControl()
+	err := c.StartOrAttach(context.Background(), &common.Backend{
+		Type:   common.BackendType_SINGBOX,
+		Config: "cfg1",
+		Users:  []*common.User{{Email: "1", Quota: 1_000_000}},
+	})
+	c.UnlockControl()
+	if err != nil {
+		t.Fatalf("quota-only change should be a heartbeat, got: %v", err)
+	}
+	if running.shutdowns.Load() != 0 {
+		t.Fatalf("quota-only change restarted the core: shutdowns = %d, want 0", running.shutdowns.Load())
 	}
 }
 

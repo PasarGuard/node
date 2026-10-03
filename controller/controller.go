@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -114,9 +115,15 @@ func (c *Controller) NewRequest() {
 }
 
 // sameBackendConfig reports whether two Backend descriptors describe the same
-// running configuration. Users are intentionally excluded — they are managed
-// through their own sync RPCs, so a Start that only differs in the user list
-// is still a heartbeat and must not cause a restart.
+// running configuration, users included.
+//
+// Users were excluded here on the assumption that they only change through their
+// own sync RPCs. That is wrong: Start *replaces* the user set, so a Start whose
+// list differs from the one the running core was built with has to be applied,
+// not skipped as a heartbeat. The panel sends exactly such a Start whenever
+// core_users filters a user out (User.status is limited/on_hold-gated), and
+// treating it as a heartbeat left the core enforcing a budget the panel no
+// longer agreed with.
 func sameBackendConfig(active, incoming *common.Backend) bool {
 	if active == nil || incoming == nil {
 		return false
@@ -127,17 +134,47 @@ func sameBackendConfig(active, incoming *common.Backend) bool {
 	if active.GetConfig() != incoming.GetConfig() {
 		return false
 	}
+	if !sameUserSet(active.GetUsers(), incoming.GetUsers()) {
+		return false
+	}
 	// Compare exclude_inbounds as an ordered proto repeated field.
 	tmp1 := &common.Backend{ExcludeInbounds: active.GetExcludeInbounds()}
 	tmp2 := &common.Backend{ExcludeInbounds: incoming.GetExcludeInbounds()}
 	return proto.Equal(tmp1, tmp2)
 }
 
+// sameUserSet reports whether two user lists describe the same set of users.
+//
+// Identity and credentials are compared, quota is not: the panel recomputes the
+// remaining budget on every usage tick, so including it would make every
+// heartbeat look like a change and restart the core once per tick. A moved
+// budget is delivered by SyncUser/UpdateUsers, which is the path that exists to
+// carry it without a restart.
+func sameUserSet(active, incoming []*common.User) bool {
+	if len(active) != len(incoming) {
+		return false
+	}
+	for i, u := range incoming {
+		a := active[i]
+		if a.GetEmail() != u.GetEmail() {
+			return false
+		}
+		if !proto.Equal(a.GetProxies(), u.GetProxies()) {
+			return false
+		}
+		if !slices.Equal(a.GetInbounds(), u.GetInbounds()) {
+			return false
+		}
+	}
+	return true
+}
+
 // StartOrAttach starts the core, or refreshes keep-alive if the same core is
 // already running (heartbeat case). It only restarts when:
 //   - No backend is running, or
 //   - The running backend has stopped, or
-//   - The incoming config differs from what started the current backend.
+//   - The incoming config differs from what started the current backend,
+//     including its user list (see sameBackendConfig).
 //
 // Caller must hold LockControl.
 func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
