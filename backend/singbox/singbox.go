@@ -25,6 +25,15 @@ type SingBox struct {
 
 	// debounced sync (SINGBOX_SYNC_DEBOUNCE_SECONDS): user changes update the
 	// desired state immediately but materialize with one coalesced restart.
+	// quota-exhaustion events for the panel; created lazily by QuotaEventCh.
+	eventOnce   sync.Once
+	quotaEvents chan common.NodeEvent
+
+	// quotaEndpoint/secret address the core's control endpoint, used to detect
+	// exhaustion promptly. Empty when the endpoint is not enabled.
+	quotaEndpoint string
+	quotaSecret   string
+
 	debounceTimer *time.Timer
 	lastFlushAt   time.Time
 	flushFailures int
@@ -99,6 +108,16 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 	}
 
 	go sb.checkSingBoxHealth(xCtx)
+
+	// The control endpoint is described by the config, not the node settings,
+	// so it is read off the config after it is applied.
+	if endpoint := sbConfig.quotaEndpoint(); endpoint != "" {
+		sb.mu.Lock()
+		sb.quotaEndpoint = endpoint
+		sb.quotaSecret = cfg.QuotaSecret
+		sb.mu.Unlock()
+		sb.startQuotaMonitor(xCtx, endpoint, cfg.QuotaSecret)
+	}
 
 	log.Println("sing-box started, Version:", sb.Version())
 

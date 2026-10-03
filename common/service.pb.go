@@ -128,6 +128,53 @@ func (StatType) EnumDescriptor() ([]byte, []int) {
 	return file_common_service_proto_rawDescGZIP(), []int{1}
 }
 
+type NodeEventType int32
+
+const (
+	NodeEventType_NODE_EVENT_UNSPECIFIED NodeEventType = 0
+	// The core closed this user's connections because their budget was spent.
+	NodeEventType_NODE_EVENT_QUOTA_EXHAUSTED NodeEventType = 1
+)
+
+// Enum value maps for NodeEventType.
+var (
+	NodeEventType_name = map[int32]string{
+		0: "NODE_EVENT_UNSPECIFIED",
+		1: "NODE_EVENT_QUOTA_EXHAUSTED",
+	}
+	NodeEventType_value = map[string]int32{
+		"NODE_EVENT_UNSPECIFIED":     0,
+		"NODE_EVENT_QUOTA_EXHAUSTED": 1,
+	}
+)
+
+func (x NodeEventType) Enum() *NodeEventType {
+	p := new(NodeEventType)
+	*p = x
+	return p
+}
+
+func (x NodeEventType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NodeEventType) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_service_proto_enumTypes[2].Descriptor()
+}
+
+func (NodeEventType) Type() protoreflect.EnumType {
+	return &file_common_service_proto_enumTypes[2]
+}
+
+func (x NodeEventType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NodeEventType.Descriptor instead.
+func (NodeEventType) EnumDescriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{2}
+}
+
 type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2096,6 +2143,72 @@ func (x *OverrideBalancerTargetRequest) GetTarget() string {
 	return ""
 }
 
+// Node events pushed to the panel (server-streaming, SubscribeEvents).
+// Distinct from Stat, which is a pull: an exhausted quota has to reach the
+// panel immediately, not on its next poll, or a user keeps spending for the
+// length of one interval after their core has already cut them.
+type NodeEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// user_id is the panel user id as a string (the core calls a user by
+	// str(user.id)), so no numeric conversion is needed on either side.
+	UserId        string        `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Type          NodeEventType `protobuf:"varint,2,opt,name=type,proto3,enum=service.NodeEventType" json:"type,omitempty"`
+	Remaining     int64         `protobuf:"varint,3,opt,name=remaining,proto3" json:"remaining,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeEvent) Reset() {
+	*x = NodeEvent{}
+	mi := &file_common_service_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeEvent) ProtoMessage() {}
+
+func (x *NodeEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeEvent.ProtoReflect.Descriptor instead.
+func (*NodeEvent) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *NodeEvent) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *NodeEvent) GetType() NodeEventType {
+	if x != nil {
+		return x.Type
+	}
+	return NodeEventType_NODE_EVENT_UNSPECIFIED
+}
+
+func (x *NodeEvent) GetRemaining() int64 {
+	if x != nil {
+		return x.Remaining
+	}
+	return 0
+}
+
 var File_common_service_proto protoreflect.FileDescriptor
 
 const file_common_service_proto_rawDesc = "" +
@@ -2246,7 +2359,11 @@ const file_common_service_proto_rawDesc = "" +
 	"\brule_tag\x18\x01 \x01(\tR\aruleTag\"Z\n" +
 	"\x1dOverrideBalancerTargetRequest\x12!\n" +
 	"\fbalancer_tag\x18\x01 \x01(\tR\vbalancerTag\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target*3\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"n\n" +
+	"\tNodeEvent\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12*\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x16.service.NodeEventTypeR\x04type\x12\x1c\n" +
+	"\tremaining\x18\x03 \x01(\x03R\tremaining*3\n" +
 	"\vBackendType\x12\b\n" +
 	"\x04XRAY\x10\x00\x12\r\n" +
 	"\tWIREGUARD\x10\x01\x12\v\n" +
@@ -2257,12 +2374,17 @@ const file_common_service_proto_rawDesc = "" +
 	"\bInbounds\x10\x02\x12\v\n" +
 	"\aInbound\x10\x03\x12\r\n" +
 	"\tUsersStat\x10\x04\x12\f\n" +
-	"\bUserStat\x10\x052\xdc\t\n" +
+	"\bUserStat\x10\x05*K\n" +
+	"\rNodeEventType\x12\x1a\n" +
+	"\x16NODE_EVENT_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aNODE_EVENT_QUOTA_EXHAUSTED\x10\x012\x97\n" +
+	"\n" +
 	"\vNodeService\x126\n" +
 	"\x05Start\x12\x10.service.Backend\x1a\x19.service.BaseInfoResponse\"\x00\x12(\n" +
 	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12:\n" +
 	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12+\n" +
-	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x12@\n" +
+	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x129\n" +
+	"\x0fSubscribeEvents\x12\x0e.service.Empty\x1a\x12.service.NodeEvent\"\x000\x01\x12@\n" +
 	"\x0eGetSystemStats\x12\x0e.service.Empty\x1a\x1c.service.SystemStatsResponse\"\x00\x12B\n" +
 	"\x0fGetBackendStats\x12\x0e.service.Empty\x1a\x1d.service.BackendStatsResponse\"\x00\x129\n" +
 	"\bGetStats\x12\x14.service.StatRequest\x1a\x15.service.StatResponse\"\x00\x12J\n" +
@@ -2291,108 +2413,113 @@ func file_common_service_proto_rawDescGZIP() []byte {
 	return file_common_service_proto_rawDescData
 }
 
-var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_common_service_proto_goTypes = []any{
 	(BackendType)(0),                      // 0: service.BackendType
 	(StatType)(0),                         // 1: service.StatType
-	(*Empty)(nil),                         // 2: service.Empty
-	(*BaseInfoResponse)(nil),              // 3: service.BaseInfoResponse
-	(*Backend)(nil),                       // 4: service.Backend
-	(*Log)(nil),                           // 5: service.Log
-	(*Stat)(nil),                          // 6: service.Stat
-	(*StatResponse)(nil),                  // 7: service.StatResponse
-	(*StatRequest)(nil),                   // 8: service.StatRequest
-	(*OnlineStatResponse)(nil),            // 9: service.OnlineStatResponse
-	(*StatsOnlineIpListResponse)(nil),     // 10: service.StatsOnlineIpListResponse
-	(*Latency)(nil),                       // 11: service.Latency
-	(*LatencyRequest)(nil),                // 12: service.LatencyRequest
-	(*LatencyResponse)(nil),               // 13: service.LatencyResponse
-	(*BackendStatsResponse)(nil),          // 14: service.BackendStatsResponse
-	(*SystemStatsResponse)(nil),           // 15: service.SystemStatsResponse
-	(*Vmess)(nil),                         // 16: service.Vmess
-	(*Vless)(nil),                         // 17: service.Vless
-	(*Trojan)(nil),                        // 18: service.Trojan
-	(*Shadowsocks)(nil),                   // 19: service.Shadowsocks
-	(*Wireguard)(nil),                     // 20: service.Wireguard
-	(*Hysteria)(nil),                      // 21: service.Hysteria
-	(*Proxy)(nil),                         // 22: service.Proxy
-	(*User)(nil),                          // 23: service.User
-	(*Users)(nil),                         // 24: service.Users
-	(*UsersChunk)(nil),                    // 25: service.UsersChunk
-	(*RoutingRule)(nil),                   // 26: service.RoutingRule
-	(*RoutingRulesResponse)(nil),          // 27: service.RoutingRulesResponse
-	(*BalancerInfoRequest)(nil),           // 28: service.BalancerInfoRequest
-	(*BalancerInfoResponse)(nil),          // 29: service.BalancerInfoResponse
-	(*TestRouteRequest)(nil),              // 30: service.TestRouteRequest
-	(*RouteResult)(nil),                   // 31: service.RouteResult
-	(*AddRoutingRuleRequest)(nil),         // 32: service.AddRoutingRuleRequest
-	(*RemoveRoutingRuleRequest)(nil),      // 33: service.RemoveRoutingRuleRequest
-	(*OverrideBalancerTargetRequest)(nil), // 34: service.OverrideBalancerTargetRequest
-	nil,                                   // 35: service.StatsOnlineIpListResponse.IpsEntry
-	nil,                                   // 36: service.TestRouteRequest.AttributesEntry
+	(NodeEventType)(0),                    // 2: service.NodeEventType
+	(*Empty)(nil),                         // 3: service.Empty
+	(*BaseInfoResponse)(nil),              // 4: service.BaseInfoResponse
+	(*Backend)(nil),                       // 5: service.Backend
+	(*Log)(nil),                           // 6: service.Log
+	(*Stat)(nil),                          // 7: service.Stat
+	(*StatResponse)(nil),                  // 8: service.StatResponse
+	(*StatRequest)(nil),                   // 9: service.StatRequest
+	(*OnlineStatResponse)(nil),            // 10: service.OnlineStatResponse
+	(*StatsOnlineIpListResponse)(nil),     // 11: service.StatsOnlineIpListResponse
+	(*Latency)(nil),                       // 12: service.Latency
+	(*LatencyRequest)(nil),                // 13: service.LatencyRequest
+	(*LatencyResponse)(nil),               // 14: service.LatencyResponse
+	(*BackendStatsResponse)(nil),          // 15: service.BackendStatsResponse
+	(*SystemStatsResponse)(nil),           // 16: service.SystemStatsResponse
+	(*Vmess)(nil),                         // 17: service.Vmess
+	(*Vless)(nil),                         // 18: service.Vless
+	(*Trojan)(nil),                        // 19: service.Trojan
+	(*Shadowsocks)(nil),                   // 20: service.Shadowsocks
+	(*Wireguard)(nil),                     // 21: service.Wireguard
+	(*Hysteria)(nil),                      // 22: service.Hysteria
+	(*Proxy)(nil),                         // 23: service.Proxy
+	(*User)(nil),                          // 24: service.User
+	(*Users)(nil),                         // 25: service.Users
+	(*UsersChunk)(nil),                    // 26: service.UsersChunk
+	(*RoutingRule)(nil),                   // 27: service.RoutingRule
+	(*RoutingRulesResponse)(nil),          // 28: service.RoutingRulesResponse
+	(*BalancerInfoRequest)(nil),           // 29: service.BalancerInfoRequest
+	(*BalancerInfoResponse)(nil),          // 30: service.BalancerInfoResponse
+	(*TestRouteRequest)(nil),              // 31: service.TestRouteRequest
+	(*RouteResult)(nil),                   // 32: service.RouteResult
+	(*AddRoutingRuleRequest)(nil),         // 33: service.AddRoutingRuleRequest
+	(*RemoveRoutingRuleRequest)(nil),      // 34: service.RemoveRoutingRuleRequest
+	(*OverrideBalancerTargetRequest)(nil), // 35: service.OverrideBalancerTargetRequest
+	(*NodeEvent)(nil),                     // 36: service.NodeEvent
+	nil,                                   // 37: service.StatsOnlineIpListResponse.IpsEntry
+	nil,                                   // 38: service.TestRouteRequest.AttributesEntry
 }
 var file_common_service_proto_depIdxs = []int32{
 	0,  // 0: service.Backend.type:type_name -> service.BackendType
-	23, // 1: service.Backend.users:type_name -> service.User
-	6,  // 2: service.StatResponse.stats:type_name -> service.Stat
+	24, // 1: service.Backend.users:type_name -> service.User
+	7,  // 2: service.StatResponse.stats:type_name -> service.Stat
 	1,  // 3: service.StatRequest.type:type_name -> service.StatType
-	35, // 4: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
-	11, // 5: service.LatencyResponse.latencies:type_name -> service.Latency
-	16, // 6: service.Proxy.vmess:type_name -> service.Vmess
-	17, // 7: service.Proxy.vless:type_name -> service.Vless
-	18, // 8: service.Proxy.trojan:type_name -> service.Trojan
-	19, // 9: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
-	20, // 10: service.Proxy.wireguard:type_name -> service.Wireguard
-	21, // 11: service.Proxy.hysteria:type_name -> service.Hysteria
-	22, // 12: service.User.proxies:type_name -> service.Proxy
-	23, // 13: service.Users.users:type_name -> service.User
-	23, // 14: service.UsersChunk.users:type_name -> service.User
-	26, // 15: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
-	36, // 16: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
-	4,  // 17: service.NodeService.Start:input_type -> service.Backend
-	2,  // 18: service.NodeService.Stop:input_type -> service.Empty
-	2,  // 19: service.NodeService.GetBaseInfo:input_type -> service.Empty
-	2,  // 20: service.NodeService.GetLogs:input_type -> service.Empty
-	2,  // 21: service.NodeService.GetSystemStats:input_type -> service.Empty
-	2,  // 22: service.NodeService.GetBackendStats:input_type -> service.Empty
-	8,  // 23: service.NodeService.GetStats:input_type -> service.StatRequest
-	12, // 24: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
-	8,  // 25: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
-	8,  // 26: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
-	23, // 27: service.NodeService.SyncUser:input_type -> service.User
-	24, // 28: service.NodeService.SyncUsers:input_type -> service.Users
-	25, // 29: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
-	2,  // 30: service.NodeService.ListRoutingRules:input_type -> service.Empty
-	28, // 31: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
-	30, // 32: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
-	32, // 33: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
-	33, // 34: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
-	34, // 35: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
-	3,  // 36: service.NodeService.Start:output_type -> service.BaseInfoResponse
-	2,  // 37: service.NodeService.Stop:output_type -> service.Empty
-	3,  // 38: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
-	5,  // 39: service.NodeService.GetLogs:output_type -> service.Log
-	15, // 40: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
-	14, // 41: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
-	7,  // 42: service.NodeService.GetStats:output_type -> service.StatResponse
-	13, // 43: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
-	9,  // 44: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
-	10, // 45: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
-	2,  // 46: service.NodeService.SyncUser:output_type -> service.Empty
-	2,  // 47: service.NodeService.SyncUsers:output_type -> service.Empty
-	2,  // 48: service.NodeService.SyncUsersChunked:output_type -> service.Empty
-	27, // 49: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
-	29, // 50: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
-	31, // 51: service.NodeService.TestRoute:output_type -> service.RouteResult
-	2,  // 52: service.NodeService.AddRoutingRule:output_type -> service.Empty
-	2,  // 53: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
-	2,  // 54: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
-	36, // [36:55] is the sub-list for method output_type
-	17, // [17:36] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	37, // 4: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
+	12, // 5: service.LatencyResponse.latencies:type_name -> service.Latency
+	17, // 6: service.Proxy.vmess:type_name -> service.Vmess
+	18, // 7: service.Proxy.vless:type_name -> service.Vless
+	19, // 8: service.Proxy.trojan:type_name -> service.Trojan
+	20, // 9: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
+	21, // 10: service.Proxy.wireguard:type_name -> service.Wireguard
+	22, // 11: service.Proxy.hysteria:type_name -> service.Hysteria
+	23, // 12: service.User.proxies:type_name -> service.Proxy
+	24, // 13: service.Users.users:type_name -> service.User
+	24, // 14: service.UsersChunk.users:type_name -> service.User
+	27, // 15: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
+	38, // 16: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
+	2,  // 17: service.NodeEvent.type:type_name -> service.NodeEventType
+	5,  // 18: service.NodeService.Start:input_type -> service.Backend
+	3,  // 19: service.NodeService.Stop:input_type -> service.Empty
+	3,  // 20: service.NodeService.GetBaseInfo:input_type -> service.Empty
+	3,  // 21: service.NodeService.GetLogs:input_type -> service.Empty
+	3,  // 22: service.NodeService.SubscribeEvents:input_type -> service.Empty
+	3,  // 23: service.NodeService.GetSystemStats:input_type -> service.Empty
+	3,  // 24: service.NodeService.GetBackendStats:input_type -> service.Empty
+	9,  // 25: service.NodeService.GetStats:input_type -> service.StatRequest
+	13, // 26: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
+	9,  // 27: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
+	9,  // 28: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
+	24, // 29: service.NodeService.SyncUser:input_type -> service.User
+	25, // 30: service.NodeService.SyncUsers:input_type -> service.Users
+	26, // 31: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
+	3,  // 32: service.NodeService.ListRoutingRules:input_type -> service.Empty
+	29, // 33: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
+	31, // 34: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
+	33, // 35: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
+	34, // 36: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
+	35, // 37: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
+	4,  // 38: service.NodeService.Start:output_type -> service.BaseInfoResponse
+	3,  // 39: service.NodeService.Stop:output_type -> service.Empty
+	4,  // 40: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
+	6,  // 41: service.NodeService.GetLogs:output_type -> service.Log
+	36, // 42: service.NodeService.SubscribeEvents:output_type -> service.NodeEvent
+	16, // 43: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
+	15, // 44: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
+	8,  // 45: service.NodeService.GetStats:output_type -> service.StatResponse
+	14, // 46: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
+	10, // 47: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
+	11, // 48: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
+	3,  // 49: service.NodeService.SyncUser:output_type -> service.Empty
+	3,  // 50: service.NodeService.SyncUsers:output_type -> service.Empty
+	3,  // 51: service.NodeService.SyncUsersChunked:output_type -> service.Empty
+	28, // 52: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
+	30, // 53: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
+	32, // 54: service.NodeService.TestRoute:output_type -> service.RouteResult
+	3,  // 55: service.NodeService.AddRoutingRule:output_type -> service.Empty
+	3,  // 56: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
+	3,  // 57: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
+	38, // [38:58] is the sub-list for method output_type
+	18, // [18:38] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_common_service_proto_init() }
@@ -2405,8 +2532,8 @@ func file_common_service_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_service_proto_rawDesc), len(file_common_service_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   35,
+			NumEnums:      3,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

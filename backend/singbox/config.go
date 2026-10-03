@@ -307,6 +307,22 @@ func (c *Config) enableQuotaEndpoint(port int, _ string) {
 	quota["listen"] = fmt.Sprintf("127.0.0.1:%d", port)
 }
 
+// quotaEndpoint reports the core's control endpoint address, or "" when the
+// endpoint is not enabled. Read off the config because that is where it comes
+// from: the panel authors the config, the node does not own this setting.
+func (c *Config) quotaEndpoint() string {
+	stats, ok := c.existingStats()
+	if !ok {
+		return ""
+	}
+	quota, ok := stats["quota"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	listen, _ := quota["listen"].(string)
+	return listen
+}
+
 // refreshQuota publishes each user's remaining budget into the config.
 //
 // Budgets belong in the config rather than being pushed over the control

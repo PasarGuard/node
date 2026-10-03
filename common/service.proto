@@ -214,6 +214,24 @@ message OverrideBalancerTargetRequest {
   string target = 2;
 }
 
+// Node events pushed to the panel (server-streaming, SubscribeEvents).
+// Distinct from Stat, which is a pull: an exhausted quota has to reach the
+// panel immediately, not on its next poll, or a user keeps spending for the
+// length of one interval after their core has already cut them.
+message NodeEvent {
+  // user_id is the panel user id as a string (the core calls a user by
+  // str(user.id)), so no numeric conversion is needed on either side.
+  string user_id = 1;
+  NodeEventType type = 2;
+  int64 remaining = 3;
+}
+
+enum NodeEventType {
+  NODE_EVENT_UNSPECIFIED = 0;
+  // The core closed this user's connections because their budget was spent.
+  NODE_EVENT_QUOTA_EXHAUSTED = 1;
+}
+
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
@@ -221,6 +239,7 @@ service NodeService {
   rpc GetBaseInfo (Empty) returns (BaseInfoResponse) {}
 
   rpc GetLogs (Empty) returns (stream Log) {}
+  rpc SubscribeEvents (Empty) returns (stream NodeEvent) {}
 
   rpc GetSystemStats (Empty) returns (SystemStatsResponse) {}
   rpc GetBackendStats (Empty) returns (BackendStatsResponse) {}

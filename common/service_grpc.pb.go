@@ -23,6 +23,7 @@ const (
 	NodeService_Stop_FullMethodName                     = "/service.NodeService/Stop"
 	NodeService_GetBaseInfo_FullMethodName              = "/service.NodeService/GetBaseInfo"
 	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
+	NodeService_SubscribeEvents_FullMethodName          = "/service.NodeService/SubscribeEvents"
 	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
 	NodeService_GetBackendStats_FullMethodName          = "/service.NodeService/GetBackendStats"
 	NodeService_GetStats_FullMethodName                 = "/service.NodeService/GetStats"
@@ -50,6 +51,7 @@ type NodeServiceClient interface {
 	Stop(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	GetBaseInfo(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BaseInfoResponse, error)
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
+	SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error)
 	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
 	GetBackendStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BackendStatsResponse, error)
 	GetStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
@@ -124,6 +126,25 @@ func (c *nodeServiceClient) GetLogs(ctx context.Context, in *Empty, opts ...grpc
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetLogsClient = grpc.ServerStreamingClient[Log]
 
+func (c *nodeServiceClient) SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_SubscribeEvents_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Empty, NodeEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_SubscribeEventsClient = grpc.ServerStreamingClient[NodeEvent]
+
 func (c *nodeServiceClient) GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SystemStatsResponse)
@@ -186,7 +207,7 @@ func (c *nodeServiceClient) GetUserOnlineIpListStats(ctx context.Context, in *St
 
 func (c *nodeServiceClient) SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_SyncUser_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[2], NodeService_SyncUser_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +230,7 @@ func (c *nodeServiceClient) SyncUsers(ctx context.Context, in *Users, opts ...gr
 
 func (c *nodeServiceClient) SyncUsersChunked(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UsersChunk, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[2], NodeService_SyncUsersChunked_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[3], NodeService_SyncUsersChunked_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +311,7 @@ type NodeServiceServer interface {
 	Stop(context.Context, *Empty) (*Empty, error)
 	GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error)
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
+	SubscribeEvents(*Empty, grpc.ServerStreamingServer[NodeEvent]) error
 	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
 	GetBackendStats(context.Context, *Empty) (*BackendStatsResponse, error)
 	GetStats(context.Context, *StatRequest) (*StatResponse, error)
@@ -326,6 +348,9 @@ func (UnimplementedNodeServiceServer) GetBaseInfo(context.Context, *Empty) (*Bas
 }
 func (UnimplementedNodeServiceServer) GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error {
 	return status.Error(codes.Unimplemented, "method GetLogs not implemented")
+}
+func (UnimplementedNodeServiceServer) SubscribeEvents(*Empty, grpc.ServerStreamingServer[NodeEvent]) error {
+	return status.Error(codes.Unimplemented, "method SubscribeEvents not implemented")
 }
 func (UnimplementedNodeServiceServer) GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSystemStats not implemented")
@@ -457,6 +482,17 @@ func _NodeService_GetLogs_Handler(srv interface{}, stream grpc.ServerStream) err
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetLogsServer = grpc.ServerStreamingServer[Log]
+
+func _NodeService_SubscribeEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(NodeServiceServer).SubscribeEvents(m, &grpc.GenericServerStream[Empty, NodeEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_SubscribeEventsServer = grpc.ServerStreamingServer[NodeEvent]
 
 func _NodeService_GetSystemStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
@@ -782,6 +818,11 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "GetLogs",
 			Handler:       _NodeService_GetLogs_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeEvents",
+			Handler:       _NodeService_SubscribeEvents_Handler,
 			ServerStreams: true,
 		},
 		{
