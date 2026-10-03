@@ -1,9 +1,9 @@
 diff --git a/experimental/v2rayapi/quota.go b/experimental/v2rayapi/quota.go
 new file mode 100644
-index 0000000..8a7c05c
+index 0000000..d7059ee
 --- /dev/null
 +++ b/experimental/v2rayapi/quota.go
-@@ -0,0 +1,670 @@
+@@ -0,0 +1,677 @@
 +package v2rayapi
 +
 +// Per-user data quota enforcement (PasarGuard patch, upstream sing-box
@@ -351,25 +351,32 @@ index 0000000..8a7c05c
 +	return n, err
 +}
 +
++// WriteBuffer routes through Write rather than reserving up front.
++//
++// The buffer fast path reports only an error, never how many bytes were
++// committed, so both failure modes were wrong: refunding on error un-charged
++// bytes the stat counters had already recorded (letting `counted` pass the
++// budget), and charging the whole reservation on error burned quota for bytes
++// that never left, which cut under-delivery to roughly half the user's limit.
++// Write returns the actual count, so the charge is exact either way.
 +func (c *quotaConn) WriteBuffer(buffer *buf.Buffer) error {
-+	window := buffer.Len()
-+	allowed := c.state.reserve(window)
-+	if allowed <= 0 {
-+		return ErrQuotaExhausted
++	data := buffer.Bytes()
++	for len(data) > 0 {
++		n, err := c.Write(data)
++		if n > 0 {
++			data = data[n:]
++		}
++		if err != nil {
++			// Consume what was handed to us so the caller does not resend.
++			buffer.Resize(buffer.Start(), 0)
++			return err
++		}
++		if n == 0 {
++			buffer.Resize(buffer.Start(), 0)
++			return io.ErrShortWrite
++		}
 +	}
-+	// Keep the front headroom; only the writable tail is trimmed.
-+	buffer.Resize(buffer.Start(), allowed)
-+	err := c.ExtendedConn.WriteBuffer(buffer)
-+	if err != nil {
-+		// Charge in full rather than refunding. A failed WriteBuffer may still
-+		// have committed part of the payload, and the stat counters count what
-+		// actually moved — refunding the whole reservation here let the billed
-+		// total run past the budget even though the patch's own consumed
-+		// figure stayed inside it. Over-charging is the safe direction.
-+		c.state.settle(allowed, allowed)
-+		return err
-+	}
-+	c.state.settle(allowed, allowed)
++	buffer.Resize(buffer.Start(), 0)
 +	return nil
 +}
 +
