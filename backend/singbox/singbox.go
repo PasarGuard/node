@@ -127,6 +127,32 @@ func (s *SingBox) Restart() error {
 	return s.restartCoreWithConfig(s.getConfig())
 }
 
+// RestartFailClosed revives the core after it died on its own, zeroing every
+// budget first.
+//
+// Restart() reuses the in-memory config, which holds "remaining as of the last
+// panel sync" — already spent by the core that just died. Reusing it would give
+// the user a second budget for the same traffic (KNOWN-ISSUES #15), so the
+// revived core starts with every budget at zero and moves nothing until the
+// panel re-syncs with a freshly computed remaining.
+//
+// Contrast with flushLocked (a panel-driven user change): there the restart is
+// *driven by* a sync, so the config is current by construction and the
+// counters are drained first. This path has no sync behind it, which is
+// exactly why it must fail closed.
+func (s *SingBox) RestartFailClosed() (reset int, err error) {
+	s.syncMu.Lock()
+	s.pendingStats = map[string]int64{} // the crashed core's last drain is not trustworthy
+	s.syncMu.Unlock()
+
+	candidate := s.getConfig().Clone()
+	reset = candidate.resetQuotas()
+	if reset > 0 {
+		log.Printf("fail-closed restart: zeroing %d budget(s) until the panel re-syncs", reset)
+	}
+	return reset, s.restartCoreWithConfig(candidate)
+}
+
 func (s *SingBox) restartCoreWithConfig(config *Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

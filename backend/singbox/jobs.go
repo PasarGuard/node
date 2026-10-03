@@ -91,10 +91,12 @@ func (s *SingBox) checkSingBoxHealth(baseCtx context.Context) {
 		if tail := s.core.RuntimeLogTail(10); len(tail) > 0 {
 			log.Printf("last %d sing-box log lines before restart:\n%s", len(tail), strings.Join(tail, "\n"))
 		}
-		if err := s.Restart(); err != nil {
+		// Fail closed: this restart was not driven by a panel sync, so the
+		// in-memory budgets are stale by definition (KNOWN-ISSUES #15).
+		if _, err := s.RestartFailClosed(); err != nil {
 			log.Println(err.Error())
 		} else {
-			log.Println("sing-box restarted")
+			log.Println("sing-box restarted fail-closed (budgets zeroed until the panel re-syncs)")
 			consecutiveFailures = 0
 		}
 	}

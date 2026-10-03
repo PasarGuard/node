@@ -174,6 +174,74 @@ func (c *Config) syncUsers(users []*common.User) {
 	c.refreshQuota(users)
 }
 
+// resetQuotas zeroes every budget the core knows about, without touching
+// anything else in the config.
+//
+// This is the fail-closed switch for KNOWN-ISSUES #15. A core the node brings
+// back by itself (checkSingBoxHealth after a crash) is restarted from the last
+// config it had, and that config carries "remaining at the last panel sync" —
+// which the crashed core had already spent. Reusing it would hand the user a
+// second budget for the same traffic. Zeroing instead means nobody moves a
+// byte until the panel re-syncs with a freshly computed remaining.
+//
+// Note the two meanings of zero, which is deliberate and must not be
+// "cleaned up": a zero in the *proto* means the panel has no budget for this
+// user (unlimited) and the node omits them from the config entirely; a zero
+// *in the config* means spend nothing. refreshQuota maps the first to absent,
+// this writes the second directly.
+func (c *Config) resetQuotas() int {
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	stats, ok := v2api["stats"].(map[string]any)
+	if !ok {
+		return 0
+	}
+
+	// Everyone the core could possibly authenticate, whether or not the panel
+	// gave them a budget. Reading only stats.users would miss any user the
+	// stats list failed to pick up, and an unlimited user moving freely in the
+	// window before the panel re-syncs is the unsafe outcome here.
+	names := map[string]bool{}
+	if listed, ok := stats["users"].([]any); ok {
+		for _, name := range listed {
+			if user, ok := name.(string); ok && user != "" {
+				names[user] = true
+			}
+		}
+	}
+	for _, inbound := range c.inbounds() {
+		if tag, _ := inbound["tag"].(string); tag == "" || c.excluded[tag] {
+			continue
+		}
+		users, _ := inbound["users"].([]any)
+		for _, entry := range users {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, _ := obj["name"].(string); name != "" {
+				names[name] = true
+			}
+		}
+	}
+	if len(names) == 0 {
+		return 0
+	}
+
+	budgets := make(map[string]any, len(names))
+	for user := range names {
+		budgets[user] = int64(0)
+	}
+	stats["quota"] = map[string]any{"users": budgets}
+	return len(budgets)
+}
+
 // refreshQuota publishes each user's remaining budget into the config.
 //
 // Budgets belong in the config rather than being pushed over the control
