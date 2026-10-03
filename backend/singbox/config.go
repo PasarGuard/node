@@ -171,6 +171,50 @@ func (c *Config) syncUsers(users []*common.User) {
 	}
 
 	c.refreshStatsUsers()
+	c.refreshQuota(users)
+}
+
+// refreshQuota publishes each user's remaining budget into the config.
+//
+// Budgets belong in the config rather than being pushed over the control
+// endpoint after start: the core reads them while constructing the stats
+// service, before any listener exists, so a restart cannot open a window in
+// which a limited user has no budget. That is the "re-pushed before the
+// inbound accepts traffic" guarantee — by construction, not by timing.
+//
+// A user with no budget is simply absent, which is what unlimited means to the
+// core; only users the panel flagged get an entry.
+func (c *Config) refreshQuota(users []*common.User) {
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		return
+	}
+	stats, ok := v2api["stats"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	budgets := make(map[string]any, len(users))
+	for _, user := range users {
+		email := user.GetEmail()
+		quota := user.GetQuota()
+		if email == "" || quota == 0 {
+			// 0 means "no budget" on the wire; leaving the user out of the map
+			// is the core's notion of unlimited.
+			continue
+		}
+		budgets[email] = int64(quota)
+	}
+
+	if len(budgets) == 0 {
+		delete(stats, "quota")
+		return
+	}
+	stats["quota"] = map[string]any{"users": budgets}
 }
 
 // refreshStatsUsers rewrites experimental.v2ray_api.stats.users from the
