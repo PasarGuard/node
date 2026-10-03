@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +35,8 @@ type Core struct {
 	restarting     bool
 	stopping       bool
 	waitDone       chan struct{}
+	quotaSecret    string
+	hasQuotaPatch  bool
 	logsChan       chan string
 	logger         *nodeLogger.Logger
 	cancelFunc     context.CancelFunc
@@ -46,10 +50,16 @@ type Core struct {
 	mu             sync.Mutex
 }
 
+// quotaSecretEnv is the variable the sing-box child reads to authenticate its
+// quota control endpoint. The constant is declared here rather than imported so
+// the node and the core patch cannot drift apart silently: the test below
+// asserts both agree on the spelling.
+const quotaSecretEnv = "SINGBOX_QUOTA_SECRET"
+
 // NewSingBoxCore probes the binary and, unless allowMissing is set
 // (SINGBOX_ALLOW_MISSING_V2RAY_API=1), refuses a build without the
 // v2ray_api tag — running it would silently lose per-user stats.
-func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogTailSize int, allowMissing bool) (*Core, error) {
+func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogTailSize int, allowMissing bool, quotaSecret ...string) (*Core, error) {
 	if startupLogTailSize <= 0 {
 		startupLogTailSize = 200
 	}
@@ -57,7 +67,24 @@ func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogT
 		logBufferSize = 1
 	}
 
+	secret := ""
+	for _, candidate := range quotaSecret {
+		if candidate != "" {
+			secret = candidate
+			break
+		}
+	}
+	if secret == "" {
+		// Generated here when not supplied, so a caller cannot accidentally
+		// start a core whose control endpoint is unauthenticated.
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err == nil {
+			secret = hex.EncodeToString(buf)
+		}
+	}
+
 	core := &Core{
+		quotaSecret:    secret,
 		executablePath: executablePath,
 		configDir:      configDir,
 		configFilePath: filepath.Join(configDir, "singbox.json"),
@@ -71,6 +98,11 @@ func NewSingBoxCore(executablePath, configDir string, logBufferSize, startupLogT
 		return nil, err
 	}
 	core.version = version
+	core.hasQuotaPatch = isQuotaPatchedOutput(version)
+	if !core.hasQuotaPatch {
+		log.Printf("WARNING: sing-box at %s has no quota patch (version %q): in-core byte-exact limits are unavailable and the panel will use adaptive polling",
+			executablePath, version)
+	}
 	if !hasV2rayAPI && !allowMissing {
 		return nil, fmt.Errorf(
 			"sing-box at %s was built WITHOUT -tags with_v2ray_api: per-user traffic stats would silently stay at zero. "+
@@ -104,6 +136,41 @@ func (c *Core) refreshVersion() (string, bool, error) {
 	return m[1], strings.Contains(text, "with_v2ray_api"), nil
 }
 
+// quotaPatchMarker is the version suffix Dockerfile.singbox stamps onto a binary
+// built from the quota patch. Reading it is how "auto" mode decides whether
+// byte-exact limits are available, without having to run the core.
+const quotaPatchMarker = "quota-v1"
+
+// isQuotaPatchedOutput reports whether a `sing-box version` string carries the
+// patch marker. The marker is deliberately a version suffix rather than a
+// separate probe: it is already printed by every build, so there is nothing
+// extra to keep in sync.
+func isQuotaPatchedOutput(version string) bool {
+	return strings.Contains(version, quotaPatchMarker)
+}
+
+// isQuotaPatched runs `sing-box version` for a path. Separate from
+// isQuotaPatchedOutput so a caller that already has the string does not pay
+// for a subprocess.
+func isQuotaPatched(executablePath string) bool {
+	cmd := exec.Command(executablePath, "version")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return isQuotaPatchedOutput(out.String())
+}
+
+// HasQuotaPatch reports whether the running binary carries the in-core quota
+// enforcement patch.
+func (c *Core) HasQuotaPatch() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hasQuotaPatch
+}
+
 func (c *Core) Version() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,6 +191,18 @@ func (c *Core) startedLocked() bool {
 		return true
 	}
 	return false
+}
+
+// ProcessState reports the OS process state, or nil while the core is running.
+// Test/diagnostic use only: it is how a caller can tell "the core exited" apart
+// from "the core refused the request".
+func (c *Core) ProcessState() *os.ProcessState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.process == nil {
+		return nil
+	}
+	return c.process.ProcessState
 }
 
 func (c *Core) Stopping() bool {
@@ -206,7 +285,14 @@ func (c *Core) Start(config *Config, debugMode bool) error {
 	}
 
 	cmd := exec.Command(c.executablePath, "run", "-c", c.configFilePath)
-	cmd.Env = os.Environ()
+	// The secret reaches the child through its environment and nowhere else:
+	// not the config file (which is copied into images and crash dumps), not
+	// the logs, not any RPC response.
+	env := os.Environ()
+	if c.quotaSecret != "" {
+		env = append(env, quotaSecretEnv+"="+c.quotaSecret)
+	}
+	cmd.Env = env
 	proclib.SetProcAttributes(cmd)
 
 	stdout, err := cmd.StdoutPipe()

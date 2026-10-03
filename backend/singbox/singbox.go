@@ -76,7 +76,7 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 	sb.config = sbConfig
 	log.Println("config generated in", time.Since(start).Seconds(), "second.")
 
-	core, err := NewSingBoxCore(executableAbsolutePath, configAbsolutePath, cfg.LogBufferSize, cfg.StartupLogTailSize, cfg.SingBoxAllowNoV2RayAPI)
+	core, err := NewSingBoxCore(executableAbsolutePath, configAbsolutePath, cfg.LogBufferSize, cfg.StartupLogTailSize, cfg.SingBoxAllowNoV2RayAPI, cfg.QuotaSecret)
 	if err != nil {
 		return nil, err
 	}

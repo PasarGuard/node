@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
 	"regexp"
@@ -12,21 +14,27 @@ import (
 )
 
 type Config struct {
-	ServicePort                 int
-	NodeHost                    string
-	XrayExecutablePath          string
-	XrayAssetsPath              string
-	SingBoxExecutablePath       string
-	SingBoxSyncDebounce         time.Duration
-	SingBoxAllowNoV2RayAPI      bool
-	SslCertFile                 string
-	SslKeyFile                  string
-	ApiKey                      uuid.UUID
-	ServiceProtocol             string
-	Debug                       bool
-	GeneratedConfigPath         string
-	LogBufferSize               int
-	StartupLogTailSize          int
+	ServicePort            int
+	NodeHost               string
+	XrayExecutablePath     string
+	XrayAssetsPath         string
+	SingBoxExecutablePath  string
+	SingBoxSyncDebounce    time.Duration
+	SingBoxAllowNoV2RayAPI bool
+	SslCertFile            string
+	SslKeyFile             string
+	ApiKey                 uuid.UUID
+	ServiceProtocol        string
+	Debug                  bool
+	GeneratedConfigPath    string
+	LogBufferSize          int
+	StartupLogTailSize     int
+	// QuotaSecret authorises the quota control endpoint. It is generated at
+	// start (or read from SINGBOX_QUOTA_SECRET) and handed only to the sing-box
+	// child's environment: it is never written to the config, the logs, or any
+	// file. The config file is copied into images and crash dumps, so it is not
+	// a boundary for a value that lets anyone raise a data limit.
+	QuotaSecret                 string
 	StatsUpdateIntervalSeconds  int
 	StatsCleanupIntervalSeconds int
 
@@ -37,6 +45,28 @@ type Config struct {
 	WGNATDisable         bool
 	WGRouteTable         string
 	WGRouteOutInterface  string
+}
+
+// quotaSecretEnv is the environment variable the sing-box child reads; the same
+// name is used by the core patch (experimental/v2rayapi/quota.go).
+const quotaSecretEnv = "SINGBOX_QUOTA_SECRET"
+
+// NewQuotaSecret returns an operator-supplied secret if one exists, otherwise a
+// fresh random one. crypto/rand, not math/rand: this value authenticates an
+// endpoint that can raise data limits.
+func NewQuotaSecret() string {
+	if fromEnv := GetEnv(quotaSecretEnv, ""); fromEnv != "" {
+		return fromEnv
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		// A node that cannot generate entropy must not silently run without a
+		// secret: an empty one disables the endpoint entirely, which is the
+		// safe outcome, but it should be visible rather than accidental.
+		log.Printf("[Warning] could not generate a quota secret (%v); the quota control endpoint will be disabled", err)
+		return ""
+	}
+	return hex.EncodeToString(buf)
 }
 
 func Load() (*Config, error) {
@@ -59,6 +89,7 @@ func Load() (*Config, error) {
 		Debug:                       GetEnvAsBool("DEBUG", false),
 		LogBufferSize:               GetEnvAsInt("LOG_BUFFER_SIZE", 10000),
 		StartupLogTailSize:          GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
+		QuotaSecret:                 NewQuotaSecret(),
 		StatsUpdateIntervalSeconds:  GetEnvAsInt("STATS_UPDATE_INTERVAL_SECONDS", 10),
 		StatsCleanupIntervalSeconds: GetEnvAsInt("STATS_CLEANUP_INTERVAL_SECONDS", 300),
 

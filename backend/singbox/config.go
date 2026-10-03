@@ -107,6 +107,21 @@ func toMapSlice(v any) []map[string]any {
 	return out
 }
 
+// existingStats returns the v2ray_api stats block currently in the config, or
+// nil when there is none.
+func (c *Config) existingStats() (map[string]any, bool) {
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	stats, ok := v2api["stats"].(map[string]any)
+	return stats, ok
+}
+
 // ApplyAPI injects experimental.v2ray_api so the node can read per-user traffic
 // counters. The listen address must be this node's api port; stats entities are
 // enumerated from the config (only listed entities are tracked by sing-box).
@@ -123,6 +138,16 @@ func (c *Config) ApplyAPI(apiPort int) error {
 	if experimental == nil {
 		experimental = map[string]any{}
 		c.raw["experimental"] = experimental
+	}
+	// ApplyAPI replaces the stats block wholesale, so anything the caller set
+	// up beforehand — notably the quota endpoint's listen address — has to be
+	// carried across or it is silently dropped. Losing it means the core starts
+	// with budgets but no way to update them, which looks like "enforcement
+	// works" right up until a limit change has no effect.
+	if existing, ok := c.existingStats(); ok {
+		if quota, hasQuota := existing["quota"]; hasQuota {
+			stats["quota"] = quota
+		}
 	}
 	experimental["v2ray_api"] = map[string]any{
 		"listen": fmt.Sprintf("127.0.0.1:%d", apiPort),
@@ -238,8 +263,48 @@ func (c *Config) resetQuotas() int {
 	for user := range names {
 		budgets[user] = int64(0)
 	}
-	stats["quota"] = map[string]any{"users": budgets}
+	// Preserve `listen` for the same reason refreshQuota does.
+	quota, ok := stats["quota"].(map[string]any)
+	if !ok {
+		quota = map[string]any{}
+		stats["quota"] = quota
+	}
+	quota["users"] = budgets
 	return len(budgets)
+}
+
+// enableQuotaEndpoint turns on the core's loopback control endpoint, which the
+// node uses to update budgets on a running core instead of restarting it.
+//
+// The secret argument is deliberately written as "" into the config: the value
+// itself travels to the child process through its environment (see Core.Start),
+// because the config file is copied into images and crash dumps. The core reads
+// SINGBOX_QUOTA_SECRET and ignores this field when that is set.
+func (c *Config) enableQuotaEndpoint(port int, _ string) {
+	if port <= 0 {
+		return
+	}
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		experimental = map[string]any{}
+		c.raw["experimental"] = experimental
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		v2api = map[string]any{}
+		experimental["v2ray_api"] = v2api
+	}
+	stats, ok := v2api["stats"].(map[string]any)
+	if !ok {
+		stats = map[string]any{}
+		v2api["stats"] = stats
+	}
+	quota, ok := stats["quota"].(map[string]any)
+	if !ok {
+		quota = map[string]any{}
+		stats["quota"] = quota
+	}
+	quota["listen"] = fmt.Sprintf("127.0.0.1:%d", port)
 }
 
 // refreshQuota publishes each user's remaining budget into the config.
@@ -278,11 +343,20 @@ func (c *Config) refreshQuota(users []*common.User) {
 		budgets[email] = int64(quota)
 	}
 
+	// Rewrite only the budgets. Replacing the whole block would drop the
+	// endpoint's `listen`, so the core would silently come up with no control
+	// endpoint — the budgets would still be in the config, but nothing could
+	// update them on a running core.
+	quota, ok := stats["quota"].(map[string]any)
+	if !ok {
+		quota = map[string]any{}
+		stats["quota"] = quota
+	}
 	if len(budgets) == 0 {
-		delete(stats, "quota")
+		delete(quota, "users")
 		return
 	}
-	stats["quota"] = map[string]any{"users": budgets}
+	quota["users"] = budgets
 }
 
 // refreshStatsUsers rewrites experimental.v2ray_api.stats.users from the
