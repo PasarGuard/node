@@ -28,14 +28,27 @@ RUN git clone --depth 1 --branch v${SINGBOX_VERSION} https://github.com/SagerNet
       echo "sing-box tag v${SINGBOX_SHA} != pinned SHA $SINGBOX_SHA (got $actual)"; exit 1; \
     fi
 
+# Mode B quota enforcement. The patch is pinned to the commit checked above,
+# so bumping sing-box without rebasing it fails here instead of silently
+# shipping a binary that accepts quota pushes and ignores them. Fail loudly:
+# "looks patched" and "is patched" must not be the same outcome.
+ARG QUOTA_PATCH_LEVEL=quota-v1
+RUN test -f /src/patches/singbox/0001-pasarguard-user-quota.patch && \
+    cd /tmp/sing-box-src && \
+    git apply --whitespace=error-all /src/patches/singbox/0001-pasarguard-user-quota.patch && \
+    test -f experimental/v2rayapi/quota.go && \
+    grep -q "quota-v1" experimental/v2rayapi/quota.go && \
+    echo "quota patch applied at level ${QUOTA_PATCH_LEVEL}"
+
 RUN cd /tmp/sing-box-src && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -tags "with_v2ray_api,with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" \
-      -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION}' -s -w" \
+      -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION}-${QUOTA_PATCH_LEVEL}' -s -w" \
       -o sing-box ./cmd/sing-box && \
     if [ "$(go env GOARCH)" = "${TARGETARCH}" ] && [ "$(go env GOOS)" = "${TARGETOS}" ]; then \
       ./sing-box version && \
       ./sing-box version | grep -F "with_v2ray_api" || { echo "built binary is missing with_v2ray_api"; exit 1; }; \
+      ./sing-box version | grep -F "${QUOTA_PATCH_LEVEL}" || { echo "built binary is missing the quota patch"; exit 1; }; \
     else \
       echo "skipping binary smoke check (cross-build ${TARGETOS}/${TARGETARCH})"; \
     fi
