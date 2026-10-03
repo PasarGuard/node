@@ -107,19 +107,90 @@ func toMapSlice(v any) []map[string]any {
 	return out
 }
 
-// existingStats returns the v2ray_api stats block currently in the config, or
-// nil when there is none.
-func (c *Config) existingStats() (map[string]any, bool) {
+// statsBlock returns the v2ray_api stats block, creating any missing level.
+//
+// Every writer in this file goes through here on purpose. Each of them
+// previously repeated the "walk experimental -> v2ray_api -> stats" lookup, and
+// one of them (ApplyAPI) replaced the whole stats block and silently dropped
+// quota.listen with it — the core then ran with budgets but no way to update
+// them. Routing every write through one accessor, and keeping the quota block,
+// makes that class of bug a single place to check.
+func (c *Config) statsBlock() map[string]any {
 	experimental, ok := c.raw["experimental"].(map[string]any)
 	if !ok {
-		return nil, false
+		experimental = map[string]any{}
+		c.raw["experimental"] = experimental
 	}
 	v2api, ok := experimental["v2ray_api"].(map[string]any)
 	if !ok {
-		return nil, false
+		v2api = map[string]any{}
+		experimental["v2ray_api"] = v2api
 	}
 	stats, ok := v2api["stats"].(map[string]any)
-	return stats, ok
+	if !ok {
+		stats = map[string]any{}
+		v2api["stats"] = stats
+	}
+	return stats
+}
+
+// quotaBudgets reads the budgets currently written into the config. Read-only,
+// for diagnostics and tests.
+func (c *Config) quotaBudgets() map[string]int64 {
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	stats, ok := v2api["stats"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	quota, ok := stats["quota"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := quota["users"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	budgets := make(map[string]int64, len(raw))
+	for user, value := range raw {
+		switch typed := value.(type) {
+		case int64:
+			budgets[user] = typed
+		case float64:
+			budgets[user] = int64(typed)
+		}
+	}
+	return budgets
+}
+
+// preserveQuota carries quota across a rebuild of the stats block. Returns true
+// when there was one, so callers can report a dropped budget instead of losing
+// it quietly.
+func (c *Config) preserveQuota(stats map[string]any) bool {
+	previous, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return false
+	}
+	v2api, ok := previous["v2ray_api"].(map[string]any)
+	if !ok {
+		return false
+	}
+	old, ok := v2api["stats"].(map[string]any)
+	if !ok {
+		return false
+	}
+	quota, has := old["quota"]
+	if !has {
+		return false
+	}
+	stats["quota"] = quota
+	return true
 }
 
 // ApplyAPI injects experimental.v2ray_api so the node can read per-user traffic
@@ -127,28 +198,20 @@ func (c *Config) existingStats() (map[string]any, bool) {
 // enumerated from the config (only listed entities are tracked by sing-box).
 // The users list is (re)filled by syncUsers.
 func (c *Config) ApplyAPI(apiPort int) error {
-	stats := map[string]any{
-		"enabled":   true,
-		"users":     []any{},
-		"inbounds":  tagList(c.inbounds()),
-		"outbounds": tagList(c.outbounds()),
-	}
+	stats := c.statsBlock()
+	stats["enabled"] = true
+	stats["users"] = []any{}
+	stats["inbounds"] = tagList(c.inbounds())
+	stats["outbounds"] = tagList(c.outbounds())
 
-	experimental, _ := c.raw["experimental"].(map[string]any)
-	if experimental == nil {
-		experimental = map[string]any{}
-		c.raw["experimental"] = experimental
-	}
 	// ApplyAPI replaces the stats block wholesale, so anything the caller set
 	// up beforehand — notably the quota endpoint's listen address — has to be
 	// carried across or it is silently dropped. Losing it means the core starts
 	// with budgets but no way to update them, which looks like "enforcement
 	// works" right up until a limit change has no effect.
-	if existing, ok := c.existingStats(); ok {
-		if quota, hasQuota := existing["quota"]; hasQuota {
-			stats["quota"] = quota
-		}
-	}
+	c.preserveQuota(stats)
+
+	experimental, _ := c.raw["experimental"].(map[string]any)
 	experimental["v2ray_api"] = map[string]any{
 		"listen": fmt.Sprintf("127.0.0.1:%d", apiPort),
 		"stats":  stats,
@@ -311,7 +374,16 @@ func (c *Config) enableQuotaEndpoint(port int, _ string) {
 // endpoint is not enabled. Read off the config because that is where it comes
 // from: the panel authors the config, the node does not own this setting.
 func (c *Config) quotaEndpoint() string {
-	stats, ok := c.existingStats()
+	// Read-only: this must not create a stats block that was never there.
+	experimental, ok := c.raw["experimental"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	v2api, ok := experimental["v2ray_api"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	stats, ok := v2api["stats"].(map[string]any)
 	if !ok {
 		return ""
 	}
