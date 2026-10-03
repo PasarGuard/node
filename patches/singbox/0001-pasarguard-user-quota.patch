@@ -1,9 +1,9 @@
 diff --git a/experimental/v2rayapi/quota.go b/experimental/v2rayapi/quota.go
 new file mode 100644
-index 0000000..d615181
+index 0000000..1d299e4
 --- /dev/null
 +++ b/experimental/v2rayapi/quota.go
-@@ -0,0 +1,753 @@
+@@ -0,0 +1,782 @@
 +package v2rayapi
 +
 +// Per-user data quota enforcement (PasarGuard patch, upstream sing-box
@@ -37,6 +37,7 @@ index 0000000..d615181
 +// so the loop stops on the capping type rather than the raw socket.
 +
 +import (
++	"crypto/subtle"
 +	"encoding/json"
 +	"io"
 +	"net"
@@ -648,9 +649,14 @@ index 0000000..d615181
 +// ServeQuotaControl and gated on the shared secret, so it is not reachable from
 +// the sing-box config surface.
 +func QuotaControlHandler(secret string) http.Handler {
++	secret = resolveSecret(secret)
 +	mux := http.NewServeMux()
 +	mux.HandleFunc("/quota", func(w http.ResponseWriter, r *http.Request) {
-+		if secret == "" || r.Header.Get("X-Quota-Secret") != secret {
++		// Constant-time: a byte-by-byte == returns as soon as two bytes differ,
++		// which leaks the secret one byte at a time to anyone who can time
++		// requests. crypto/subtle compares every byte regardless.
++		provided := r.Header.Get("X-Quota-Secret")
++		if secret == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) != 1 {
 +			http.Error(w, "unauthorized", http.StatusUnauthorized)
 +			return
 +		}
@@ -722,12 +728,35 @@ index 0000000..d615181
 +	_ = json.NewEncoder(w).Encode(payload)
 +}
 +
++// quotaSecretEnv is where the control secret may be supplied. Preferred over
++// the config file because the config is written to disk (and copied into
++// images, logs and crash dumps), while an environment variable is confined to
++// the process. The config value is only a fallback for setups that cannot set
++// one; both are supported so an operator can choose.
++const quotaSecretEnv = "SINGBOX_QUOTA_SECRET"
++
++// resolveSecret prefers the environment, falling back to the config value.
++func resolveSecret(configured string) string {
++	if fromEnv := os.Getenv(quotaSecretEnv); fromEnv != "" {
++		return fromEnv
++	}
++	return configured
++}
++
 +// ServeQuotaControl starts the loopback-only control endpoint. A non-loopback
 +// address is refused: this API can hand out unlimited budget, so binding it
 +// publicly would be a remote quota bypass.
 +func ServeQuotaControl(listen string, secret string) (*http.Server, error) {
++	secret = resolveSecret(secret)
 +	if secret == "" {
 +		return nil, os.ErrInvalid
++	}
++	// A secret that came from the config file is a secret on disk, so the
++	// endpoint is refused rather than served: budgets are the one thing here
++	// that can be *raised* by whoever reaches the port, and a world-readable
++	// config is not a boundary. Set SINGBOX_QUOTA_SECRET to serve.
++	if os.Getenv(quotaSecretEnv) == "" {
++		return nil, os.ErrPermission
 +	}
 +	host, _, err := net.SplitHostPort(listen)
 +	if err != nil {
@@ -1102,18 +1131,10 @@ index 0000000..406baa2
 +	}
 +}
 diff --git a/experimental/v2rayapi/server.go b/experimental/v2rayapi/server.go
-index 8ebae1c..ee7810b 100644
+index 8ebae1c..8a75cb7 100644
 --- a/experimental/v2rayapi/server.go
 +++ b/experimental/v2rayapi/server.go
-@@ -10,6 +10,7 @@ import (
- 	"github.com/sagernet/sing-box/log"
- 	"github.com/sagernet/sing-box/option"
- 	"github.com/sagernet/sing/common"
-+	E "github.com/sagernet/sing/common/exceptions"
- 
- 	"google.golang.org/grpc"
- 	"google.golang.org/grpc/credentials/insecure"
-@@ -22,16 +23,18 @@ func init() {
+@@ -22,16 +22,18 @@ func init() {
  var _ adapter.V2RayServer = (*Server)(nil)
  
  type Server struct {
@@ -1138,7 +1159,7 @@ index 8ebae1c..ee7810b 100644
  	if statsService != nil {
  		RegisterStatsServiceServer(grpcServer, statsService)
  	}
-@@ -41,6 +44,18 @@ func NewServer(logger log.Logger, options option.V2RayAPIOptions) (adapter.V2Ray
+@@ -41,6 +43,25 @@ func NewServer(logger log.Logger, options option.V2RayAPIOptions) (adapter.V2Ray
  		grpcServer:   grpcServer,
  		statsService: statsService,
  	}
@@ -1148,16 +1169,23 @@ index 8ebae1c..ee7810b 100644
 +	// here, still inside the constructor, keeps the node able to update budgets
 +	// on a running core without a restart.
 +	if statsService != nil && statsOptions.Quota != nil && statsOptions.Quota.Listen != "" {
++		// A failure here must not stop the core: budgets reach the core through
++		// the config, and the endpoint only updates them on a live core. Failing
++		// the constructor would turn a missing env var into an outage, so this
++		// warns and carries on with enforcement as configured.
 +		server.quotaControl, err = ServeQuotaControl(statsOptions.Quota.Listen, statsOptions.Quota.Secret)
 +		if err != nil {
-+			return nil, E.Extend(err, "start quota control endpoint")
++			logger.Warn("quota control endpoint not started: ", err.Error())
++			logger.Warn("budgets from the config still apply; set ", quotaSecretEnv,
++				" to allow live updates")
++		} else {
++			logger.Info("quota control endpoint started at ", statsOptions.Quota.Listen)
 +		}
-+		logger.Info("quota control endpoint started at ", statsOptions.Quota.Listen)
 +	}
  	return server, nil
  }
  
-@@ -71,6 +86,9 @@ func (s *Server) Close() error {
+@@ -71,6 +92,9 @@ func (s *Server) Close() error {
  	if s.grpcServer != nil {
  		s.grpcServer.Stop()
  	}
