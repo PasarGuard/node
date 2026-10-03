@@ -1,9 +1,9 @@
 diff --git a/experimental/v2rayapi/quota.go b/experimental/v2rayapi/quota.go
 new file mode 100644
-index 0000000..d7059ee
+index 0000000..d615181
 --- /dev/null
 +++ b/experimental/v2rayapi/quota.go
-@@ -0,0 +1,677 @@
+@@ -0,0 +1,753 @@
 +package v2rayapi
 +
 +// Per-user data quota enforcement (PasarGuard patch, upstream sing-box
@@ -57,6 +57,15 @@ index 0000000..d7059ee
 +// served past the limit.
 +var ErrQuotaExhausted = E.New("user data quota exhausted")
 +
++// countRefreshInterval bounds how often reserve() re-reads the upstream stat
++// counter. Keeping it off the hot path avoids taking the stats lock on every
++// single read while staying far tighter than any realistic overshoot window.
++const countRefreshInterval = 50 * time.Millisecond
++// exactWindow is how close to the budget the counter is re-read without the
++// cache. Far below it a few milliseconds of staleness cannot cross the line;
++// near it, it can.
++const exactWindow = 1 << 20 // 1 MiB
++
 +// quotaState is the live, shared budget for one user. One state per user, not
 +// per connection: several simultaneous connections of the same user contend for
 +// this single counter, which is what stops a multi-connection user from getting
@@ -82,6 +91,12 @@ index 0000000..d7059ee
 +	mu        sync.Mutex
 +	exhausted bool
 +	conns     map[io.Closer]struct{}
++	// Snapshot of the upstream stat counter (what the panel bills), refreshed
++	// at most every 50ms so the hot path does not take the stats lock on every
++	// read. Judged alongside consumed because a gap between the two let the
++	// billed total pass the budget while the patch's own figure looked fine.
++	counted     atomic.Int64
++	countedAtNs atomic.Int64
 +}
 +
 +var (
@@ -192,7 +207,18 @@ index 0000000..d7059ee
 +			return n
 +		}
 +		current := s.inflight.Load()
-+		available := limit - s.consumed.Load() - current
++		used := s.consumed.Load() + current
++		// The panel reads the stat counters, not this patch's counter, so the
++		// budget is judged against whichever is larger. Without this the billed
++		// total could pass the budget even though consumed never did.
++		// Near the budget the counter is read live: cached staleness of even a
++		// few milliseconds is enough to cross the line, and that is exactly
++		// where the guarantee has to hold.
++		nearLimit := limit-used <= exactWindow
++		if billed := s.billedNow(nearLimit); billed > used {
++			used = billed
++		}
++		available := limit - used
 +		if available <= 0 {
 +			return 0
 +		}
@@ -215,6 +241,27 @@ index 0000000..d7059ee
 +// Correctness does not depend on this: reserve() already refuses to grant more
 +// than limit - consumed - inflight, so no transfer can ever push the user past
 +// the limit regardless of when the connections are dropped.
++// billedNow returns the upstream stat-counter total for this user, reading it
++// live at most once every countRefreshInterval. Between refreshes the previous
++// value is used: the stale value can only be low by a few milliseconds of
++// traffic, and it keeps reserve() off the stats lock on every read.
++func (s *quotaState) billedNow(exact bool) int64 {
++	if userTrafficCounter == nil {
++		return 0
++	}
++	now := time.Now().UnixNano()
++	last := s.countedAtNs.Load()
++	if !exact && last != 0 && now-last < int64(countRefreshInterval) {
++		return s.counted.Load()
++	}
++	if s.countedAtNs.CompareAndSwap(last, now) {
++		value := userTrafficCounter(s.user)
++		s.counted.Store(value)
++		return value
++	}
++	return s.counted.Load()
++}
++
 +func (s *quotaState) settle(reserved int, actual int) {
 +	if actual < 0 {
 +		actual = 0
@@ -337,12 +384,22 @@ index 0000000..d7059ee
 +	return err
 +}
 +
++// Write sends the whole buffer or none of it.
++//
++// sing sizes the stat counter from what it *read* and only increments it when
++// this write succeeds, so forwarding a truncated prefix would still leave the
++// full buffer counted: `counted` would pass the budget while we charged only
++// the prefix. Refusing the write keeps the counter honest and ends the copy.
 +func (c *quotaConn) Write(p []byte) (int, error) {
 +	allowed := c.state.reserve(len(p))
 +	if allowed <= 0 {
 +		return 0, ErrQuotaExhausted
 +	}
-+	n, err := c.ExtendedConn.Write(p[:allowed])
++	if allowed < len(p) {
++		c.state.refund(allowed)
++		return 0, ErrQuotaExhausted
++	}
++	n, err := c.ExtendedConn.Write(p)
 +	if err != nil && n == 0 {
 +		c.state.refund(allowed)
 +		return n, err
@@ -431,7 +488,14 @@ index 0000000..d7059ee
 +	if allowed <= 0 {
 +		return 0, ErrQuotaExhausted
 +	}
-+	n, err := w.conn.Write(p[:allowed])
++	// Same rule as quotaConn.Write: sing counts the buffer it read, not the
++	// prefix that made it out, so a partial write would bill bytes we never
++	// forwarded and put `counted` over the budget.
++	if allowed < len(p) {
++		w.state.refund(allowed)
++		return 0, ErrQuotaExhausted
++	}
++	n, err := w.conn.Write(p)
 +	if err != nil && n == 0 {
 +		w.state.refund(allowed)
 +		return n, err
@@ -469,15 +533,23 @@ index 0000000..d7059ee
 +}
 +
 +func (c *quotaPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
++	window := buffer.Len()
 +	allowed := c.state.reserve(buffer.Len())
 +	if allowed <= 0 {
 +		return ErrQuotaExhausted
 +	}
-+	buffer.Resize(buffer.Start(), allowed)
++	// A datagram is whole-or-nothing, and sing counts the packet it sized the
++	// read for. Sending a truncated one would bill the full packet while only
++	// part of it left, so the packet is dropped instead — which is the rule
++	// this patch states for UDP anyway.
++	if allowed < window {
++		c.state.refund(allowed)
++		return ErrQuotaExhausted
++	}
 +	if err := c.PacketConn.WritePacket(buffer, destination); err != nil {
-+		// A failed datagram write may still have been handed to the stack, so
-+		// charge rather than refund: under-delivery is safe, an uncounted byte
-+		// that the stat counters record is not.
++		// The datagram may still have reached the stack, so charge rather than
++		// refund: an uncounted byte that the stat counters record is the worse
++		// failure.
 +		c.state.settle(allowed, allowed)
 +		return err
 +	}
@@ -528,11 +600,15 @@ index 0000000..d7059ee
 +}
 +
 +func (w *quotaPacketWriter) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
++	window := buffer.Len()
 +	allowed := w.state.reserve(buffer.Len())
 +	if allowed <= 0 {
 +		return ErrQuotaExhausted
 +	}
-+	buffer.Resize(buffer.Start(), allowed)
++	if allowed < window {
++		w.state.refund(allowed)
++		return ErrQuotaExhausted
++	}
 +	if err := w.conn.WritePacket(buffer, destination); err != nil {
 +		// Same rationale as quotaPacketConn.WritePacket: the datagram may have
 +		// left, so charge the reservation instead of giving it back.
