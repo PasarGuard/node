@@ -1,9 +1,9 @@
 diff --git a/experimental/v2rayapi/quota.go b/experimental/v2rayapi/quota.go
 new file mode 100644
-index 0000000..f68ef41
+index 0000000..8a7c05c
 --- /dev/null
 +++ b/experimental/v2rayapi/quota.go
-@@ -0,0 +1,653 @@
+@@ -0,0 +1,670 @@
 +package v2rayapi
 +
 +// Per-user data quota enforcement (PasarGuard patch, upstream sing-box
@@ -361,8 +361,12 @@ index 0000000..f68ef41
 +	buffer.Resize(buffer.Start(), allowed)
 +	err := c.ExtendedConn.WriteBuffer(buffer)
 +	if err != nil {
-+		// The payload was not committed by the socket, so nothing was spent.
-+		c.state.refund(allowed)
++		// Charge in full rather than refunding. A failed WriteBuffer may still
++		// have committed part of the payload, and the stat counters count what
++		// actually moved — refunding the whole reservation here let the billed
++		// total run past the budget even though the patch's own consumed
++		// figure stayed inside it. Over-charging is the safe direction.
++		c.state.settle(allowed, allowed)
 +		return err
 +	}
 +	c.state.settle(allowed, allowed)
@@ -464,7 +468,10 @@ index 0000000..f68ef41
 +	}
 +	buffer.Resize(buffer.Start(), allowed)
 +	if err := c.PacketConn.WritePacket(buffer, destination); err != nil {
-+		c.state.refund(allowed)
++		// A failed datagram write may still have been handed to the stack, so
++		// charge rather than refund: under-delivery is safe, an uncounted byte
++		// that the stat counters record is not.
++		c.state.settle(allowed, allowed)
 +		return err
 +	}
 +	c.state.settle(allowed, allowed)
@@ -520,7 +527,9 @@ index 0000000..f68ef41
 +	}
 +	buffer.Resize(buffer.Start(), allowed)
 +	if err := w.conn.WritePacket(buffer, destination); err != nil {
-+		w.state.refund(allowed)
++		// Same rationale as quotaPacketConn.WritePacket: the datagram may have
++		// left, so charge the reservation instead of giving it back.
++		w.state.settle(allowed, allowed)
 +		return err
 +	}
 +	w.state.settle(allowed, allowed)
@@ -546,6 +555,10 @@ index 0000000..f68ef41
 +	// delivered" and spot an accounting mismatch instead of guessing.
 +	Consumed map[string]int64 `json:"consumed"`
 +	Inflight map[string]int64 `json:"inflight"`
++	// Counted is the upstream stat counter total (uplink+downlink), i.e. the
++	// number the panel bills with. Comparing it against Consumed shows whether
++	// a gap is a lost reservation or bytes that never passed through the cap.
++	Counted map[string]int64 `json:"counted"`
 +}
 +
 +// QuotaControlHandler serves the node's budget API. It is bound to loopback by
@@ -567,6 +580,7 @@ index 0000000..f68ef41
 +				Users:    make(map[string]int64, len(quotas)),
 +				Consumed: make(map[string]int64, len(quotas)),
 +				Inflight: make(map[string]int64, len(quotas)),
++				Counted:  make(map[string]int64, len(quotas)),
 +			}
 +			for user, state := range quotas {
 +				remaining := state.limit.Load() - state.consumed.Load() - state.inflight.Load()
@@ -576,6 +590,9 @@ index 0000000..f68ef41
 +				status.Users[user] = remaining
 +				status.Consumed[user] = state.consumed.Load()
 +				status.Inflight[user] = state.inflight.Load()
++				if userTrafficCounter != nil {
++					status.Counted[user] = userTrafficCounter(user)
++				}
 +			}
 +			quotasMu.RUnlock()
 +			writeJSON(w, status)
@@ -660,10 +677,10 @@ index 0000000..f68ef41
 \ No newline at end of file
 diff --git a/experimental/v2rayapi/quota_test.go b/experimental/v2rayapi/quota_test.go
 new file mode 100644
-index 0000000..8a53471
+index 0000000..406baa2
 --- /dev/null
 +++ b/experimental/v2rayapi/quota_test.go
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,337 @@
 +package v2rayapi
 +
 +// These tests exist because the cap's correctness depends on a non-obvious
@@ -680,9 +697,12 @@ index 0000000..8a53471
 +	"net"
 +	"sync"
 +	"sync/atomic"
++	"syscall"
 +	"testing"
++	"time"
 +
 +	"github.com/sagernet/sing/common/bufio"
++	N "github.com/sagernet/sing/common/network"
 +)
 +
 +func tcpPair(t *testing.T) (net.Conn, net.Conn) {
@@ -761,6 +781,11 @@ index 0000000..8a53471
 +				return
 +			default:
 +			}
++			// Write to a goroutine-free deadline so a full socket buffer cannot
++			// block this writer forever: without it the test deadlocks waiting on
++			// a reader that has already stopped (only visible under -race,
++			// where the stall is long enough to hit the test timeout).
++			_ = client.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
 +			if _, err := client.Write(payload); err != nil {
 +				return
 +			}
@@ -930,7 +955,69 @@ index 0000000..8a53471
 +		quotasMu.Unlock()
 +	})
 +}
-\ No newline at end of file
++// TestCappedConnExposesNoBypassPaths is the audit required before trusting the
++// cap: sing has several faster I/O paths that bypass Read/Write entirely. If the
++// capped wrapper advertised any of them, bytes would move without being charged
++// and the budget would leak silently. Each assertion below is one of those paths
++// confirmed unavailable.
++func TestCappedConnExposesNoBypassPaths(t *testing.T) {
++	resetQuotas(t)
++	SetQuota("audit", 1_000_000)
++	state := lookupQuota("audit")
++
++	client, server := tcpPair(t)
++	conn, _ := newTestQuotaConn(t, state, server)
++	_ = client
++
++	// Vectorised writes (bufio.counterVectorisedWriter) bypass Write entirely.
++	if w, ok := any(conn).(N.VectorisedWriter); ok {
++		t.Errorf("quotaConn implements VectorisedWriter; writes would bypass the cap: %T", w)
++	}
++	// Direct syscalls / splice: only reachable through syscall.Conn.
++	if _, ok := any(conn).(syscall.Conn); ok {
++		t.Error("quotaConn implements syscall.Conn; splice/zero-copy would bypass the cap")
++	}
++	// io.Copy shortcuts.
++	if _, ok := any(conn).(io.ReaderFrom); ok {
++		t.Error("quotaConn implements ReadFrom; a copy would bypass Write")
++	}
++	if _, ok := any(conn).(io.WriterTo); ok {
++		t.Error("quotaConn implements WriteTo; a copy would bypass Read")
++	}
++
++	// The same must hold for the types sing actually reads/writes after
++	// unwrapping, which is where a leak would be invisible.
++	reader, counters := conn.UnwrapReader()
++	if len(counters) == 0 {
++		t.Error("unwrap returned no counters: stat accounting would stop")
++	}
++	if _, ok := reader.(syscall.Conn); ok {
++		t.Error("quotaReader implements syscall.Conn; splice would bypass the cap")
++	}
++	if _, ok := reader.(io.ReaderFrom); ok {
++		t.Error("quotaReader implements ReadFrom")
++	}
++
++	writer, wCounters := conn.UnwrapWriter()
++	if len(wCounters) == 0 {
++		t.Error("unwrap returned no write counters")
++	}
++	if _, ok := writer.(io.WriterTo); ok {
++		t.Error("quotaWriter implements WriteTo")
++	}
++	if _, ok := writer.(N.VectorisedWriter); ok {
++		t.Error("quotaWriter implements VectorisedWriter")
++	}
++
++	// The inner reader must not be an unwrap candidate itself, otherwise the
++	// loop would strip past the cap to the raw socket.
++	if _, ok := reader.(N.ReadCounter); ok {
++		t.Error("quotaReader implements ReadCounter: unwrapping would reach the raw socket")
++	}
++	if _, ok := writer.(N.WriteCounter); ok {
++		t.Error("quotaWriter implements WriteCounter: unwrapping would reach the raw socket")
++	}
++}
 diff --git a/experimental/v2rayapi/server.go b/experimental/v2rayapi/server.go
 index 8ebae1c..ee7810b 100644
 --- a/experimental/v2rayapi/server.go
@@ -998,22 +1085,50 @@ index 8ebae1c..ee7810b 100644
  		common.PtrOrNil(s.grpcServer),
  		s.tcpListener,
 diff --git a/experimental/v2rayapi/stats.go b/experimental/v2rayapi/stats.go
-index 6f38fdd..61c005b 100644
+index 6f38fdd..4ed8f5b 100644
 --- a/experimental/v2rayapi/stats.go
 +++ b/experimental/v2rayapi/stats.go
-@@ -52,6 +52,11 @@ func NewStatsService(options option.V2RayStatsServiceOptions) *StatsService {
+@@ -52,13 +52,38 @@ func NewStatsService(options option.V2RayStatsServiceOptions) *StatsService {
  	for _, user := range options.Users {
  		users[user] = true
  	}
+-	return &StatsService{
 +	// Budgets arrive in the config so they exist before the first inbound can
 +	// accept a connection; without this a restart would open an unlimited window.
 +	if options.Quota != nil && len(options.Quota.Users) > 0 {
 +		LoadQuotas(options.Quota.Users)
 +	}
- 	return &StatsService{
++	service := &StatsService{
  		createdAt: time.Now(),
  		inbounds:  inbounds,
-@@ -87,7 +92,24 @@ func (s *StatsService) RoutedConnection(ctx context.Context, conn net.Conn, meta
+ 		outbounds: outbounds,
+ 		users:     users,
+ 		counters:  make(map[string]*atomic.Int64),
+ 	}
++	userTrafficCounter = service.userTraffic
++	return service
++}
++
++// userTraffic exposes the sum of this user's stat counters (uplink+downlink),
++// which is the figure the panel treats as used_traffic. Quota reporting returns
++// it alongside the patch's own consumed figure so a divergence between the two
++// is visible instead of assumed.
++var userTrafficCounter func(user string) int64
++
++func (s *StatsService) userTraffic(user string) int64 {
++	s.access.Lock()
++	defer s.access.Unlock()
++	var total int64
++	for _, link := range []string{"uplink", "downlink"} {
++		if counter, ok := s.counters["user>>>"+user+">>>traffic>>>"+link]; ok {
++			total += counter.Load()
++		}
++	}
++	return total
+ }
+ 
+ func (s *StatsService) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
+@@ -87,7 +112,24 @@ func (s *StatsService) RoutedConnection(ctx context.Context, conn net.Conn, meta
  		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
  	}
  	s.access.Unlock()
@@ -1039,7 +1154,7 @@ index 6f38fdd..61c005b 100644
  }
  
  func (s *StatsService) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
-@@ -116,7 +138,22 @@ func (s *StatsService) RoutedPacketConnection(ctx context.Context, conn N.Packet
+@@ -116,7 +158,22 @@ func (s *StatsService) RoutedPacketConnection(ctx context.Context, conn N.Packet
  		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
  	}
  	s.access.Unlock()
