@@ -1385,10 +1385,15 @@ func (x *Proxy) GetHysteria() *Hysteria {
 }
 
 type User struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
-	Proxies       *Proxy                 `protobuf:"bytes,2,opt,name=proxies,proto3" json:"proxies,omitempty"`
-	Inbounds      []string               `protobuf:"bytes,3,rep,name=inbounds,proto3" json:"inbounds,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Email    string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	Proxies  *Proxy                 `protobuf:"bytes,2,opt,name=proxies,proto3" json:"proxies,omitempty"`
+	Inbounds []string               `protobuf:"bytes,3,rep,name=inbounds,proto3" json:"inbounds,omitempty"`
+	// Remaining bytes this user may still transfer (uplink + downlink combined,
+	// matching how the panel sums used_traffic). 0 means no budget is enforced for
+	// this user. Sent so the core can cap in-flight traffic instead of only
+	// reporting it after the fact.
+	Quota         uint64 `protobuf:"varint,4,opt,name=quota,proto3" json:"quota,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1442,6 +1447,13 @@ func (x *User) GetInbounds() []string {
 		return x.Inbounds
 	}
 	return nil
+}
+
+func (x *User) GetQuota() uint64 {
+	if x != nil {
+		return x.Quota
+	}
+	return 0
 }
 
 type Users struct {
@@ -2178,11 +2190,12 @@ const file_common_service_proto_rawDesc = "" +
 	"\x06trojan\x18\x03 \x01(\v2\x0f.service.TrojanR\x06trojan\x126\n" +
 	"\vshadowsocks\x18\x04 \x01(\v2\x14.service.ShadowsocksR\vshadowsocks\x120\n" +
 	"\twireguard\x18\x05 \x01(\v2\x12.service.WireguardR\twireguard\x12-\n" +
-	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"b\n" +
+	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"x\n" +
 	"\x04User\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12(\n" +
 	"\aproxies\x18\x02 \x01(\v2\x0e.service.ProxyR\aproxies\x12\x1a\n" +
-	"\binbounds\x18\x03 \x03(\tR\binbounds\",\n" +
+	"\binbounds\x18\x03 \x03(\tR\binbounds\x12\x14\n" +
+	"\x05quota\x18\x04 \x01(\x04R\x05quota\",\n" +
 	"\x05Users\x12#\n" +
 	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\"[\n" +
 	"\n" +

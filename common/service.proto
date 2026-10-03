@@ -151,6 +151,11 @@ message User {
     string email = 1;
     Proxy proxies = 2;
     repeated string inbounds = 3;
+// Remaining bytes this user may still transfer (uplink + downlink combined,
+// matching how the panel sums used_traffic). 0 means no budget is enforced for
+// this user. Sent so the core can cap in-flight traffic instead of only
+// reporting it after the fact.
+uint64 quota = 4;
 }
 
 message Users {
