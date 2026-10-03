@@ -833,6 +833,212 @@ index 0000000..ea92a71
 +func PatchLevel() string {
 +	return patchLevel
 +}
+diff --git a/experimental/v2rayapi/quota_security_test.go b/experimental/v2rayapi/quota_security_test.go
+new file mode 100644
+index 0000000..0dba785
+--- /dev/null
++++ b/experimental/v2rayapi/quota_security_test.go
+@@ -0,0 +1,200 @@
++package v2rayapi
++
++// Security tests for the quota control endpoint.
++//
++// The endpoint can *raise* a user's budget, so anything that reaches it can
++// defeat a data limit. These cover the boundaries that matter: who can reach
++// it, who can authenticate to it, and what happens when it is not configured
++// the way it should be.
++
++import (
++	"encoding/json"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++)
++
++func TestSecretComparisonRejectsWrongAndEmpty(t *testing.T) {
++	handler := QuotaControlHandler("correct-horse-battery-staple")
++
++	for _, provided := range []string{"", "wrong", "correct-horse-battery-stapl",
++		"correct-horse-battery-staples", "CORRECT-HORSE-BATTERY-STAPLE"} {
++		req := httptest.NewRequest(http.MethodGet, "/quota", nil)
++		req.Header.Set("X-Quota-Secret", provided)
++		rec := httptest.NewRecorder()
++		handler.ServeHTTP(rec, req)
++
++		if rec.Code != http.StatusUnauthorized {
++			t.Fatalf("secret %q got HTTP %d, want 401", provided, rec.Code)
++		}
++	}
++}
++
++func TestSecretComparisonAcceptsTheRealSecret(t *testing.T) {
++	handler := QuotaControlHandler("correct-horse-battery-staple")
++
++	req := httptest.NewRequest(http.MethodGet, "/quota", nil)
++	req.Header.Set("X-Quota-Secret", "correct-horse-battery-staple")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++
++	if rec.Code != http.StatusOK {
++		t.Fatalf("correct secret got HTTP %d, want 200: %s", rec.Code, rec.Body.String())
++	}
++}
++
++func TestEmptySecretNeverAuthenticates(t *testing.T) {
++	// A handler built with no secret must reject everyone, including a request
++	// that also sends an empty secret: otherwise "" == "" would let anything
++	// through.
++	handler := QuotaControlHandler("")
++
++	req := httptest.NewRequest(http.MethodGet, "/quota", nil)
++	req.Header.Set("X-Quota-Secret", "")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++
++	if rec.Code != http.StatusUnauthorized {
++		t.Fatalf("empty secret got HTTP %d, want 401", rec.Code)
++	}
++}
++
++func TestNonLoopbackListenIsRefused(t *testing.T) {
++	t.Setenv(quotaSecretEnv, "from-env")
++
++	for _, listen := range []string{
++		"0.0.0.0:9999",     // every interface
++		":9999",            // all interfaces, implicit
++		"192.168.1.5:9999", // a real LAN address
++		"example:9999",     // not even an IP
++	} {
++		if _, err := ServeQuotaControl(listen, "ignored"); err == nil {
++			t.Fatalf("ServeQuotaControl(%q) was allowed; budgets could be raised from the network", listen)
++		}
++	}
++}
++
++func TestLoopbackListenIsAllowed(t *testing.T) {
++	t.Setenv(quotaSecretEnv, "from-env")
++
++	server, err := ServeQuotaControl("127.0.0.1:0", "ignored")
++	if err != nil {
++		t.Fatalf("loopback listen refused: %v", err)
++	}
++	defer server.Close()
++}
++
++func TestEndpointRefusesWithoutEnvSecret(t *testing.T) {
++	// The config file is written to disk and copied into images and crash
++	// dumps, so a secret that only exists there is not a boundary. The endpoint
++	// must refuse to start rather than serve behind it.
++	os.Unsetenv(quotaSecretEnv)
++
++	if _, err := ServeQuotaControl("127.0.0.1:0", "secret-from-config"); err == nil {
++		t.Fatal("endpoint served with a config-file-only secret")
++	}
++}
++
++func TestEnvSecretOverridesTheConfigSecret(t *testing.T) {
++	t.Setenv(quotaSecretEnv, "env-wins")
++	handler := QuotaControlHandler("config-loses")
++
++	req := httptest.NewRequest(http.MethodGet, "/quota", nil)
++	req.Header.Set("X-Quota-Secret", "env-wins")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++	if rec.Code != http.StatusOK {
++		t.Fatalf("env secret rejected: HTTP %d", rec.Code)
++	}
++
++	req = httptest.NewRequest(http.MethodGet, "/quota", nil)
++	req.Header.Set("X-Quota-Secret", "config-loses")
++	rec = httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++	if rec.Code != http.StatusUnauthorized {
++		t.Fatalf("config secret still accepted: HTTP %d", rec.Code)
++	}
++}
++
++func TestStatusNeverEchoesTheSecret(t *testing.T) {
++	handler := QuotaControlHandler("super-secret-value")
++
++	req := httptest.NewRequest(http.MethodGet, "/quota", nil)
++	req.Header.Set("X-Quota-Secret", "super-secret-value")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++
++	if strings.Contains(rec.Body.String(), "super-secret-value") {
++		t.Fatalf("the secret appears in the response body: %s", rec.Body.String())
++	}
++}
++
++func TestSetQuotaCannotBeDrivenWithoutAuthentication(t *testing.T) {
++	// The POST path is the one that can raise a budget, so it is checked
++	// separately from GET.
++	resetQuotas(t)
++	SetQuota("victim", 1_000)
++	handler := QuotaControlHandler("s3cret")
++
++	body := strings.NewReader(`{"quotas":[{"user":"victim","remaining":999999999}]}`)
++	req := httptest.NewRequest(http.MethodPost, "/quota", body)
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("X-Quota-Secret", "guess")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++
++	if rec.Code != http.StatusUnauthorized {
++		t.Fatalf("unauthenticated POST got HTTP %d, want 401", rec.Code)
++	}
++	if remaining, _ := QuotaRemaining("victim"); remaining != 1_000 {
++		t.Fatalf("budget was changed by an unauthenticated caller: %d", remaining)
++	}
++}
++
++func TestPostRejectsAnOversizedBody(t *testing.T) {
++	// The body is read into memory before being parsed; without the limit a
++	// local caller could make the core allocate unboundedly.
++	handler := QuotaControlHandler("s3cret")
++
++	huge := strings.Repeat("x", 9<<20) // 9 MiB, over the 8 MiB cap
++	req := httptest.NewRequest(http.MethodPost, "/quota", strings.NewReader(huge))
++	req.Header.Set("X-Quota-Secret", "s3cret")
++	rec := httptest.NewRecorder()
++	handler.ServeHTTP(rec, req)
++
++	if rec.Code == http.StatusOK {
++		t.Fatal("an oversized body was accepted")
++	}
++}
++
++func TestListensOnlyOnLoopbackSocket(t *testing.T) {
++	// Belt and braces on ServeQuotaControl's own check: confirm the listener it
++	// creates is not reachable from a non-loopback local address.
++	t.Setenv(quotaSecretEnv, "from-env")
++
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	defer listener.Close()
++
++	host, _, _ := net.SplitHostPort(listener.Addr().String())
++	if !net.ParseIP(host).IsLoopback() {
++		t.Fatalf("listener bound to %s, which is not loopback", host)
++	}
++}
++
++func TestPatchLevelIsNotASecret(t *testing.T) {
++	// The marker travels in `sing-box version`, so it must identify the patch
++	// without disclosing anything.
++	if strings.Contains(PatchLevel(), "secret") || PatchLevel() != "quota-v1" {
++		t.Fatalf("unexpected patch level %q", PatchLevel())
++	}
++	var payload map[string]any
++	if err := json.Unmarshal([]byte(`{"patch":"`+PatchLevel()+`"}`), &payload); err != nil {
++		t.Fatalf("patch level is not JSON-safe: %v", err)
++	}
++}
 diff --git a/experimental/v2rayapi/quota_test.go b/experimental/v2rayapi/quota_test.go
 new file mode 100644
 index 0000000..4f70440
