@@ -152,7 +152,15 @@ func (s *SingBox) startQuotaMonitor(baseCtx context.Context, endpoint, secret st
 
 func fetchQuotaStatus(client *http.Client, endpoint, secret string) (quotaStatusResponse, error) {
 	var out quotaStatusResponse
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/quota", nil)
+	url := strings.TrimRight(endpoint, "/") + "/quota"
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		// The config carries the endpoint as "127.0.0.1:port", with no scheme.
+		// http.NewRequest accepts that syntactically but client.Do then fails with
+		// "unsupported protocol scheme" — every call, forever, which looked like
+		// a quiet core.
+		url = "http://" + url
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return out, err
 	}

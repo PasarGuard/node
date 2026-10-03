@@ -163,6 +163,17 @@ func isQuotaPatched(executablePath string) bool {
 	return isQuotaPatchedOutput(out.String())
 }
 
+// QuotaEndpointPort picks the loopback port for the quota control endpoint.
+//
+// The stats API already occupies `apiPort`, so the control endpoint needs its
+// own. apiPort+1 is deterministic (the harness, the config and the tests all
+// have to agree on it without a round trip) and in practice free: this process
+// binds only the stats API and this one. A collision would fail the core's
+// startup with a clear bind error rather than silently disabling the endpoint.
+func (c *Core) QuotaEndpointPort(apiPort int) int {
+	return apiPort + 1
+}
+
 // HasQuotaPatch reports whether the running binary carries the in-core quota
 // enforcement patch.
 func (c *Core) HasQuotaPatch() bool {

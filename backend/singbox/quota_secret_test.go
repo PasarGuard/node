@@ -123,7 +123,7 @@ func TestSecretIssuedByTheBackendAuthenticatesTheControlEndpoint(t *testing.T) {
 	if err := cfg.ApplyAPI(apiPort); err != nil {
 		t.Fatalf("ApplyAPI: %v", err)
 	}
-	cfg.enableQuotaEndpoint(quotaPort, "")
+	cfg.EnableQuotaEndpoint(quotaPort, "")
 	cfg.syncUsers([]*common.User{
 		{Email: "alice", Quota: 5_000_000, Inbounds: []string{"vless-in"},
 			Proxies: &common.Proxy{Vless: &common.Vless{Id: uuid.New().String()}}},

@@ -33,6 +33,8 @@ type SingBox struct {
 	// exhaustion promptly. Empty when the endpoint is not enabled.
 	quotaEndpoint string
 	quotaSecret   string
+	// quotaPort is the loopback port the control endpoint is bound to.
+	quotaPort int
 
 	debounceTimer *time.Timer
 	lastFlushAt   time.Time
@@ -90,10 +92,30 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 		return nil, err
 	}
 
+	// Turn the control endpoint on before the core starts, so the core owns it
+	// from the first request rather than gaining it on a later sync. This is
+	// what lets a live core receive an updated budget, and what lets the node
+	// notice a budget has run out — without it the panel only learns on its
+	// next usage poll.
+	if core.HasQuotaPatch() {
+		sbConfig.EnableQuotaEndpoint(core.QuotaEndpointPort(apiPort), "")
+	}
+
 	if err = core.Start(sbConfig, cfg.Debug); err != nil {
 		return nil, err
 	}
 	sb.core = core
+
+	if endpoint := sbConfig.quotaEndpoint(); endpoint != "" {
+		sb.mu.Lock()
+		sb.quotaEndpoint = endpoint
+		sb.quotaSecret = cfg.QuotaSecret
+		sb.mu.Unlock()
+		log.Printf("quota monitor starting against %s", endpoint)
+		sb.startQuotaMonitor(xCtx, endpoint, cfg.QuotaSecret)
+	} else {
+		log.Printf("no quota endpoint configured; quota monitor not started")
+	}
 
 	handler, err := newStatsClient(apiPort)
 	if err != nil {
@@ -108,16 +130,6 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 	}
 
 	go sb.checkSingBoxHealth(xCtx)
-
-	// The control endpoint is described by the config, not the node settings,
-	// so it is read off the config after it is applied.
-	if endpoint := sbConfig.quotaEndpoint(); endpoint != "" {
-		sb.mu.Lock()
-		sb.quotaEndpoint = endpoint
-		sb.quotaSecret = cfg.QuotaSecret
-		sb.mu.Unlock()
-		sb.startQuotaMonitor(xCtx, endpoint, cfg.QuotaSecret)
-	}
 
 	log.Println("sing-box started, Version:", sb.Version())
 

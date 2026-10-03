@@ -336,14 +336,15 @@ func (c *Config) resetQuotas() int {
 	return len(budgets)
 }
 
-// enableQuotaEndpoint turns on the core's loopback control endpoint, which the
-// node uses to update budgets on a running core instead of restarting it.
+// EnableQuotaEndpoint turns on the core's loopback control endpoint, which the
+// node uses to update budgets on a running core instead of restarting it, and
+// to detect that a budget has run out.
 //
 // The secret argument is deliberately written as "" into the config: the value
 // itself travels to the child process through its environment (see Core.Start),
 // because the config file is copied into images and crash dumps. The core reads
 // SINGBOX_QUOTA_SECRET and ignores this field when that is set.
-func (c *Config) enableQuotaEndpoint(port int, _ string) {
+func (c *Config) EnableQuotaEndpoint(port int, _ string) {
 	if port <= 0 {
 		return
 	}

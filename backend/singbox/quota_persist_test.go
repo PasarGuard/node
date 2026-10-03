@@ -32,7 +32,7 @@ func quotaConfigWithEndpoint(t *testing.T) *Config {
 	if err := parsed.ApplyAPI(62051); err != nil {
 		t.Fatalf("ApplyAPI: %v", err)
 	}
-	parsed.enableQuotaEndpoint(9999, "")
+	parsed.EnableQuotaEndpoint(9999, "")
 	parsed.syncUsers(quotaTestUsers())
 	return parsed
 }
