@@ -11,6 +11,7 @@ package rpc
 import (
 	"fmt"
 
+	"github.com/pasarguard/node/backend/singbox"
 	"github.com/pasarguard/node/common"
 )
 
@@ -24,7 +25,7 @@ func (s *Service) SubscribeEvents(_ *common.Empty, stream common.NodeService_Sub
 	// in-core budget to exhaust. The stream stays open and simply quiet, so the
 	// panel's reconnect logic needs no per-core special case.
 	quotaCh, ok := backend.(interface {
-		QuotaEventCh() <-chan common.NodeEvent
+		QuotaEventCh() <-chan singbox.QuotaEvent
 	})
 	if !ok {
 		<-stream.Context().Done()
@@ -36,8 +37,8 @@ func (s *Service) SubscribeEvents(_ *common.Empty, stream common.NodeService_Sub
 		select {
 		case ev := <-events:
 			if err := stream.Send(&common.NodeEvent{
-				UserId:    ev.UserId,
-				Type:      ev.Type,
+				UserId:    ev.UserID,
+				Type:      ev.EventType,
 				Remaining: ev.Remaining,
 			}); err != nil {
 				return fmt.Errorf("failed to send node event: %w", err)

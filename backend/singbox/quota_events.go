@@ -44,10 +44,17 @@ const (
 	quotaNearFloor = 64 * 1024
 )
 
-// quotaEvent is what the detector emits; it is already in proto shape so the
-// RPC layer can forward it without a conversion and without exposing an
-// unexported type across packages.
-type quotaEvent = common.NodeEvent
+// QuotaEvent is what the detector emits.
+//
+// Deliberately not the proto message: common.NodeEvent embeds a mutex, and
+// passing one by value copies the lock (go vet: "passes lock by value"). A
+// plain struct keeps the internal path copyable, and the RPC layer builds the
+// proto at the edge.
+type QuotaEvent struct {
+	UserID    string
+	EventType common.NodeEventType
+	Remaining int64
+}
 
 // quotaStatusResponse mirrors what the patched core's GET /quota returns. Only
 // the fields this file needs are declared; the endpoint sends more.
@@ -59,24 +66,24 @@ type quotaStatusResponse struct {
 // QuotaEventCh returns the channel on which quota-exhaustion events appear.
 // Buffered so a slow panel cannot block the detector, which must keep polling
 // regardless of whether anyone is listening.
-func (s *SingBox) QuotaEventCh() <-chan common.NodeEvent {
+func (s *SingBox) QuotaEventCh() <-chan QuotaEvent {
 	s.eventOnce.Do(func() {
-		s.quotaEvents = make(chan common.NodeEvent, 256)
+		s.QuotaEvents = make(chan QuotaEvent, 256)
 	})
-	return s.quotaEvents
+	return s.QuotaEvents
 }
 
 // emitQuotaEvent publishes an event, dropping it if nobody is keeping up. A
 // dropped event is recoverable — the panel re-derives the state from usage on
 // its next poll — whereas blocking the detector would not be.
-func (s *SingBox) emitQuotaEvent(ev common.NodeEvent) {
+func (s *SingBox) emitQuotaEvent(ev QuotaEvent) {
 	s.eventOnce.Do(func() {
-		s.quotaEvents = make(chan common.NodeEvent, 256)
+		s.QuotaEvents = make(chan QuotaEvent, 256)
 	})
 	select {
-	case s.quotaEvents <- ev:
+	case s.QuotaEvents <- ev:
 	default:
-		log.Printf("quota event for user %s dropped: nobody is consuming events", ev.UserId)
+		log.Printf("quota event for user %s dropped: nobody is consuming events", ev.UserID)
 	}
 }
 
@@ -117,9 +124,9 @@ func (s *SingBox) startQuotaMonitor(baseCtx context.Context, endpoint, secret st
 				if remaining <= 0 {
 					if last, ok := announced[user]; !ok || time.Since(last) > time.Minute {
 						announced[user] = time.Now()
-						s.emitQuotaEvent(common.NodeEvent{
-							UserId:    user,
-							Type:      common.NodeEventType_NODE_EVENT_QUOTA_EXHAUSTED,
+						s.emitQuotaEvent(QuotaEvent{
+							UserID:    user,
+							EventType: common.NodeEventType_NODE_EVENT_QUOTA_EXHAUSTED,
 							Remaining: remaining,
 						})
 						log.Printf("quota exhausted for user %s", user)
@@ -165,9 +172,9 @@ func fetchQuotaStatus(client *http.Client, endpoint, secret string) (quotaStatus
 	return out, json.Unmarshal(body, &out)
 }
 
-// quotaEvents is created lazily so the zero-value backend is usable in tests
+// QuotaEvents is created lazily so the zero-value backend is usable in tests
 // that never ask for it.
-type quotaEventSink struct {
+type QuotaEventSink struct {
 	eventOnce   sync.Once
-	quotaEvents chan quotaEvent
+	QuotaEvents chan QuotaEvent
 }

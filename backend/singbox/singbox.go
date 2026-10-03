@@ -27,7 +27,7 @@ type SingBox struct {
 	// desired state immediately but materialize with one coalesced restart.
 	// quota-exhaustion events for the panel; created lazily by QuotaEventCh.
 	eventOnce   sync.Once
-	quotaEvents chan common.NodeEvent
+	QuotaEvents chan QuotaEvent
 
 	// quotaEndpoint/secret address the core's control endpoint, used to detect
 	// exhaustion promptly. Empty when the endpoint is not enabled.
