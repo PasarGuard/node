@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/stats"
@@ -65,6 +67,7 @@ type WireGuard struct {
 	lastStatsErrAt time.Time
 	newManager     newManagerFunc
 	hostRouting    func()
+	usageEpoch     string
 }
 
 // getWireGuardVersion fetches the wireguard-tools version
@@ -128,6 +131,7 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 	version := getWireGuardVersion()
 
 	wg := &WireGuard{
+		usageEpoch:     uuid.NewString(),
 		cancelFunc:     wgCancel,
 		cfg:            cfg,
 		statsTracker:   stats.New(),

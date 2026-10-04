@@ -18,17 +18,20 @@ func (s *Service) backend() (backend.Backend, error) {
 }
 
 func (s *Service) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
-	}
-
-	stats, err := backend.GetStats(ctx, request)
+	stats, err := s.Controller.GetStats(ctx, request)
 	if err != nil {
 		err = common.InterceptNotFound(err)
 		return nil, err
 	}
 	return stats, nil
+}
+
+func (s *Service) CollectUsage(ctx context.Context, request *common.UsageRequest) (*common.UsageReceipt, error) {
+	return s.Controller.CollectUsage(ctx, request)
+}
+
+func (s *Service) AcknowledgeUsage(ctx context.Context, request *common.UsageAck) (*common.Empty, error) {
+	return s.Controller.AcknowledgeUsage(ctx, request)
 }
 
 func (s *Service) GetUserOnlineStats(ctx context.Context, request *common.StatRequest) (*common.OnlineStatResponse, error) {
