@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package stats_query;
+
+option go_package = "github.com/pasarguard/node/common";
+
+// QueryStatsRequest is the v2ray StatsService request with BOTH spellings of
+// the filter: `pattern` (field 1, what xray-core implements) and `patterns`
+// (field 3, what sing-box's experimental/v2rayapi reads).
+//
+// sing-box ignores field 1 entirely: with `patterns` empty it returns — and,
+// when reset=true, zeroes — EVERY counter in the core. The node talking to a
+// sing-box core with only field 1 therefore lets an outbound-stats poll drain
+// per-user counters, which is bytes the panel never bills.
+//
+// Node->core only. Not part of the panel/node service contract; no bridge or
+// panel stub is generated from this file.
+message QueryStatsRequest {
+  string pattern = 1;
+  bool reset = 2;
+  repeated string patterns = 3;
+  bool regexp = 4;
+}

@@ -48,8 +48,19 @@ func (s *statsClient) Close() error {
 	return s.conn.Close()
 }
 
+// buildStatsQuery carries both filter spellings — see common/stats_query.proto.
+// sing-box matches Patterns with strings.Contains; an empty filter means "all",
+// which must never be sent with reset=true against a shared core.
+func buildStatsQuery(pattern string, reset bool) *common.QueryStatsRequest {
+	req := &common.QueryStatsRequest{Pattern: pattern, Reset_: reset}
+	if pattern != "" {
+		req.Patterns = []string{pattern}
+	}
+	return req
+}
+
 func (s *statsClient) queryStats(ctx context.Context, pattern string, reset bool) ([]*command.Stat, error) {
-	req := &command.QueryStatsRequest{Pattern: pattern, Reset_: reset}
+	req := buildStatsQuery(pattern, reset)
 	resp := &command.QueryStatsResponse{}
 	if err := s.conn.Invoke(ctx, statsServicePath+"QueryStats", req, resp); err != nil {
 		return nil, err
