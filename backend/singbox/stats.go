@@ -73,7 +73,18 @@ func (s *SingBox) GetStats(ctx context.Context, request *common.StatRequest) (*c
 	if err != nil {
 		return nil, err
 	}
-	return s.mergePendingStats(raw, reset), nil
+
+	// pendingStats holds per-USER counters (flushCountersLocked drains
+	// "user>>>"). Only the user-facing reads may consume them: the panel bills
+	// a user from StatType_UsersStat, and letting an Outbounds poll consume
+	// the map dropped those bytes on the floor — the node-stats job ticks 15s
+	// after scheduler start, before the usage job's 30s first tick, so a short
+	// run billed the user nothing while the core had spent 20 MB. The pending
+	// rows are also still merged into a non-user response (they cost nothing
+	// and keep the accounting honest), just not cleared.
+	consume := reset && (request.GetType() == common.StatType_UsersStat ||
+		request.GetType() == common.StatType_UserStat)
+	return s.mergePendingStats(raw, consume), nil
 }
 
 // mergePendingStats folds counters that were drained before a planned restart

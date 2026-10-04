@@ -90,3 +90,45 @@ func TestRestartToAConfigWithoutTheUserStillBillsTheirBytes(t *testing.T) {
 	t.Logf("accounted across a restart that drops the user: delivered=%d billed=%d "+
 		"(poll1=%d poll2=%d)", delivered, billed, poll1, poll2)
 }
+
+// TestPendingUserStatsSurviveANonUserPoll: only a user-facing read may consume
+// pendingStats. The node-stats job polls Outbounds with reset=true 15s after
+// scheduler start — before the usage job's first tick at 30s — so a consuming
+// Outbounds poll handed the panel a response whose user rows the panel then
+// discarded, and the pre-restart user bytes were gone. The result was a run
+// that billed 0 bytes for a user the core had already spent 20 MB on.
+func TestPendingUserStatsSurviveANonUserPoll(t *testing.T) {
+	const window = 500 * time.Millisecond
+	h := newDebounceHarness(t, window)
+
+	h.tunneled() // bytes after the last poll; they can only live in pendingStats
+
+	// Queue the restart, which drains the counters into pendingStats.
+	if err := h.sb.SyncUser(h.ctx, &common.User{
+		Email:    "a-user",
+		Proxies:  &common.Proxy{Vless: &common.Vless{Id: h.userID}},
+		Inbounds: []string{"vless-in"},
+	}); err != nil {
+		t.Fatalf("SyncUser: %v", err)
+	}
+	deadline := time.Now().Add(5 * window)
+	for h.sb.RestartCount() == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if h.sb.RestartCount() != 1 {
+		t.Fatalf("expected exactly 1 restart, got %d", h.sb.RestartCount())
+	}
+
+	// The node-stats job's poll, verbatim: Outbounds with reset=true.
+	if _, err := h.sb.GetStats(h.ctx, &common.StatRequest{Type: common.StatType_Outbounds, Reset_: true}); err != nil {
+		t.Fatalf("Outbounds poll: %v", err)
+	}
+
+	// The usage job's poll must still see the bytes.
+	got := pollUsers(t, h.sb, h.ctx)
+	if got == 0 {
+		t.Fatal("an Outbounds poll consumed the pending user bytes; the panel would " +
+			"bill this user 0 for traffic the core already counted")
+	}
+	t.Logf("pending user bytes survived a node-stats poll: %d", got)
+}
