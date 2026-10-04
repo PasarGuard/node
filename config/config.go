@@ -14,6 +14,7 @@ type Config struct {
 	ServicePort                 int
 	NodeHost                    string
 	XrayExecutablePath          string
+	TelemtExecutablePath        string
 	XrayAssetsPath              string
 	SslCertFile                 string
 	SslKeyFile                  string
@@ -44,6 +45,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		ServicePort:                 GetEnvAsInt("SERVICE_PORT", 62050),
 		XrayExecutablePath:          GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
+		TelemtExecutablePath:        GetEnv("TELEMT_EXECUTABLE_PATH", "/usr/local/bin/telemt"),
 		XrayAssetsPath:              GetEnv("XRAY_ASSETS_PATH", "/usr/local/share/xray"),
 		SslCertFile:                 GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
 		SslKeyFile:                  GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),

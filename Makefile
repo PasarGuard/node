@@ -27,6 +27,19 @@ XRAY_OS_EFFECTIVE   := $(if $(XRAY_OS),$(XRAY_OS),$(GOOS))
 XRAY_ARCH_EFFECTIVE := $(if $(XRAY_ARCH),$(XRAY_ARCH),$(XRAY_ARCH_MAP_$(GOARCH)))
 XRAY_INSTALL_ARGS   := $(strip $(if $(XRAY_OS_EFFECTIVE),--os $(XRAY_OS_EFFECTIVE)) $(if $(XRAY_ARCH_EFFECTIVE),--arch $(XRAY_ARCH_EFFECTIVE)))
 
+# telemt (MTProto backend) — pinned release; static musl tarball + sha256 verify
+TELEMT_REPOSITORY ?= telemt/telemt
+TELEMT_VERSION    ?= 3.4.25
+TELEMT_OS   ?=
+TELEMT_ARCH ?=
+TELEMT_ARCH_MAP_amd64 = x86_64
+TELEMT_ARCH_MAP_arm64 = aarch64
+TELEMT_GOOS   := $(if $(GOOS),$(GOOS),$(shell go env GOOS))
+TELEMT_GOARCH := $(if $(GOARCH),$(GOARCH),$(shell go env GOARCH))
+TELEMT_OS_EFFECTIVE      := $(if $(TELEMT_OS),$(TELEMT_OS),$(TELEMT_GOOS))
+TELEMT_ARCH_EFFECTIVE    := $(if $(TELEMT_ARCH),$(TELEMT_ARCH),$(TELEMT_ARCH_MAP_$(TELEMT_GOARCH)))
+TELEMT_GOARCH_EFFECTIVE  := $(TELEMT_GOARCH)
+
 ifeq ($(GOOS),windows)
 OUTPUT = $(NAME).exe
 ADDITION = go build -o w$(NAME).exe -trimpath -ldflags "-H windowsgui $(LDFLAGS)" -v $(MAIN)
@@ -38,7 +51,7 @@ ifeq ($(shell echo "$(GOARCH)" | grep -Eq "(mips|mipsle)" && echo true),true)
 ADDITION = GOMIPS=softfloat go build -o $(NAME)_softfloat -trimpath -ldflags "$(LDFLAGS)" -v $(MAIN)
 endif
 
-.PHONY: clean build test test-race-wireguard test-integration test-integration-full test-integration-wireguard
+.PHONY: clean build test test-race-wireguard test-integration test-integration-full test-integration-wireguard install_telemt
 
 build:
 	CGO_ENABLED=0 go build -o $(OUTPUT) $(PARAMS) $(MAIN)
@@ -156,6 +169,42 @@ ifeq ($(UNAME_S),Linux)
 	fi
 	@echo "WireGuard installed successfully"
 	@wg --version
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
+install_telemt: update_os
+ifeq ($(UNAME_S),Linux)
+	@if [ "$(TELEMT_OS_EFFECTIVE)" != "linux" ]; then \
+		echo "Unsupported TELEMT target OS: $(TELEMT_OS_EFFECTIVE)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(TELEMT_ARCH_EFFECTIVE)" ]; then \
+		echo "Unsupported TELEMT target architecture: $(TELEMT_GOARCH_EFFECTIVE)"; \
+		exit 1; \
+	fi
+	@set -eu; \
+		telemt_asset="telemt-$(TELEMT_ARCH_EFFECTIVE)-linux-musl.tar.gz"; \
+		telemt_release="$(TELEMT_VERSION)"; \
+		telemt_release="$${telemt_release#refs/tags/}"; \
+		if [ -z "$${telemt_release}" ] || [ "$${telemt_release}" = "latest" ]; then \
+			telemt_base_url="https://github.com/$(TELEMT_REPOSITORY)/releases/latest/download"; \
+		else \
+			telemt_base_url="https://github.com/$(TELEMT_REPOSITORY)/releases/download/$${telemt_release}"; \
+		fi; \
+		tmp_dir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmp_dir"' EXIT; \
+		curl -fL --retry 5 --retry-delay 3 --connect-timeout 10 --max-time 120 \
+			-o "$$tmp_dir/$$telemt_asset" "$$telemt_base_url/$$telemt_asset"; \
+		curl -fL --retry 5 --retry-delay 3 --connect-timeout 10 --max-time 120 \
+			-o "$$tmp_dir/$$telemt_asset.sha256" "$$telemt_base_url/$$telemt_asset.sha256"; \
+		( cd "$$tmp_dir" && sha256sum -c "$$telemt_asset.sha256" ); \
+		tar -xzf "$$tmp_dir/$$telemt_asset" -C "$$tmp_dir"; \
+		test -f "$$tmp_dir/telemt"; \
+		if [ "$$(id -u)" -eq 0 ]; then install_cmd="install"; else install_cmd="sudo install"; fi; \
+		$$install_cmd -m 0755 "$$tmp_dir/telemt" /usr/local/bin/telemt
+	@telemt --version || true
 else
 	@echo "Unsupported operating system: $(UNAME_S)"
 	@exit 1
