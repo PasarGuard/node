@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -25,25 +26,52 @@ func freePort(t *testing.T) int {
 	return freePorts(t, 1)[0]
 }
 
+// reservedPorts remembers every port handed out this process and every
+// apiPort+1 neighbour the core may bind, so separate freePort() calls cannot
+// straddle it. Tests run serially (-p 1), so one set for the package is enough.
+var (
+	reservedMu sync.Mutex
+	reserved   = map[int]bool{}
+)
+
 // freePorts returns n pairwise-distinct ports that were all free
 // simultaneously. Holding every listener until the set is complete prevents
 // the allocator from handing the same port to two call sites (which would
 // make a later waitForPort "succeed" against the wrong service).
+//
+// Adjacent ports are also rejected. The quota control endpoint is apiPort+1
+// (Core.QuotaEndpointPort) and the node binds it from the very first start, so
+// a neighbouring allocation is not merely unlucky: the core claims a port the
+// test believes it owns. The symptom points nowhere near the cause — the core
+// answers on what should be the client's SOCKS port and the test fails with
+// "unexpected socks version byte 0x48" ('H', from an HTTP reply).
+//
+// Windows hands out consecutive ephemeral ports from one counter, so with
+// ports taken one freePort() call at a time this collided essentially always.
 func freePorts(t *testing.T, n int) []int {
 	t.Helper()
 	listeners := make([]net.Listener, 0, n)
-	seen := make(map[int]bool, n)
 	for len(listeners) < n {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("freePorts: %v", err)
 		}
 		port := l.Addr().(*net.TCPAddr).Port
-		if seen[port] {
+		reservedMu.Lock()
+		// Reject port and both neighbours: port-1's quota port is this port,
+		// this port's quota port is port+1, and port itself must be unused.
+		unsafe := reserved[port] || reserved[port-1] || reserved[port+1]
+		if !unsafe {
+			reserved[port] = true
+			if port < 65535 {
+				reserved[port+1] = true // the quota endpoint this port may spawn
+			}
+		}
+		reservedMu.Unlock()
+		if unsafe {
 			_ = l.Close()
 			continue
 		}
-		seen[port] = true
 		listeners = append(listeners, l)
 	}
 	ports := make([]int, n)

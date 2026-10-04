@@ -97,7 +97,7 @@ func New(ctx context.Context, sbConfig *Config, users []*common.User, apiPort, m
 	// what lets a live core receive an updated budget, and what lets the node
 	// notice a budget has run out — without it the panel only learns on its
 	// next usage poll.
-	if core.HasQuotaPatch() {
+	if core.HasQuotaPatch() && sbConfig.quotaEndpoint() == "" {
 		sbConfig.EnableQuotaEndpoint(core.QuotaEndpointPort(apiPort), "")
 	}
 
