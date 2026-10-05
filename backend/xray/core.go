@@ -237,6 +237,12 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 
 	// Create a new logger for this core instance
 	c.logger = nodeLogger.New(debugMode)
+	// Bind HERE, as singbox and hysteria now do. xray also binds on the log path
+	// (log.go detectLogType), which is why its per-core file usually existed —
+	// but it was created from the child's FIRST LINE, so a core that logged
+	// nothing had no file at all. Binding at construction removes that
+	// dependency on there being a first line.
+	c.logger.BindOnce(c.configPath)
 	if err = c.logger.SetLogFile(accessFile, errorFile); err != nil {
 		return err
 	}

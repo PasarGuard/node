@@ -328,6 +328,15 @@ func (c *Core) Logs() <-chan string {
 // SetLogger attaches the node's log sink. Called once by the backend after New
 // has already started the child, so the child's early output reaches the file
 // through the same recordProcessLog path either way.
+//
+// Binding happens HERE rather than in LogLines(): this core's per-core log file
+// must be written whether or not anyone ever reads GetLogs. Binding only on the
+// stream meant a core whose stream nobody opened wrote no per-core file at all,
+// and the gate's disk half found a missing file rather than an empty one.
+//
+// It binds after the child has started, so any line logged before this call was
+// already parked in the previous Logger's bounded backfill ring or dropped —
+// which is exactly why that ring exists.
 func (c *Core) SetLogger(debug bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -335,6 +344,7 @@ func (c *Core) SetLogger(debug bool) {
 		c.logger.Close()
 	}
 	c.logger = nodeLogger.New(debug)
+	c.logger.BindOnce(c.configDir)
 }
 
 func (c *Core) cleanupOrphanedProcesses() error {

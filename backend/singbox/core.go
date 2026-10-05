@@ -316,6 +316,13 @@ func (c *Core) Start(config *Config, debugMode bool) error {
 	}
 
 	c.logger = nodeLogger.New(debugMode)
+	// Bind HERE, not on the first line and not when a stream attaches. This
+	// core's per-core log file must exist and be written whether or not anyone
+	// ever reads GetLogs: binding only inside LogLines() meant a core whose
+	// stream nobody opened wrote no per-core file at all, so the gate's disk
+	// half found a MISSING file rather than an empty one. Idempotent, so the
+	// LogLines() path may still call it.
+	c.logger.BindOnce(c.configDir)
 
 	if err := cmd.Start(); err != nil {
 		return err
