@@ -21,6 +21,7 @@ import (
 
 	// Each core registers its Factory from an init(). The import is the wiring;
 	// everything else a core needs arrives as a Factory parameter.
+	_ "github.com/pasarguard/node/backend/hysteria"
 	_ "github.com/pasarguard/node/backend/singbox"
 	_ "github.com/pasarguard/node/backend/wireguard"
 	_ "github.com/pasarguard/node/backend/xray"
