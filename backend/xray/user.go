@@ -132,7 +132,7 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 }
 
 func wireguardPeerReplaced(current, next *api.WireguardAccount) bool {
-	return current.PublicKey != next.PublicKey
+	return current.PublicKey != next.PublicKey || (current.PreSharedKey != "" && next.PreSharedKey == "")
 }
 
 func (i *Inbound) removeBeforeAdd(account api.Account) bool {
