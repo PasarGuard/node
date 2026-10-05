@@ -10,11 +10,11 @@ go-verify:
   image: golang:1.27.1
   stage: verify
   script:
-    - test -z "$(gofmt -l backend/xray/api/account.go backend/xray/api/wireguard_account.go backend/xray/api/wireguard_key.go backend/xray/api/wireguard_account_test.go backend/xray/config.go backend/xray/user.go common/service.pb.go)"
+    - test -z "$(gofmt -l backend/xray/api/account.go backend/xray/api/wireguard_account.go backend/xray/api/wireguard_key.go backend/xray/api/wireguard_account_test.go backend/xray/config.go backend/xray/user.go backend/xray/user_wireguard_test.go common/service.pb.go)"
     - go mod download
     - apt-get update
     - apt-get install -y --no-install-recommends curl openssl
-    - curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- --tag v26.9.30 --os linux --arch 64
+    - curl -L https://github.com/PasarGuard/scripts/raw/1fce1b19aaa54449ec0abdc4098b49027a170705/install_core.sh | bash -s -- --tag v26.9.30 --os linux
     - make generate_server_cert
     - make generate_client_cert
     - go vet ./...

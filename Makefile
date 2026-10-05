@@ -4,6 +4,7 @@ LDFLAGS = -s -w -buildid=
 PARAMS = -trimpath -ldflags "$(LDFLAGS)" -v
 MAIN = ./cmd/node
 PREFIX ?= $(shell go env GOPATH)
+XRAY_INSTALLER_URL ?= https://github.com/PasarGuard/scripts/raw/1fce1b19aaa54449ec0abdc4098b49027a170705/install_core.sh
 XRAY_OS ?=
 XRAY_ARCH ?=
 # Pinned Xray pre-release: the WireGuard UserManager API is only in pre-releases, no stable tag ships it yet
@@ -127,9 +128,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | sudo bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
+		curl -L $(XRAY_INSTALLER_URL) | sudo bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
 	else \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
+		curl -L $(XRAY_INSTALLER_URL) | bash -s -- --tag $(XRAY_TAG) $(XRAY_INSTALL_ARGS); \
 	fi
 
 else
