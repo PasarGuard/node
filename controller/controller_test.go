@@ -16,6 +16,7 @@ import (
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
+	nodeLogger "github.com/pasarguard/node/logger"
 	"github.com/pasarguard/node/pkg/netutil"
 )
 
@@ -77,9 +78,25 @@ func (s *fakeCore) GetUserOnlineIpListStats(context.Context, string) (*common.St
 }
 
 // statsCore returns fixed counters so the cross-core sum can be asserted.
+// It also publishes a classified log channel, because a real xray/sing-box core
+// does and the multiplexed GetLogs stream prefers that interface (CONTRACT §3.1).
 type statsCore struct {
 	*fakeCore
-	rows []*common.Stat
+	rows     []*common.Stat
+	logLines chan nodeLogger.LogLine
+}
+
+// LogLines is the classified channel the GetLogs handlers read when present.
+func (s *statsCore) LogLines() <-chan nodeLogger.LogLine { return s.logLines }
+
+// publish writes one classified line the way a real core does. It is a
+// non-blocking send for the same reason a real core's is: a slow consumer must
+// never wedge the core.
+func (s *statsCore) publish(line nodeLogger.LogLine) {
+	select {
+	case s.logLines <- line:
+	default:
+	}
 }
 
 func (s *statsCore) GetStats(_ context.Context, req *common.StatRequest) (*common.StatResponse, error) {
@@ -100,7 +117,7 @@ var (
 // Factory hands back: it embeds the core, so every Backend method is promoted.
 func newFake(label, dir string, ports backend.Ports) *statsCore {
 	fc := &fakeCore{logs: make(chan string, 4), label: label, configDir: dir, ports: ports}
-	sc := &statsCore{fakeCore: fc}
+	sc := &statsCore{fakeCore: fc, logLines: make(chan nodeLogger.LogLine, 64)}
 	fakeMu.Lock()
 	fakeCores[label] = sc
 	fakeByDir[dir] = append(fakeByDir[dir], sc)
