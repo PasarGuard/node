@@ -47,6 +47,7 @@ import (
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
+	nodeLogger "github.com/pasarguard/node/logger"
 	"github.com/pasarguard/node/pkg/tlsutil"
 )
 
@@ -395,6 +396,9 @@ type liveNode struct {
 
 	originPort int
 	hystClient *liveProc
+	// genPath is the node's generated-config root, so a test can ask the writer
+	// where a core's per-core file lands instead of guessing at a directory.
+	genPath string
 }
 
 const liveHysteriaEnv = "PG_LIVE_HYSTERIA"
@@ -471,6 +475,7 @@ func liveThreeCores(t *testing.T) *liveNode {
 		socksSingbox:  liveFreePort(t),
 		proxyHysteria: liveFreePort(t),
 		originPort:    liveOrigin(t, liveOriginBody),
+		genPath:       gen,
 	}
 
 	newUUID := func() string { return uuid.New().String() }
@@ -839,26 +844,90 @@ func TestLiveLogStreamNeverMixes(t *testing.T) {
 
 // TestLivePerCoreFilesNeverMix is the same property on disk. Read the gate's
 // own wording: the streams never mix AND a core writes only its own file.
+//
+// The directory is DERIVED from the node's generated-config root, the same way
+// the writer derives it (logger.CoreLogLocation reads core-<id> back out of the
+// path the core was handed), so the file lands beside that core's config
+// directory. It is NOT read from LOG_DIR: the node has no such setting, and a
+// test asserting against one looked for a directory the node never writes to.
+// liveNode keeps the generated root so this can ask the writer directly.
+// TestPerCoreFileAssertionsHaveTheRightPolarity is the negative control for the
+// file test's own assertions. Every "must be ABSENT" check there is written
+// `if strings.Contains(...) { t.Error("... landed in ...") }`; every "must be
+// PRESENT" check is `if !strings.Contains(...) { t.Error("... is missing ...") }`.
+//
+// One of them was written the wrong way round — `Contains` guarding a "is
+// missing" message — which made the gate fail on a file that DID contain the
+// line, and would have PASSED on an empty one. The polarity is invisible in a
+// glance at the file and nothing else caught it, so it is pinned here: each
+// sample below must report the verdict the message claims.
+func TestPerCoreFileAssertionsHaveTheRightPolarity(t *testing.T) {
+	const email = "marker-user"
+
+	absent := "clean line, no marker here"
+	present := "inbound[vless-live]: [" + email + "] inbound connection"
+
+	cases := []struct {
+		name string
+		file string
+		want bool // whether the marker is present
+	}{
+		{"marker present", present, true},
+		{"marker absent", absent, false},
+		{"empty file", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Contains(tc.file, email)
+			if got != tc.want {
+				t.Fatalf("strings.Contains(%q, %q) = %v, want %v", tc.file, email, got, tc.want)
+			}
+			// The live test's two guards, and what each must conclude:
+			//   `if Contains { "landed in" }`  -> fires when the marker IS present
+			//   `if !Contains { "is missing" }` -> fires when the marker is NOT present
+			landedInGuardFires := got
+			isMissingGuardFires := !got
+			if landedInGuardFires != tc.want {
+				t.Errorf("the `Contains` (landed in) guard fires=%v, want %v", landedInGuardFires, tc.want)
+			}
+			if isMissingGuardFires == tc.want {
+				t.Errorf("the `!Contains` (is missing) guard fires=%v, want %v",
+					isMissingGuardFires, !tc.want)
+			}
+		})
+	}
+}
+
 func TestLivePerCoreFilesNeverMix(t *testing.T) {
 	n := liveThreeCores(t)
 
+	// Drive traffic and WAIT for it, as every other gate test does. Firing the
+	// fetches into goroutines nobody joined and then sleeping a fixed 3s was a
+	// race: the assertion below could run before sing-box had logged its first
+	// connection, and "core-2.log is missing core 2's own access line" then
+	// described the test's timing rather than the code. A core that serves no
+	// traffic is the negative control, and the fetch result proves it either way.
 	for _, core := range []string{"xray", "singbox", "hysteria"} {
-		go func(core string) {
-			liveFetch(n.proxyPortFor(core), n.originPort, 40*time.Second)
-		}(core)
+		if got := liveFetch(n.proxyPortFor(core), n.originPort, 45*time.Second); got <= 0 {
+			t.Fatalf("core %q served no traffic during the per-core FILE test, so its file "+
+				"says nothing about whether the writer works", core)
+		}
 	}
-	// Let the cores finish writing.
-	time.Sleep(3 * time.Second)
+	// The fetch returned bytes, but the line is written by the log-reading
+	// goroutine on the way out of the child; give it a beat to land on disk.
+	time.Sleep(2 * time.Second)
 
-	logDir := os.Getenv("LOG_DIR")
-	if logDir == "" {
-		t.Skip("LOG_DIR is not set; the per-core log files are asserted against that directory")
+	logDir, ok := nodeLogger.CoreLogDir(filepath.Join(n.genPath, "core-1"))
+	if !ok {
+		t.Fatalf("%q is not a per-core directory, so no per-core file exists there",
+			filepath.Join(n.genPath, "core-1"))
 	}
 
 	read := func(name string) string {
 		b, err := os.ReadFile(filepath.Join(logDir, name))
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s from the directory the writer derives (%s): %v", name, logDir, err)
 		}
 		return string(b)
 	}
@@ -879,11 +948,23 @@ func TestLivePerCoreFilesNeverMix(t *testing.T) {
 	if strings.Contains(three, liveEmailXray) {
 		t.Error("core 1's line landed in core-3.log")
 	}
-	if strings.Contains(two, liveEmailSingbox) {
+	if !strings.Contains(two, liveEmailSingbox) {
 		t.Error("core-2.log is missing core 2's own access line")
 	}
-	t.Logf("core-1.log=%d B core-2.log=%d B core-3.log=%d B, no cross-contamination",
-		len(one), len(two), len(three))
+	// Core 3 must have a line of its own too. It is not in `two`, so this also
+	// covers the cross-check: hysteria logs the authenticated id, which is the
+	// username, on the "client connected" line.
+	if !strings.Contains(three, liveEmailHysteria) {
+		t.Error("core-3.log is missing core 3's own line")
+	}
+	// The control an inverted "contains" would lose: a must-be-present check
+	// passes on an EMPTY file, so prove the files are non-empty too.
+	if len(two) == 0 || len(three) == 0 {
+		t.Errorf("a per-core file is empty (core-2=%d B, core-3=%d B); a passing "+
+			"'contains' on an empty file proves nothing", len(two), len(three))
+	}
+	t.Logf("core-1.log=%d B core-2.log=%d B core-3.log=%d B in %s, no cross-contamination",
+		len(one), len(two), len(three), logDir)
 }
 
 // ---------------------------------------------------------------------------

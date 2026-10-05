@@ -37,13 +37,13 @@ func (f *gateFake) Version() string {
 	return "gate-fake"
 }
 func (f *gateFake) Logs() <-chan string { return make(chan string) }
-func (f *gateFake) Restart() error     { return nil }
+func (f *gateFake) Restart() error      { return nil }
 func (f *gateFake) Shutdown()           { f.running.Store(false) }
 
-func (f *gateFake) SyncUser(context.Context, *common.User) error                  { return nil }
-func (f *gateFake) SyncUsers(context.Context, []*common.User) error               { return nil }
-func (f *gateFake) UpdateUsers(context.Context, []*common.User) error             { return nil }
-func (f *gateFake) UpdateUsersAndRestart(context.Context, []*common.User) error   { return nil }
+func (f *gateFake) SyncUser(context.Context, *common.User) error                { return nil }
+func (f *gateFake) SyncUsers(context.Context, []*common.User) error             { return nil }
+func (f *gateFake) UpdateUsers(context.Context, []*common.User) error           { return nil }
+func (f *gateFake) UpdateUsersAndRestart(context.Context, []*common.User) error { return nil }
 func (f *gateFake) GetOutboundsLatency(context.Context, *common.LatencyRequest) (*common.LatencyResponse, error) {
 	return &common.LatencyResponse{}, nil
 }
