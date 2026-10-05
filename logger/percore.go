@@ -19,18 +19,35 @@ func CoreLogFileName(coreID uint64) string {
 }
 
 // logRootEnv is the same variable config.Load() reads for the node's generated
-// config root (node/config/config.go:89). Reading it here keeps the per-core
-// log directory a property of the node's existing configuration rather than a
-// new setting.
+// config root (node/config/config.go:89).
 //
-// ponytail: the env var is read per process rather than injected through
-// config.Config, so the default string is duplicated. Thread cfg into
-// logger.NewForCore if the node ever grows a second log root.
+// It is NOT where per-core files are actually written. That path is DERIVED, not
+// configured: CoreLogLocation reads it back from the core's own generated-config
+// directory, so <generated>/core-3/ yields <generated> as the log directory and
+// the file is <generated>/core-3.log. Use CoreLogDir for that.
+//
+// This exists only so DefaultLogRoot below can read it, and DefaultLogRoot has
+// no callers. The node has exactly one root for both the generated configs and
+// the per-core logs; there is no LOG_DIR setting, and a gate test asserting
+// against one was looking for a directory the node never writes to.
+//
+// ponytail: an env var read per process rather than injected through
+// config.Config, whose default string would then be duplicated. Nothing reads
+// it; delete both with the last caller, or thread cfg in when the node grows a
+// second log root.
 const logRootEnv = "GENERATED_CONFIG_PATH"
 
 // DefaultLogRoot is where per-core files live when nothing else says.
 func DefaultLogRoot() string {
 	return os.Getenv(logRootEnv)
+}
+
+// CoreLogDir returns the directory a core's per-core log file is written to,
+// derived exactly as the writer derives it. Exposed so a caller asserts against
+// the writer's own answer instead of guessing at a setting that does not exist.
+func CoreLogDir(configDir string) (string, bool) {
+	_, dir, ok := CoreLogLocation(configDir)
+	return dir, ok
 }
 
 // PerCoreFiles is the node's per-core audit trail: one append-only file per
@@ -43,9 +60,10 @@ func DefaultLogRoot() string {
 // ponytail: no rotation and no size cap. node/logger's access and error files
 // do not rotate either (logger.go openLogFile is a plain O_APPEND open), so
 // core-<id>.log inherits that exact behaviour rather than introducing a library
-// the rest of the node does not use. Change request CR-1 filed to the
-// orchestrator: the CONTRACT's "reuse the rotation that file already has" names
-// a rotation that does not exist.
+// the rest of the node does not use. CONTRACT §3.1 was corrected to match
+// (orchestrator commit 0c55554, with docs/multi/agents/logs.md): there is no
+// rotation here to reuse. Add rotation for the node-wide files first, and it
+// applies to these for free.
 type PerCoreFiles struct {
 	dir     string
 	now     func() time.Time
