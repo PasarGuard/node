@@ -131,6 +131,25 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 	return nil, false
 }
 
+func wireguardPeerReplaced(current, next *api.WireguardAccount) bool {
+	return current.PublicKey != next.PublicKey
+}
+
+func (i *Inbound) removeBeforeAdd(account api.Account) bool {
+	next, ok := account.(*api.WireguardAccount)
+	if !ok {
+		return true
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	// AddUser в Xray обновляет пир по публичному ключу: старый ключ остаётся авторизованным,
+	// а пустой PSK не затирает прежний, поэтому в этих случаях пир нужно удалить явно
+	current, ok := i.clients[next.GetEmail()].(*api.WireguardAccount)
+	return ok && wireguardPeerReplaced(current, next)
+}
+
 func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
@@ -157,10 +176,10 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
 		if isActive {
+			removeFirst := inbound.removeBeforeAdd(account)
 			inbound.updateUser(account)
-			if inbound.Protocol != Wireguard {
+			if removeFirst {
 				_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
 			}
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
@@ -170,6 +189,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
+			_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
 			inbound.removeUser(user.GetEmail())
 		}
 	}
@@ -250,14 +270,18 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		inbound := inboundByTag[tag]
 		accounts := inbound.changedAccounts(update.accounts)
+		removeFirst := make([]bool, len(accounts))
+		for n, account := range accounts {
+			removeFirst[n] = inbound.removeBeforeAdd(account)
+		}
 		inbound.updateUsers(accounts, removeEmails)
 
 		for _, email := range removeEmails {
 			handler.RemoveInboundUser(ctx, tag, email)
 		}
 
-		for _, account := range accounts {
-			if inbound.Protocol != Wireguard {
+		for n, account := range accounts {
+			if removeFirst[n] {
 				_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
 			}
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
