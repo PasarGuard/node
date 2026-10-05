@@ -6,7 +6,8 @@ MAIN = ./cmd/node
 PREFIX ?= $(shell go env GOPATH)
 XRAY_OS ?=
 XRAY_ARCH ?=
-XRAY_TAG ?= v26.7.11
+# Pinned Xray pre-release: the WireGuard UserManager API is only in pre-releases, no stable tag ships it yet
+XRAY_TAG ?= v26.9.30
 # Map GOARCH to installer arch flag (pure make vars to avoid shell leakage)
 XRAY_ARCH_MAP_amd64   = 64
 XRAY_ARCH_MAP_386     = 32
