@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# STEP 3f: LF on every checkout, Windows included.
+# Without these, `git apply --whitespace=error-all` of the stored sing-box
+# quota patch fails against a CRLF worktree and had to be run with --cached.
+*.go text eol=lf
+*.py text eol=lf
+*.patch text eol=lf
+*.sh text eol=lf
+*.proto text eol=lf
