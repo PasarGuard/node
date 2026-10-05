@@ -104,7 +104,12 @@ func New(ctx context.Context, hyConfig *Config, users []*common.User, apiPort in
 	} else {
 		log.Println("no users provided on hysteria startup")
 	}
-	hyConfig.syncUsers(users)
+	// A username upstream's decoder cannot accept fails here, before the child
+	// is spawned, so the panel gets the offending identity by name instead of a
+	// core that exited on a config-parse FATAL.
+	if err := hyConfig.syncUsers(users); err != nil {
+		return nil, err
+	}
 
 	h.config = hyConfig
 

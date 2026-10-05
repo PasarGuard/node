@@ -20,10 +20,22 @@ func (s *Service) backendFor(coreID uint64) (backend.Backend, error) {
 	return nil, errNoBackend
 }
 
+// defaultBackend is the core a request naming no core means: core_id 0 is the
+// node's default / only core (CONTRACT §1.2), so this is what a single-core node
+// has always resolved to.
+func (s *Service) defaultBackend() (backend.Backend, error) {
+	if b := s.Backend(); b != nil {
+		return b, nil
+	}
+	return nil, errNoBackend
+}
+
 var errNoBackend = errors.New("backend not initialized")
 
 // GetStats answers one core's request, or the sum across every core when
-// core_id is 0 (CONTRACT §3.2).
+// core_id is 0 (CONTRACT §3.2). It is NOT behind the default-core gate: the core
+// it answers for is the one the request names, or the aggregate over every
+// running core, and neither is the default core's business.
 func (s *Service) GetStats(w http.ResponseWriter, r *http.Request) {
 	var request common.StatRequest
 	if err := common.ReadProtoBody(r.Body, &request); err != nil {
@@ -71,7 +83,7 @@ func (s *Service) GetUserOnlineStat(w http.ResponseWriter, r *http.Request) {
 
 	b, err := s.backendFor(request.GetCoreId())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("core %d is not running", request.GetCoreId()), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -96,7 +108,7 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 
 	b, err := s.backendFor(request.GetCoreId())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("core %d is not running", request.GetCoreId()), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -112,8 +124,19 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 	common.SendProtoResponse(w, stats)
 }
 
+// GetBackendStats and GetSystemStats answer from the DEFAULT core: Empty names
+// no core, and core_id 0 means the default core (CONTRACT §1.2). This is the
+// panel's node-level health probe, so "no core" must be a clean 503 rather than a
+// nil dereference — the default-core gate used to guarantee that, and these
+// routes no longer sit behind it.
 func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.Backend().GetSysStats(r.Context())
+	back, err := s.defaultBackend()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	stats, err := back.GetSysStats(r.Context())
 	if err != nil {
 		st, _ := status.FromError(err)
 		httpCode := common.GrpcCodeToHTTP(st.Code())

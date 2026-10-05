@@ -189,12 +189,14 @@ func TestHysteriaUserPassInjection(t *testing.T) {
 		t.Fatalf("NewConfig: %v", err)
 	}
 
-	cfg.syncUsers([]*common.User{
+	if err := cfg.syncUsers([]*common.User{
 		{Email: "alice", Proxies: &common.Proxy{Hysteria: &common.Hysteria{Auth: "alice-pw"}}},
 		{Email: "bob", Proxies: &common.Proxy{Hysteria: &common.Hysteria{Auth: "bob-pw"}}},
 		// No hysteria credential: nothing to inject.
 		{Email: "carol"},
-	})
+	}); err != nil {
+		t.Fatalf("syncUsers: %v", err)
+	}
 
 	got := cfg.userNames()
 	want := []string{"alice", "bob"}
@@ -224,9 +226,11 @@ func TestHysteriaPasswordAuthIsNotInjected(t *testing.T) {
 		t.Fatalf("Password() = %q", got)
 	}
 
-	cfg.syncUsers([]*common.User{
+	if err := cfg.syncUsers([]*common.User{
 		{Email: "alice", Proxies: &common.Proxy{Hysteria: &common.Hysteria{Auth: "alice-pw"}}},
-	})
+	}); err != nil {
+		t.Fatalf("syncUsers: %v", err)
+	}
 	if names := cfg.userNames(); len(names) != 0 {
 		t.Errorf("password auth gained userpass entries %v; it has one id for every client", names)
 	}
@@ -240,10 +244,12 @@ func TestHysteriaExcludeInboundsSkipsUser(t *testing.T) {
 		t.Fatalf("NewConfig: %v", err)
 	}
 
-	cfg.syncUsers([]*common.User{
+	if err := cfg.syncUsers([]*common.User{
 		{Email: "included", Proxies: &common.Proxy{Hysteria: &common.Hysteria{Auth: "pw"}}, Inbounds: []string{"other-in"}},
 		{Email: "excluded", Proxies: &common.Proxy{Hysteria: &common.Hysteria{Auth: "pw"}}, Inbounds: []string{"excluded-in"}},
-	})
+	}); err != nil {
+		t.Fatalf("syncUsers: %v", err)
+	}
 
 	got := cfg.userNames()
 	if len(got) != 1 || got[0] != "included" {

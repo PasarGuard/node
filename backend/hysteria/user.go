@@ -81,7 +81,13 @@ func (h *Hysteria) applyUsers(ctx context.Context, snapshot []*common.User, repl
 		// simply retry with the same input.
 		h.users = previous
 		rollback := h.getConfig().Clone()
-		rollback.syncUsers(previous)
+		if rbErr := rollback.syncUsers(previous); rbErr != nil {
+			// The rollback carries usernames the core already accepted, so this
+			// is unreachable in practice. Log rather than restart onto a config
+			// we know is invalid.
+			log.Printf("hysteria: rollback config is itself invalid: %v", rbErr)
+			return err
+		}
 		if rbErr := h.restartCoreWithConfig(rollback); rbErr != nil {
 			log.Printf("hysteria: failed to restore previous config after a rejected user change: %v", rbErr)
 		}
@@ -123,7 +129,9 @@ func (h *Hysteria) flushLocked(ctx context.Context) error {
 	}
 
 	candidate := h.getConfig().Clone()
-	candidate.syncUsers(h.users)
+	if err := candidate.syncUsers(h.users); err != nil {
+		return err
+	}
 
 	if err := h.restartCoreWithConfig(candidate); err != nil {
 		return err

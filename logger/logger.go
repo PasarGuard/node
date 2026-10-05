@@ -57,6 +57,11 @@ type Logger struct {
 	coreID    uint64
 	logLines  chan LogLine
 	coreFiles *PerCoreFiles
+	// backfill holds the lines published before the Logger was bound to a core,
+	// so binding can replay them into the channel that did not exist yet. It is
+	// the same DefaultLogBuffer bound as the live channel and is dropped at
+	// bind time; a Logger that never binds never keeps more than that either.
+	backfill []LogLine
 }
 
 func New(outputLogs bool) *Logger {
@@ -89,6 +94,21 @@ func CoreLogLocation(configDir string) (coreID uint64, logDir string, ok bool) {
 // BindOnce attaches this Logger to the core that owns configDir, at most once.
 // It is idempotent and safe to call from every captured line, so a core needs no
 // init hook: the first line it produces binds it.
+//
+// Binding a core also backfills: every line the core published before anyone
+// attached to its channel is replayed into that channel. That is what makes a
+// serving core's records exist from the moment it starts rather than from the
+// moment the panel's stream opens — the defect a live three-core gate found
+// (a core that logged nothing while actively serving traffic, because
+// GetLogs snapshots its sources once and a Logger that binds on its first line
+// has no channel yet).
+//
+// ponytail: the backfill ring is per-Logger and fixed at DefaultLogBuffer, the
+// same bound the live channel already has. A core that produced more lines than
+// that before anyone attached keeps its most recent ones — the same lines a
+// slow consumer would keep getting from the live channel today. Raise the
+// bound, or make it per-core configurable, if a real node's startup volume
+// exceeds it.
 func (l *Logger) BindOnce(configDir string) {
 	id, dir, ok := CoreLogLocation(configDir)
 	if !ok {
@@ -100,11 +120,28 @@ func (l *Logger) BindOnce(configDir string) {
 		l.coreID = id
 		l.coreFiles = NewPerCoreFiles(dir)
 		l.logLines = make(chan LogLine, DefaultLogBuffer)
+		// Drain the ring into the channel now that one exists, oldest first, so
+		// a consumer that attaches later still sees what it missed in order.
+		if len(l.backfill) == 0 {
+			return
+		}
+		for _, line := range l.backfill {
+			select {
+			case l.logLines <- line:
+			default:
+			}
+		}
+		l.backfill = nil
 	})
 }
 
 // LogLines is the classified stream: every line passed to Log, with the level
 // that was just decided for it. It is nil until the Logger is bound to a core.
+//
+// Attaching does not start the stream: reading a channel never consumes the
+// lines another reader put there, so the panel's GetLogs, a second subscriber
+// and a test can all read the same records. That is the same property the
+// legacy Logs() string channel has always had.
 func (l *Logger) LogLines() <-chan LogLine {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -183,10 +220,23 @@ func (l *Logger) Log(level LogLevel, message string) {
 // Publish fans one classified line out to the channel and this core's own file.
 // Both sends are non-blocking for the same reason the legacy ones are: a slow
 // consumer or an unwritable file must never wedge the core that produced it.
+//
+// An unbound Logger has no channel yet, so the line goes into the bounded
+// backfill ring instead of being dropped. BindOnce replays that ring once the
+// channel exists. This is what makes a core's records exist from the moment it
+// starts instead of from the moment a stream first attaches — without buffering
+// unboundedly, because the ring keeps only the most recent DefaultLogBuffer
+// lines, exactly as the live channel does.
 func (l *Logger) Publish(line LogLine) {
-	l.mu.RLock()
+	l.mu.Lock()
 	ch, files, id := l.logLines, l.coreFiles, l.coreID
-	l.mu.RUnlock()
+	if ch == nil && files == nil {
+		l.backfill = append(l.backfill, line)
+		if len(l.backfill) > DefaultLogBuffer {
+			l.backfill = l.backfill[len(l.backfill)-DefaultLogBuffer:]
+		}
+	}
+	l.mu.Unlock()
 
 	if ch != nil {
 		select {

@@ -133,7 +133,11 @@ func stringAt(m map[string]any, key string) string {
 // A user is injected only when the panel put them on this core: `user.Inbounds`
 // carries the tags assigned to them, and an empty list means the panel assigned
 // no specific tag (xray treats it as "all inbounds", so this does too).
-func (c *Config) syncUsers(users []*common.User) {
+//
+// It returns an error naming every user whose identity the core's decoder
+// cannot accept, so the caller can refuse the start with a message an admin can
+// act on instead of a core that exits on a config-parse FATAL.
+func (c *Config) syncUsers(users []*common.User) error {
 	auth, ok := c.raw["auth"].(map[string]any)
 	if !ok {
 		auth = map[string]any{}
@@ -144,9 +148,10 @@ func (c *Config) syncUsers(users []*common.User) {
 	case "password", "http", "command":
 		// Nothing to inject: these modes carry their credentials in the config
 		// itself. The panel is the only thing that knows a user's status.
-		return
+		return nil
 	}
 
+	var rejected []string
 	assigned := make(map[string]any, len(users))
 	for _, user := range users {
 		username, password, ok := credentialFor(user)
@@ -156,9 +161,56 @@ func (c *Config) syncUsers(users []*common.User) {
 		if !assignedToThisCore(user, c.excluded) {
 			continue
 		}
+		if bad := undecodableUsernameChar(username); bad != "" {
+			// Collected, not returned on the first one: an admin who fixed these
+			// one at a time would need one core restart per user.
+			rejected = append(rejected, fmt.Sprintf("%q (character %q)", username, bad))
+			continue
+		}
 		assigned[username] = password
 	}
 	auth["userpass"] = assigned
+
+	if len(rejected) > 0 {
+		slices.Sort(rejected)
+		return fmt.Errorf(
+			"hysteria cannot use these usernames in auth.userpass: %s. "+
+				"Upstream decodes auth.userpass with a path-aware decoder that treats %q as a "+
+				"path separator, so a username containing one arrives as a nested map instead of a "+
+				"string and the core refuses to start. Every other character is accepted. "+
+				"Rename the user, or give this core a numeric identity.",
+			strings.Join(rejected, ", "), usernameSeparator,
+		)
+	}
+	return nil
+}
+
+// usernameSeparator is the one character upstream's config decoder mishandles
+// in a username.
+//
+// Upstream decodes auth.userpass with a path-aware decoder that splits a key on
+// this character, so the key "a.b" arrives as a nested map instead of a string
+// and the core exits during startup:
+//
+//	'auth.userpass[a]' expected type 'string', got unconvertible type 'map[string]interface {}'
+//
+// Measured against the pinned v2.13.0 binary, not inferred: of every ASCII
+// punctuation character plus tab, space, `@`, `:` , `/`, `\`, `[`, `#`, and
+// non-ASCII letters, ONLY this one makes the core refuse to start. The value
+// side (the password), obfs.salamander/gecko.password, auth.password,
+// masquerade content and trafficStats.secret all accept dots freely — only a
+// MAP KEY in auth.userpass is affected. So the rule is one character, not a
+// character class, and inventing a broader allowlist would reject identities
+// upstream accepts.
+const usernameSeparator = "."
+
+// undecodableUsernameChar returns the character that makes upstream's decoder
+// reject name, or "" when it is fine.
+func undecodableUsernameChar(name string) string {
+	if i := strings.Index(name, usernameSeparator); i >= 0 {
+		return usernameSeparator
+	}
+	return ""
 }
 
 // credentialFor maps a panel user onto a hysteria `userpass` pair.
@@ -168,6 +220,13 @@ func (c *Config) syncUsers(users []*common.User) {
 // per-user counter read back from the traffic stats API lands on a row the
 // panel already recognises. The password is Hysteria.auth, the field the panel
 // already generates per user (app/models/proxy.py HysteriaSettings.auth).
+//
+// The username is NOT rewritten. It is load-bearing on the client side: a
+// hysteria2 client authenticates with "username:password" and upstream rejects
+// the connection when the username does not match a key (verified: client
+// auth "pw" against userpass {alice: pw} fails with "authentication error, HTTP
+// status code: 404"). Encoding the key to make it dot-free would therefore break
+// every real client, so the identity is kept and the bad one is refused at start.
 func credentialFor(user *common.User) (username, password string, ok bool) {
 	email := user.GetEmail()
 	proxies := user.GetProxies()

@@ -34,20 +34,31 @@ func (s *Service) setRouter() {
 	router.Post("/start", s.Start)
 	router.Get("/info", s.Base)
 
+	// The stats routes are NOT behind checkBackendMiddleware: every one of them
+	// resolves the core it was asked about and answers 503 for a core that is not
+	// running. Gating them on the DEFAULT core on top would refuse a per-core
+	// request for a healthy core 2 while core 1 is stopped — the REST half of the
+	// defect the gRPC gate found. core_id 0 still means the default core here,
+	// which is what a single-core node has always meant.
+	router.Route("/stats", func(statsGroup chi.Router) {
+		statsGroup.Get("/", s.GetStats)
+		statsGroup.Get("/latency", s.GetOutboundsLatency)
+		statsGroup.Get("/user/online", s.GetUserOnlineStat)
+		statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
+		statsGroup.Get("/backend", s.GetBackendStats)
+		statsGroup.Get("/system", s.GetSystemStats)
+	})
+
+	// /logs multiplexes every running core (LogSources), so gating it on the
+	// DEFAULT core would refuse the log stream of a node whose core 2 is alive
+	// and logging while core 1 is down — the same defect as the stats routes.
+	// The handler already answers 503 when no core is running at all.
+	router.Get("/logs", s.GetLogs)
+
 	router.Group(func(private chi.Router) {
 		private.Use(s.checkBackendMiddleware)
 
 		private.Put("/stop", s.Stop)
-		private.Get("/logs", s.GetLogs)
-		// stats api
-		private.Route("/stats", func(statsGroup chi.Router) {
-			statsGroup.Get("/", s.GetStats)
-			statsGroup.Get("/latency", s.GetOutboundsLatency)
-			statsGroup.Get("/user/online", s.GetUserOnlineStat)
-			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
-			statsGroup.Get("/backend", s.GetBackendStats)
-			statsGroup.Get("/system", s.GetSystemStats)
-		})
 		private.Put("/user/sync", s.SyncUser)
 		private.Put("/users/sync", s.SyncUsers)
 		private.Put("/users/sync/chunked", s.SyncUsersChunked)
