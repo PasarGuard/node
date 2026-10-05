@@ -6,17 +6,30 @@ option go_package = "github.com/pasarguard/node/common";
 
 message Empty {}
 
+// Per-core status, one entry per core the node runs.
+message CoreStatus {
+  uint64 core_id = 1;
+  BackendType type = 2;
+  bool started = 3;
+  string core_version = 4;
+  string state = 5;
+  string last_error = 6;
+  uint64 uptime_seconds = 7;
+}
+
 // Base info response message
 message BaseInfoResponse {
   bool started = 1;
   string core_version = 2;
   string node_version = 3;
+  repeated CoreStatus cores = 4;
 }
 
 enum BackendType {
   XRAY = 0;
   WIREGUARD = 1;
   SINGBOX = 2;
+  HYSTERIA2 = 3;
 }
 
 message Backend {
@@ -25,11 +38,15 @@ message Backend {
   repeated User users = 3;
   uint64 keep_alive = 4;
   repeated string exclude_inbounds = 5;
+  uint64 core_id = 6;
 }
 
 // log
 message Log {
     string detail = 1;
+    uint64 core_id = 2;
+    string level = 3;
+    int64 ts_unix_ms = 4;
 }
 
 // stats
@@ -57,6 +74,7 @@ message StatRequest {
   string name = 1;
   bool reset = 2;
   StatType type = 3;
+  uint64 core_id = 4;
 }
 
 message OnlineStatResponse {
@@ -224,6 +242,7 @@ message NodeEvent {
   string user_id = 1;
   NodeEventType type = 2;
   int64 remaining = 3;
+  uint64 core_id = 4;
 }
 
 enum NodeEventType {
@@ -232,10 +251,16 @@ enum NodeEventType {
   NODE_EVENT_QUOTA_EXHAUSTED = 1;
 }
 
+// Stop one core; Stop(Empty) still stops every core on the node.
+message StopCore {
+  uint64 core_id = 1;
+}
+
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
   rpc Stop (Empty) returns (Empty) {}
+  rpc StopCore (service.StopCore) returns (Empty) {}
   rpc GetBaseInfo (Empty) returns (BaseInfoResponse) {}
 
   rpc GetLogs (Empty) returns (stream Log) {}

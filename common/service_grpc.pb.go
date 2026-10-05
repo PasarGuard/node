@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	NodeService_Start_FullMethodName                    = "/service.NodeService/Start"
 	NodeService_Stop_FullMethodName                     = "/service.NodeService/Stop"
+	NodeService_StopCore_FullMethodName                 = "/service.NodeService/StopCore"
 	NodeService_GetBaseInfo_FullMethodName              = "/service.NodeService/GetBaseInfo"
 	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
 	NodeService_SubscribeEvents_FullMethodName          = "/service.NodeService/SubscribeEvents"
@@ -49,6 +50,7 @@ const (
 type NodeServiceClient interface {
 	Start(ctx context.Context, in *Backend, opts ...grpc.CallOption) (*BaseInfoResponse, error)
 	Stop(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
+	StopCore(ctx context.Context, in *StopCore, opts ...grpc.CallOption) (*Empty, error)
 	GetBaseInfo(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BaseInfoResponse, error)
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
 	SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error)
@@ -91,6 +93,16 @@ func (c *nodeServiceClient) Stop(ctx context.Context, in *Empty, opts ...grpc.Ca
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, NodeService_Stop_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) StopCore(ctx context.Context, in *StopCore, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_StopCore_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -309,6 +321,7 @@ func (c *nodeServiceClient) OverrideBalancerTarget(ctx context.Context, in *Over
 type NodeServiceServer interface {
 	Start(context.Context, *Backend) (*BaseInfoResponse, error)
 	Stop(context.Context, *Empty) (*Empty, error)
+	StopCore(context.Context, *StopCore) (*Empty, error)
 	GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error)
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
 	SubscribeEvents(*Empty, grpc.ServerStreamingServer[NodeEvent]) error
@@ -342,6 +355,9 @@ func (UnimplementedNodeServiceServer) Start(context.Context, *Backend) (*BaseInf
 }
 func (UnimplementedNodeServiceServer) Stop(context.Context, *Empty) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stop not implemented")
+}
+func (UnimplementedNodeServiceServer) StopCore(context.Context, *StopCore) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopCore not implemented")
 }
 func (UnimplementedNodeServiceServer) GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBaseInfo not implemented")
@@ -450,6 +466,24 @@ func _NodeService_Stop_Handler(srv interface{}, ctx context.Context, dec func(in
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NodeServiceServer).Stop(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_StopCore_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StopCore)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).StopCore(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_StopCore_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).StopCore(ctx, req.(*StopCore))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -756,6 +790,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Stop",
 			Handler:    _NodeService_Stop_Handler,
+		},
+		{
+			MethodName: "StopCore",
+			Handler:    _NodeService_StopCore_Handler,
 		},
 		{
 			MethodName: "GetBaseInfo",

@@ -27,6 +27,7 @@ const (
 	BackendType_XRAY      BackendType = 0
 	BackendType_WIREGUARD BackendType = 1
 	BackendType_SINGBOX   BackendType = 2
+	BackendType_HYSTERIA2 BackendType = 3
 )
 
 // Enum value maps for BackendType.
@@ -35,11 +36,13 @@ var (
 		0: "XRAY",
 		1: "WIREGUARD",
 		2: "SINGBOX",
+		3: "HYSTERIA2",
 	}
 	BackendType_value = map[string]int32{
 		"XRAY":      0,
 		"WIREGUARD": 1,
 		"SINGBOX":   2,
+		"HYSTERIA2": 3,
 	}
 )
 
@@ -211,19 +214,113 @@ func (*Empty) Descriptor() ([]byte, []int) {
 	return file_common_service_proto_rawDescGZIP(), []int{0}
 }
 
+// Per-core status, one entry per core the node runs.
+type CoreStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CoreId        uint64                 `protobuf:"varint,1,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
+	Type          BackendType            `protobuf:"varint,2,opt,name=type,proto3,enum=service.BackendType" json:"type,omitempty"`
+	Started       bool                   `protobuf:"varint,3,opt,name=started,proto3" json:"started,omitempty"`
+	CoreVersion   string                 `protobuf:"bytes,4,opt,name=core_version,json=coreVersion,proto3" json:"core_version,omitempty"`
+	State         string                 `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
+	LastError     string                 `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	UptimeSeconds uint64                 `protobuf:"varint,7,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CoreStatus) Reset() {
+	*x = CoreStatus{}
+	mi := &file_common_service_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CoreStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CoreStatus) ProtoMessage() {}
+
+func (x *CoreStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CoreStatus.ProtoReflect.Descriptor instead.
+func (*CoreStatus) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CoreStatus) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
+func (x *CoreStatus) GetType() BackendType {
+	if x != nil {
+		return x.Type
+	}
+	return BackendType_XRAY
+}
+
+func (x *CoreStatus) GetStarted() bool {
+	if x != nil {
+		return x.Started
+	}
+	return false
+}
+
+func (x *CoreStatus) GetCoreVersion() string {
+	if x != nil {
+		return x.CoreVersion
+	}
+	return ""
+}
+
+func (x *CoreStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *CoreStatus) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
+func (x *CoreStatus) GetUptimeSeconds() uint64 {
+	if x != nil {
+		return x.UptimeSeconds
+	}
+	return 0
+}
+
 // Base info response message
 type BaseInfoResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Started       bool                   `protobuf:"varint,1,opt,name=started,proto3" json:"started,omitempty"`
 	CoreVersion   string                 `protobuf:"bytes,2,opt,name=core_version,json=coreVersion,proto3" json:"core_version,omitempty"`
 	NodeVersion   string                 `protobuf:"bytes,3,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"`
+	Cores         []*CoreStatus          `protobuf:"bytes,4,rep,name=cores,proto3" json:"cores,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BaseInfoResponse) Reset() {
 	*x = BaseInfoResponse{}
-	mi := &file_common_service_proto_msgTypes[1]
+	mi := &file_common_service_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -235,7 +332,7 @@ func (x *BaseInfoResponse) String() string {
 func (*BaseInfoResponse) ProtoMessage() {}
 
 func (x *BaseInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[1]
+	mi := &file_common_service_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -248,7 +345,7 @@ func (x *BaseInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BaseInfoResponse.ProtoReflect.Descriptor instead.
 func (*BaseInfoResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{1}
+	return file_common_service_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *BaseInfoResponse) GetStarted() bool {
@@ -272,6 +369,13 @@ func (x *BaseInfoResponse) GetNodeVersion() string {
 	return ""
 }
 
+func (x *BaseInfoResponse) GetCores() []*CoreStatus {
+	if x != nil {
+		return x.Cores
+	}
+	return nil
+}
+
 type Backend struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Type            BackendType            `protobuf:"varint,1,opt,name=type,proto3,enum=service.BackendType" json:"type,omitempty"`
@@ -279,13 +383,14 @@ type Backend struct {
 	Users           []*User                `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
 	KeepAlive       uint64                 `protobuf:"varint,4,opt,name=keep_alive,json=keepAlive,proto3" json:"keep_alive,omitempty"`
 	ExcludeInbounds []string               `protobuf:"bytes,5,rep,name=exclude_inbounds,json=excludeInbounds,proto3" json:"exclude_inbounds,omitempty"`
+	CoreId          uint64                 `protobuf:"varint,6,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Backend) Reset() {
 	*x = Backend{}
-	mi := &file_common_service_proto_msgTypes[2]
+	mi := &file_common_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -297,7 +402,7 @@ func (x *Backend) String() string {
 func (*Backend) ProtoMessage() {}
 
 func (x *Backend) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[2]
+	mi := &file_common_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -310,7 +415,7 @@ func (x *Backend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Backend.ProtoReflect.Descriptor instead.
 func (*Backend) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{2}
+	return file_common_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Backend) GetType() BackendType {
@@ -348,17 +453,27 @@ func (x *Backend) GetExcludeInbounds() []string {
 	return nil
 }
 
+func (x *Backend) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
 // log
 type Log struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Detail        string                 `protobuf:"bytes,1,opt,name=detail,proto3" json:"detail,omitempty"`
+	CoreId        uint64                 `protobuf:"varint,2,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
+	Level         string                 `protobuf:"bytes,3,opt,name=level,proto3" json:"level,omitempty"`
+	TsUnixMs      int64                  `protobuf:"varint,4,opt,name=ts_unix_ms,json=tsUnixMs,proto3" json:"ts_unix_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Log) Reset() {
 	*x = Log{}
-	mi := &file_common_service_proto_msgTypes[3]
+	mi := &file_common_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +485,7 @@ func (x *Log) String() string {
 func (*Log) ProtoMessage() {}
 
 func (x *Log) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[3]
+	mi := &file_common_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +498,7 @@ func (x *Log) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Log.ProtoReflect.Descriptor instead.
 func (*Log) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{3}
+	return file_common_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Log) GetDetail() string {
@@ -391,6 +506,27 @@ func (x *Log) GetDetail() string {
 		return x.Detail
 	}
 	return ""
+}
+
+func (x *Log) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
+func (x *Log) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+func (x *Log) GetTsUnixMs() int64 {
+	if x != nil {
+		return x.TsUnixMs
+	}
+	return 0
 }
 
 // stats
@@ -406,7 +542,7 @@ type Stat struct {
 
 func (x *Stat) Reset() {
 	*x = Stat{}
-	mi := &file_common_service_proto_msgTypes[4]
+	mi := &file_common_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +554,7 @@ func (x *Stat) String() string {
 func (*Stat) ProtoMessage() {}
 
 func (x *Stat) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[4]
+	mi := &file_common_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +567,7 @@ func (x *Stat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Stat.ProtoReflect.Descriptor instead.
 func (*Stat) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{4}
+	return file_common_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Stat) GetName() string {
@@ -471,7 +607,7 @@ type StatResponse struct {
 
 func (x *StatResponse) Reset() {
 	*x = StatResponse{}
-	mi := &file_common_service_proto_msgTypes[5]
+	mi := &file_common_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +619,7 @@ func (x *StatResponse) String() string {
 func (*StatResponse) ProtoMessage() {}
 
 func (x *StatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[5]
+	mi := &file_common_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +632,7 @@ func (x *StatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatResponse.ProtoReflect.Descriptor instead.
 func (*StatResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{5}
+	return file_common_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StatResponse) GetStats() []*Stat {
@@ -511,13 +647,14 @@ type StatRequest struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Reset_        bool                   `protobuf:"varint,2,opt,name=reset,proto3" json:"reset,omitempty"`
 	Type          StatType               `protobuf:"varint,3,opt,name=type,proto3,enum=service.StatType" json:"type,omitempty"`
+	CoreId        uint64                 `protobuf:"varint,4,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StatRequest) Reset() {
 	*x = StatRequest{}
-	mi := &file_common_service_proto_msgTypes[6]
+	mi := &file_common_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -529,7 +666,7 @@ func (x *StatRequest) String() string {
 func (*StatRequest) ProtoMessage() {}
 
 func (x *StatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[6]
+	mi := &file_common_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -542,7 +679,7 @@ func (x *StatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatRequest.ProtoReflect.Descriptor instead.
 func (*StatRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{6}
+	return file_common_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StatRequest) GetName() string {
@@ -566,6 +703,13 @@ func (x *StatRequest) GetType() StatType {
 	return StatType_Outbounds
 }
 
+func (x *StatRequest) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
 type OnlineStatResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -576,7 +720,7 @@ type OnlineStatResponse struct {
 
 func (x *OnlineStatResponse) Reset() {
 	*x = OnlineStatResponse{}
-	mi := &file_common_service_proto_msgTypes[7]
+	mi := &file_common_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +732,7 @@ func (x *OnlineStatResponse) String() string {
 func (*OnlineStatResponse) ProtoMessage() {}
 
 func (x *OnlineStatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[7]
+	mi := &file_common_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -601,7 +745,7 @@ func (x *OnlineStatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OnlineStatResponse.ProtoReflect.Descriptor instead.
 func (*OnlineStatResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{7}
+	return file_common_service_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OnlineStatResponse) GetName() string {
@@ -628,7 +772,7 @@ type StatsOnlineIpListResponse struct {
 
 func (x *StatsOnlineIpListResponse) Reset() {
 	*x = StatsOnlineIpListResponse{}
-	mi := &file_common_service_proto_msgTypes[8]
+	mi := &file_common_service_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -640,7 +784,7 @@ func (x *StatsOnlineIpListResponse) String() string {
 func (*StatsOnlineIpListResponse) ProtoMessage() {}
 
 func (x *StatsOnlineIpListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[8]
+	mi := &file_common_service_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -653,7 +797,7 @@ func (x *StatsOnlineIpListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsOnlineIpListResponse.ProtoReflect.Descriptor instead.
 func (*StatsOnlineIpListResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{8}
+	return file_common_service_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StatsOnlineIpListResponse) GetName() string {
@@ -685,7 +829,7 @@ type Latency struct {
 
 func (x *Latency) Reset() {
 	*x = Latency{}
-	mi := &file_common_service_proto_msgTypes[9]
+	mi := &file_common_service_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +841,7 @@ func (x *Latency) String() string {
 func (*Latency) ProtoMessage() {}
 
 func (x *Latency) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[9]
+	mi := &file_common_service_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +854,7 @@ func (x *Latency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Latency.ProtoReflect.Descriptor instead.
 func (*Latency) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{9}
+	return file_common_service_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Latency) GetName() string {
@@ -771,7 +915,7 @@ type LatencyRequest struct {
 
 func (x *LatencyRequest) Reset() {
 	*x = LatencyRequest{}
-	mi := &file_common_service_proto_msgTypes[10]
+	mi := &file_common_service_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +927,7 @@ func (x *LatencyRequest) String() string {
 func (*LatencyRequest) ProtoMessage() {}
 
 func (x *LatencyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[10]
+	mi := &file_common_service_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +940,7 @@ func (x *LatencyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LatencyRequest.ProtoReflect.Descriptor instead.
 func (*LatencyRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{10}
+	return file_common_service_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *LatencyRequest) GetName() string {
@@ -815,7 +959,7 @@ type LatencyResponse struct {
 
 func (x *LatencyResponse) Reset() {
 	*x = LatencyResponse{}
-	mi := &file_common_service_proto_msgTypes[11]
+	mi := &file_common_service_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -827,7 +971,7 @@ func (x *LatencyResponse) String() string {
 func (*LatencyResponse) ProtoMessage() {}
 
 func (x *LatencyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[11]
+	mi := &file_common_service_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -840,7 +984,7 @@ func (x *LatencyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LatencyResponse.ProtoReflect.Descriptor instead.
 func (*LatencyResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{11}
+	return file_common_service_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *LatencyResponse) GetLatencies() []*Latency {
@@ -868,7 +1012,7 @@ type BackendStatsResponse struct {
 
 func (x *BackendStatsResponse) Reset() {
 	*x = BackendStatsResponse{}
-	mi := &file_common_service_proto_msgTypes[12]
+	mi := &file_common_service_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -880,7 +1024,7 @@ func (x *BackendStatsResponse) String() string {
 func (*BackendStatsResponse) ProtoMessage() {}
 
 func (x *BackendStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[12]
+	mi := &file_common_service_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -893,7 +1037,7 @@ func (x *BackendStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendStatsResponse.ProtoReflect.Descriptor instead.
 func (*BackendStatsResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{12}
+	return file_common_service_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BackendStatsResponse) GetNumGoroutine() uint32 {
@@ -981,7 +1125,7 @@ type SystemStatsResponse struct {
 
 func (x *SystemStatsResponse) Reset() {
 	*x = SystemStatsResponse{}
-	mi := &file_common_service_proto_msgTypes[13]
+	mi := &file_common_service_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -993,7 +1137,7 @@ func (x *SystemStatsResponse) String() string {
 func (*SystemStatsResponse) ProtoMessage() {}
 
 func (x *SystemStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[13]
+	mi := &file_common_service_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1006,7 +1150,7 @@ func (x *SystemStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemStatsResponse.ProtoReflect.Descriptor instead.
 func (*SystemStatsResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{13}
+	return file_common_service_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SystemStatsResponse) GetMemTotal() uint64 {
@@ -1068,7 +1212,7 @@ type Vmess struct {
 
 func (x *Vmess) Reset() {
 	*x = Vmess{}
-	mi := &file_common_service_proto_msgTypes[14]
+	mi := &file_common_service_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1080,7 +1224,7 @@ func (x *Vmess) String() string {
 func (*Vmess) ProtoMessage() {}
 
 func (x *Vmess) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[14]
+	mi := &file_common_service_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1093,7 +1237,7 @@ func (x *Vmess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vmess.ProtoReflect.Descriptor instead.
 func (*Vmess) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{14}
+	return file_common_service_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Vmess) GetId() string {
@@ -1113,7 +1257,7 @@ type Vless struct {
 
 func (x *Vless) Reset() {
 	*x = Vless{}
-	mi := &file_common_service_proto_msgTypes[15]
+	mi := &file_common_service_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1269,7 @@ func (x *Vless) String() string {
 func (*Vless) ProtoMessage() {}
 
 func (x *Vless) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[15]
+	mi := &file_common_service_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1282,7 @@ func (x *Vless) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vless.ProtoReflect.Descriptor instead.
 func (*Vless) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{15}
+	return file_common_service_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Vless) GetId() string {
@@ -1164,7 +1308,7 @@ type Trojan struct {
 
 func (x *Trojan) Reset() {
 	*x = Trojan{}
-	mi := &file_common_service_proto_msgTypes[16]
+	mi := &file_common_service_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1176,7 +1320,7 @@ func (x *Trojan) String() string {
 func (*Trojan) ProtoMessage() {}
 
 func (x *Trojan) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[16]
+	mi := &file_common_service_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1189,7 +1333,7 @@ func (x *Trojan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Trojan.ProtoReflect.Descriptor instead.
 func (*Trojan) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{16}
+	return file_common_service_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Trojan) GetPassword() string {
@@ -1209,7 +1353,7 @@ type Shadowsocks struct {
 
 func (x *Shadowsocks) Reset() {
 	*x = Shadowsocks{}
-	mi := &file_common_service_proto_msgTypes[17]
+	mi := &file_common_service_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1221,7 +1365,7 @@ func (x *Shadowsocks) String() string {
 func (*Shadowsocks) ProtoMessage() {}
 
 func (x *Shadowsocks) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[17]
+	mi := &file_common_service_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1234,7 +1378,7 @@ func (x *Shadowsocks) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Shadowsocks.ProtoReflect.Descriptor instead.
 func (*Shadowsocks) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{17}
+	return file_common_service_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Shadowsocks) GetPassword() string {
@@ -1261,7 +1405,7 @@ type Wireguard struct {
 
 func (x *Wireguard) Reset() {
 	*x = Wireguard{}
-	mi := &file_common_service_proto_msgTypes[18]
+	mi := &file_common_service_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1417,7 @@ func (x *Wireguard) String() string {
 func (*Wireguard) ProtoMessage() {}
 
 func (x *Wireguard) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[18]
+	mi := &file_common_service_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1430,7 @@ func (x *Wireguard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Wireguard.ProtoReflect.Descriptor instead.
 func (*Wireguard) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{18}
+	return file_common_service_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Wireguard) GetPublicKey() string {
@@ -1312,7 +1456,7 @@ type Hysteria struct {
 
 func (x *Hysteria) Reset() {
 	*x = Hysteria{}
-	mi := &file_common_service_proto_msgTypes[19]
+	mi := &file_common_service_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1324,7 +1468,7 @@ func (x *Hysteria) String() string {
 func (*Hysteria) ProtoMessage() {}
 
 func (x *Hysteria) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[19]
+	mi := &file_common_service_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1337,7 +1481,7 @@ func (x *Hysteria) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hysteria.ProtoReflect.Descriptor instead.
 func (*Hysteria) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{19}
+	return file_common_service_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Hysteria) GetAuth() string {
@@ -1361,7 +1505,7 @@ type Proxy struct {
 
 func (x *Proxy) Reset() {
 	*x = Proxy{}
-	mi := &file_common_service_proto_msgTypes[20]
+	mi := &file_common_service_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1517,7 @@ func (x *Proxy) String() string {
 func (*Proxy) ProtoMessage() {}
 
 func (x *Proxy) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[20]
+	mi := &file_common_service_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1386,7 +1530,7 @@ func (x *Proxy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Proxy.ProtoReflect.Descriptor instead.
 func (*Proxy) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{20}
+	return file_common_service_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Proxy) GetVmess() *Vmess {
@@ -1447,7 +1591,7 @@ type User struct {
 
 func (x *User) Reset() {
 	*x = User{}
-	mi := &file_common_service_proto_msgTypes[21]
+	mi := &file_common_service_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1459,7 +1603,7 @@ func (x *User) String() string {
 func (*User) ProtoMessage() {}
 
 func (x *User) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[21]
+	mi := &file_common_service_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1472,7 +1616,7 @@ func (x *User) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use User.ProtoReflect.Descriptor instead.
 func (*User) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{21}
+	return file_common_service_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *User) GetEmail() string {
@@ -1512,7 +1656,7 @@ type Users struct {
 
 func (x *Users) Reset() {
 	*x = Users{}
-	mi := &file_common_service_proto_msgTypes[22]
+	mi := &file_common_service_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1524,7 +1668,7 @@ func (x *Users) String() string {
 func (*Users) ProtoMessage() {}
 
 func (x *Users) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[22]
+	mi := &file_common_service_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1537,7 +1681,7 @@ func (x *Users) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Users.ProtoReflect.Descriptor instead.
 func (*Users) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{22}
+	return file_common_service_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Users) GetUsers() []*User {
@@ -1558,7 +1702,7 @@ type UsersChunk struct {
 
 func (x *UsersChunk) Reset() {
 	*x = UsersChunk{}
-	mi := &file_common_service_proto_msgTypes[23]
+	mi := &file_common_service_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1714,7 @@ func (x *UsersChunk) String() string {
 func (*UsersChunk) ProtoMessage() {}
 
 func (x *UsersChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[23]
+	mi := &file_common_service_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1727,7 @@ func (x *UsersChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsersChunk.ProtoReflect.Descriptor instead.
 func (*UsersChunk) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{23}
+	return file_common_service_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UsersChunk) GetUsers() []*User {
@@ -1618,7 +1762,7 @@ type RoutingRule struct {
 
 func (x *RoutingRule) Reset() {
 	*x = RoutingRule{}
-	mi := &file_common_service_proto_msgTypes[24]
+	mi := &file_common_service_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1630,7 +1774,7 @@ func (x *RoutingRule) String() string {
 func (*RoutingRule) ProtoMessage() {}
 
 func (x *RoutingRule) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[24]
+	mi := &file_common_service_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1643,7 +1787,7 @@ func (x *RoutingRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutingRule.ProtoReflect.Descriptor instead.
 func (*RoutingRule) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{24}
+	return file_common_service_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RoutingRule) GetOutboundTag() string {
@@ -1669,7 +1813,7 @@ type RoutingRulesResponse struct {
 
 func (x *RoutingRulesResponse) Reset() {
 	*x = RoutingRulesResponse{}
-	mi := &file_common_service_proto_msgTypes[25]
+	mi := &file_common_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1681,7 +1825,7 @@ func (x *RoutingRulesResponse) String() string {
 func (*RoutingRulesResponse) ProtoMessage() {}
 
 func (x *RoutingRulesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[25]
+	mi := &file_common_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1694,7 +1838,7 @@ func (x *RoutingRulesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutingRulesResponse.ProtoReflect.Descriptor instead.
 func (*RoutingRulesResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{25}
+	return file_common_service_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RoutingRulesResponse) GetRules() []*RoutingRule {
@@ -1713,7 +1857,7 @@ type BalancerInfoRequest struct {
 
 func (x *BalancerInfoRequest) Reset() {
 	*x = BalancerInfoRequest{}
-	mi := &file_common_service_proto_msgTypes[26]
+	mi := &file_common_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1725,7 +1869,7 @@ func (x *BalancerInfoRequest) String() string {
 func (*BalancerInfoRequest) ProtoMessage() {}
 
 func (x *BalancerInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[26]
+	mi := &file_common_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1738,7 +1882,7 @@ func (x *BalancerInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BalancerInfoRequest.ProtoReflect.Descriptor instead.
 func (*BalancerInfoRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{26}
+	return file_common_service_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BalancerInfoRequest) GetTag() string {
@@ -1758,7 +1902,7 @@ type BalancerInfoResponse struct {
 
 func (x *BalancerInfoResponse) Reset() {
 	*x = BalancerInfoResponse{}
-	mi := &file_common_service_proto_msgTypes[27]
+	mi := &file_common_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1770,7 +1914,7 @@ func (x *BalancerInfoResponse) String() string {
 func (*BalancerInfoResponse) ProtoMessage() {}
 
 func (x *BalancerInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[27]
+	mi := &file_common_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1783,7 +1927,7 @@ func (x *BalancerInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BalancerInfoResponse.ProtoReflect.Descriptor instead.
 func (*BalancerInfoResponse) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{27}
+	return file_common_service_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BalancerInfoResponse) GetOverrideTarget() string {
@@ -1818,7 +1962,7 @@ type TestRouteRequest struct {
 
 func (x *TestRouteRequest) Reset() {
 	*x = TestRouteRequest{}
-	mi := &file_common_service_proto_msgTypes[28]
+	mi := &file_common_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1830,7 +1974,7 @@ func (x *TestRouteRequest) String() string {
 func (*TestRouteRequest) ProtoMessage() {}
 
 func (x *TestRouteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[28]
+	mi := &file_common_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1843,7 +1987,7 @@ func (x *TestRouteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRouteRequest.ProtoReflect.Descriptor instead.
 func (*TestRouteRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{28}
+	return file_common_service_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *TestRouteRequest) GetInboundTag() string {
@@ -1929,7 +2073,7 @@ type RouteResult struct {
 
 func (x *RouteResult) Reset() {
 	*x = RouteResult{}
-	mi := &file_common_service_proto_msgTypes[29]
+	mi := &file_common_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1941,7 +2085,7 @@ func (x *RouteResult) String() string {
 func (*RouteResult) ProtoMessage() {}
 
 func (x *RouteResult) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[29]
+	mi := &file_common_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1954,7 +2098,7 @@ func (x *RouteResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteResult.ProtoReflect.Descriptor instead.
 func (*RouteResult) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{29}
+	return file_common_service_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RouteResult) GetOutboundTag() string {
@@ -2005,7 +2149,7 @@ type AddRoutingRuleRequest struct {
 
 func (x *AddRoutingRuleRequest) Reset() {
 	*x = AddRoutingRuleRequest{}
-	mi := &file_common_service_proto_msgTypes[30]
+	mi := &file_common_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2017,7 +2161,7 @@ func (x *AddRoutingRuleRequest) String() string {
 func (*AddRoutingRuleRequest) ProtoMessage() {}
 
 func (x *AddRoutingRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[30]
+	mi := &file_common_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2030,7 +2174,7 @@ func (x *AddRoutingRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddRoutingRuleRequest.ProtoReflect.Descriptor instead.
 func (*AddRoutingRuleRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{30}
+	return file_common_service_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AddRoutingRuleRequest) GetRule() string {
@@ -2056,7 +2200,7 @@ type RemoveRoutingRuleRequest struct {
 
 func (x *RemoveRoutingRuleRequest) Reset() {
 	*x = RemoveRoutingRuleRequest{}
-	mi := &file_common_service_proto_msgTypes[31]
+	mi := &file_common_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2068,7 +2212,7 @@ func (x *RemoveRoutingRuleRequest) String() string {
 func (*RemoveRoutingRuleRequest) ProtoMessage() {}
 
 func (x *RemoveRoutingRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[31]
+	mi := &file_common_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2081,7 +2225,7 @@ func (x *RemoveRoutingRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveRoutingRuleRequest.ProtoReflect.Descriptor instead.
 func (*RemoveRoutingRuleRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{31}
+	return file_common_service_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RemoveRoutingRuleRequest) GetRuleTag() string {
@@ -2101,7 +2245,7 @@ type OverrideBalancerTargetRequest struct {
 
 func (x *OverrideBalancerTargetRequest) Reset() {
 	*x = OverrideBalancerTargetRequest{}
-	mi := &file_common_service_proto_msgTypes[32]
+	mi := &file_common_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2113,7 +2257,7 @@ func (x *OverrideBalancerTargetRequest) String() string {
 func (*OverrideBalancerTargetRequest) ProtoMessage() {}
 
 func (x *OverrideBalancerTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[32]
+	mi := &file_common_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2126,7 +2270,7 @@ func (x *OverrideBalancerTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OverrideBalancerTargetRequest.ProtoReflect.Descriptor instead.
 func (*OverrideBalancerTargetRequest) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{32}
+	return file_common_service_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *OverrideBalancerTargetRequest) GetBalancerTag() string {
@@ -2154,13 +2298,14 @@ type NodeEvent struct {
 	UserId        string        `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Type          NodeEventType `protobuf:"varint,2,opt,name=type,proto3,enum=service.NodeEventType" json:"type,omitempty"`
 	Remaining     int64         `protobuf:"varint,3,opt,name=remaining,proto3" json:"remaining,omitempty"`
+	CoreId        uint64        `protobuf:"varint,4,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeEvent) Reset() {
 	*x = NodeEvent{}
-	mi := &file_common_service_proto_msgTypes[33]
+	mi := &file_common_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2172,7 +2317,7 @@ func (x *NodeEvent) String() string {
 func (*NodeEvent) ProtoMessage() {}
 
 func (x *NodeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[33]
+	mi := &file_common_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2185,7 +2330,7 @@ func (x *NodeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeEvent.ProtoReflect.Descriptor instead.
 func (*NodeEvent) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{33}
+	return file_common_service_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *NodeEvent) GetUserId() string {
@@ -2209,36 +2354,105 @@ func (x *NodeEvent) GetRemaining() int64 {
 	return 0
 }
 
+func (x *NodeEvent) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
+// Stop one core; Stop(Empty) still stops every core on the node.
+type StopCore struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CoreId        uint64                 `protobuf:"varint,1,opt,name=core_id,json=coreId,proto3" json:"core_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopCore) Reset() {
+	*x = StopCore{}
+	mi := &file_common_service_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopCore) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopCore) ProtoMessage() {}
+
+func (x *StopCore) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopCore.ProtoReflect.Descriptor instead.
+func (*StopCore) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *StopCore) GetCoreId() uint64 {
+	if x != nil {
+		return x.CoreId
+	}
+	return 0
+}
+
 var File_common_service_proto protoreflect.FileDescriptor
 
 const file_common_service_proto_rawDesc = "" +
 	"\n" +
 	"\x14common/service.proto\x12\aservice\"\a\n" +
-	"\x05Empty\"r\n" +
+	"\x05Empty\"\xe8\x01\n" +
+	"\n" +
+	"CoreStatus\x12\x17\n" +
+	"\acore_id\x18\x01 \x01(\x04R\x06coreId\x12(\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x18\n" +
+	"\astarted\x18\x03 \x01(\bR\astarted\x12!\n" +
+	"\fcore_version\x18\x04 \x01(\tR\vcoreVersion\x12\x14\n" +
+	"\x05state\x18\x05 \x01(\tR\x05state\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\x06 \x01(\tR\tlastError\x12%\n" +
+	"\x0euptime_seconds\x18\a \x01(\x04R\ruptimeSeconds\"\x9d\x01\n" +
 	"\x10BaseInfoResponse\x12\x18\n" +
 	"\astarted\x18\x01 \x01(\bR\astarted\x12!\n" +
 	"\fcore_version\x18\x02 \x01(\tR\vcoreVersion\x12!\n" +
-	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\xba\x01\n" +
+	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\x12)\n" +
+	"\x05cores\x18\x04 \x03(\v2\x13.service.CoreStatusR\x05cores\"\xd3\x01\n" +
 	"\aBackend\x12(\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\tR\x06config\x12#\n" +
 	"\x05users\x18\x03 \x03(\v2\r.service.UserR\x05users\x12\x1d\n" +
 	"\n" +
 	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\x12)\n" +
-	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\"\x1d\n" +
+	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\x12\x17\n" +
+	"\acore_id\x18\x06 \x01(\x04R\x06coreId\"j\n" +
 	"\x03Log\x12\x16\n" +
-	"\x06detail\x18\x01 \x01(\tR\x06detail\"X\n" +
+	"\x06detail\x18\x01 \x01(\tR\x06detail\x12\x17\n" +
+	"\acore_id\x18\x02 \x01(\x04R\x06coreId\x12\x14\n" +
+	"\x05level\x18\x03 \x01(\tR\x05level\x12\x1c\n" +
+	"\n" +
+	"ts_unix_ms\x18\x04 \x01(\x03R\btsUnixMs\"X\n" +
 	"\x04Stat\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
 	"\x04link\x18\x03 \x01(\tR\x04link\x12\x14\n" +
 	"\x05value\x18\x04 \x01(\x03R\x05value\"3\n" +
 	"\fStatResponse\x12#\n" +
-	"\x05stats\x18\x01 \x03(\v2\r.service.StatR\x05stats\"^\n" +
+	"\x05stats\x18\x01 \x03(\v2\r.service.StatR\x05stats\"w\n" +
 	"\vStatRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05reset\x18\x02 \x01(\bR\x05reset\x12%\n" +
-	"\x04type\x18\x03 \x01(\x0e2\x11.service.StatTypeR\x04type\">\n" +
+	"\x04type\x18\x03 \x01(\x0e2\x11.service.StatTypeR\x04type\x12\x17\n" +
+	"\acore_id\x18\x04 \x01(\x04R\x06coreId\">\n" +
 	"\x12OnlineStatResponse\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value\"\xa6\x01\n" +
@@ -2359,15 +2573,19 @@ const file_common_service_proto_rawDesc = "" +
 	"\brule_tag\x18\x01 \x01(\tR\aruleTag\"Z\n" +
 	"\x1dOverrideBalancerTargetRequest\x12!\n" +
 	"\fbalancer_tag\x18\x01 \x01(\tR\vbalancerTag\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target\"n\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\"\x87\x01\n" +
 	"\tNodeEvent\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12*\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x16.service.NodeEventTypeR\x04type\x12\x1c\n" +
-	"\tremaining\x18\x03 \x01(\x03R\tremaining*3\n" +
+	"\tremaining\x18\x03 \x01(\x03R\tremaining\x12\x17\n" +
+	"\acore_id\x18\x04 \x01(\x04R\x06coreId\"#\n" +
+	"\bStopCore\x12\x17\n" +
+	"\acore_id\x18\x01 \x01(\x04R\x06coreId*B\n" +
 	"\vBackendType\x12\b\n" +
 	"\x04XRAY\x10\x00\x12\r\n" +
 	"\tWIREGUARD\x10\x01\x12\v\n" +
-	"\aSINGBOX\x10\x02*_\n" +
+	"\aSINGBOX\x10\x02\x12\r\n" +
+	"\tHYSTERIA2\x10\x03*_\n" +
 	"\bStatType\x12\r\n" +
 	"\tOutbounds\x10\x00\x12\f\n" +
 	"\bOutbound\x10\x01\x12\f\n" +
@@ -2377,11 +2595,12 @@ const file_common_service_proto_rawDesc = "" +
 	"\bUserStat\x10\x05*K\n" +
 	"\rNodeEventType\x12\x1a\n" +
 	"\x16NODE_EVENT_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aNODE_EVENT_QUOTA_EXHAUSTED\x10\x012\x97\n" +
+	"\x1aNODE_EVENT_QUOTA_EXHAUSTED\x10\x012\xc8\n" +
 	"\n" +
 	"\vNodeService\x126\n" +
 	"\x05Start\x12\x10.service.Backend\x1a\x19.service.BaseInfoResponse\"\x00\x12(\n" +
-	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12:\n" +
+	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12/\n" +
+	"\bStopCore\x12\x11.service.StopCore\x1a\x0e.service.Empty\"\x00\x12:\n" +
 	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12+\n" +
 	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x129\n" +
 	"\x0fSubscribeEvents\x12\x0e.service.Empty\x1a\x12.service.NodeEvent\"\x000\x01\x12@\n" +
@@ -2414,112 +2633,118 @@ func file_common_service_proto_rawDescGZIP() []byte {
 }
 
 var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_common_service_proto_goTypes = []any{
 	(BackendType)(0),                      // 0: service.BackendType
 	(StatType)(0),                         // 1: service.StatType
 	(NodeEventType)(0),                    // 2: service.NodeEventType
 	(*Empty)(nil),                         // 3: service.Empty
-	(*BaseInfoResponse)(nil),              // 4: service.BaseInfoResponse
-	(*Backend)(nil),                       // 5: service.Backend
-	(*Log)(nil),                           // 6: service.Log
-	(*Stat)(nil),                          // 7: service.Stat
-	(*StatResponse)(nil),                  // 8: service.StatResponse
-	(*StatRequest)(nil),                   // 9: service.StatRequest
-	(*OnlineStatResponse)(nil),            // 10: service.OnlineStatResponse
-	(*StatsOnlineIpListResponse)(nil),     // 11: service.StatsOnlineIpListResponse
-	(*Latency)(nil),                       // 12: service.Latency
-	(*LatencyRequest)(nil),                // 13: service.LatencyRequest
-	(*LatencyResponse)(nil),               // 14: service.LatencyResponse
-	(*BackendStatsResponse)(nil),          // 15: service.BackendStatsResponse
-	(*SystemStatsResponse)(nil),           // 16: service.SystemStatsResponse
-	(*Vmess)(nil),                         // 17: service.Vmess
-	(*Vless)(nil),                         // 18: service.Vless
-	(*Trojan)(nil),                        // 19: service.Trojan
-	(*Shadowsocks)(nil),                   // 20: service.Shadowsocks
-	(*Wireguard)(nil),                     // 21: service.Wireguard
-	(*Hysteria)(nil),                      // 22: service.Hysteria
-	(*Proxy)(nil),                         // 23: service.Proxy
-	(*User)(nil),                          // 24: service.User
-	(*Users)(nil),                         // 25: service.Users
-	(*UsersChunk)(nil),                    // 26: service.UsersChunk
-	(*RoutingRule)(nil),                   // 27: service.RoutingRule
-	(*RoutingRulesResponse)(nil),          // 28: service.RoutingRulesResponse
-	(*BalancerInfoRequest)(nil),           // 29: service.BalancerInfoRequest
-	(*BalancerInfoResponse)(nil),          // 30: service.BalancerInfoResponse
-	(*TestRouteRequest)(nil),              // 31: service.TestRouteRequest
-	(*RouteResult)(nil),                   // 32: service.RouteResult
-	(*AddRoutingRuleRequest)(nil),         // 33: service.AddRoutingRuleRequest
-	(*RemoveRoutingRuleRequest)(nil),      // 34: service.RemoveRoutingRuleRequest
-	(*OverrideBalancerTargetRequest)(nil), // 35: service.OverrideBalancerTargetRequest
-	(*NodeEvent)(nil),                     // 36: service.NodeEvent
-	nil,                                   // 37: service.StatsOnlineIpListResponse.IpsEntry
-	nil,                                   // 38: service.TestRouteRequest.AttributesEntry
+	(*CoreStatus)(nil),                    // 4: service.CoreStatus
+	(*BaseInfoResponse)(nil),              // 5: service.BaseInfoResponse
+	(*Backend)(nil),                       // 6: service.Backend
+	(*Log)(nil),                           // 7: service.Log
+	(*Stat)(nil),                          // 8: service.Stat
+	(*StatResponse)(nil),                  // 9: service.StatResponse
+	(*StatRequest)(nil),                   // 10: service.StatRequest
+	(*OnlineStatResponse)(nil),            // 11: service.OnlineStatResponse
+	(*StatsOnlineIpListResponse)(nil),     // 12: service.StatsOnlineIpListResponse
+	(*Latency)(nil),                       // 13: service.Latency
+	(*LatencyRequest)(nil),                // 14: service.LatencyRequest
+	(*LatencyResponse)(nil),               // 15: service.LatencyResponse
+	(*BackendStatsResponse)(nil),          // 16: service.BackendStatsResponse
+	(*SystemStatsResponse)(nil),           // 17: service.SystemStatsResponse
+	(*Vmess)(nil),                         // 18: service.Vmess
+	(*Vless)(nil),                         // 19: service.Vless
+	(*Trojan)(nil),                        // 20: service.Trojan
+	(*Shadowsocks)(nil),                   // 21: service.Shadowsocks
+	(*Wireguard)(nil),                     // 22: service.Wireguard
+	(*Hysteria)(nil),                      // 23: service.Hysteria
+	(*Proxy)(nil),                         // 24: service.Proxy
+	(*User)(nil),                          // 25: service.User
+	(*Users)(nil),                         // 26: service.Users
+	(*UsersChunk)(nil),                    // 27: service.UsersChunk
+	(*RoutingRule)(nil),                   // 28: service.RoutingRule
+	(*RoutingRulesResponse)(nil),          // 29: service.RoutingRulesResponse
+	(*BalancerInfoRequest)(nil),           // 30: service.BalancerInfoRequest
+	(*BalancerInfoResponse)(nil),          // 31: service.BalancerInfoResponse
+	(*TestRouteRequest)(nil),              // 32: service.TestRouteRequest
+	(*RouteResult)(nil),                   // 33: service.RouteResult
+	(*AddRoutingRuleRequest)(nil),         // 34: service.AddRoutingRuleRequest
+	(*RemoveRoutingRuleRequest)(nil),      // 35: service.RemoveRoutingRuleRequest
+	(*OverrideBalancerTargetRequest)(nil), // 36: service.OverrideBalancerTargetRequest
+	(*NodeEvent)(nil),                     // 37: service.NodeEvent
+	(*StopCore)(nil),                      // 38: service.StopCore
+	nil,                                   // 39: service.StatsOnlineIpListResponse.IpsEntry
+	nil,                                   // 40: service.TestRouteRequest.AttributesEntry
 }
 var file_common_service_proto_depIdxs = []int32{
-	0,  // 0: service.Backend.type:type_name -> service.BackendType
-	24, // 1: service.Backend.users:type_name -> service.User
-	7,  // 2: service.StatResponse.stats:type_name -> service.Stat
-	1,  // 3: service.StatRequest.type:type_name -> service.StatType
-	37, // 4: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
-	12, // 5: service.LatencyResponse.latencies:type_name -> service.Latency
-	17, // 6: service.Proxy.vmess:type_name -> service.Vmess
-	18, // 7: service.Proxy.vless:type_name -> service.Vless
-	19, // 8: service.Proxy.trojan:type_name -> service.Trojan
-	20, // 9: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
-	21, // 10: service.Proxy.wireguard:type_name -> service.Wireguard
-	22, // 11: service.Proxy.hysteria:type_name -> service.Hysteria
-	23, // 12: service.User.proxies:type_name -> service.Proxy
-	24, // 13: service.Users.users:type_name -> service.User
-	24, // 14: service.UsersChunk.users:type_name -> service.User
-	27, // 15: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
-	38, // 16: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
-	2,  // 17: service.NodeEvent.type:type_name -> service.NodeEventType
-	5,  // 18: service.NodeService.Start:input_type -> service.Backend
-	3,  // 19: service.NodeService.Stop:input_type -> service.Empty
-	3,  // 20: service.NodeService.GetBaseInfo:input_type -> service.Empty
-	3,  // 21: service.NodeService.GetLogs:input_type -> service.Empty
-	3,  // 22: service.NodeService.SubscribeEvents:input_type -> service.Empty
-	3,  // 23: service.NodeService.GetSystemStats:input_type -> service.Empty
-	3,  // 24: service.NodeService.GetBackendStats:input_type -> service.Empty
-	9,  // 25: service.NodeService.GetStats:input_type -> service.StatRequest
-	13, // 26: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
-	9,  // 27: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
-	9,  // 28: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
-	24, // 29: service.NodeService.SyncUser:input_type -> service.User
-	25, // 30: service.NodeService.SyncUsers:input_type -> service.Users
-	26, // 31: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
-	3,  // 32: service.NodeService.ListRoutingRules:input_type -> service.Empty
-	29, // 33: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
-	31, // 34: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
-	33, // 35: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
-	34, // 36: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
-	35, // 37: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
-	4,  // 38: service.NodeService.Start:output_type -> service.BaseInfoResponse
-	3,  // 39: service.NodeService.Stop:output_type -> service.Empty
-	4,  // 40: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
-	6,  // 41: service.NodeService.GetLogs:output_type -> service.Log
-	36, // 42: service.NodeService.SubscribeEvents:output_type -> service.NodeEvent
-	16, // 43: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
-	15, // 44: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
-	8,  // 45: service.NodeService.GetStats:output_type -> service.StatResponse
-	14, // 46: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
-	10, // 47: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
-	11, // 48: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
-	3,  // 49: service.NodeService.SyncUser:output_type -> service.Empty
-	3,  // 50: service.NodeService.SyncUsers:output_type -> service.Empty
-	3,  // 51: service.NodeService.SyncUsersChunked:output_type -> service.Empty
-	28, // 52: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
-	30, // 53: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
-	32, // 54: service.NodeService.TestRoute:output_type -> service.RouteResult
-	3,  // 55: service.NodeService.AddRoutingRule:output_type -> service.Empty
-	3,  // 56: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
-	3,  // 57: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
-	38, // [38:58] is the sub-list for method output_type
-	18, // [18:38] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	0,  // 0: service.CoreStatus.type:type_name -> service.BackendType
+	4,  // 1: service.BaseInfoResponse.cores:type_name -> service.CoreStatus
+	0,  // 2: service.Backend.type:type_name -> service.BackendType
+	25, // 3: service.Backend.users:type_name -> service.User
+	8,  // 4: service.StatResponse.stats:type_name -> service.Stat
+	1,  // 5: service.StatRequest.type:type_name -> service.StatType
+	39, // 6: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
+	13, // 7: service.LatencyResponse.latencies:type_name -> service.Latency
+	18, // 8: service.Proxy.vmess:type_name -> service.Vmess
+	19, // 9: service.Proxy.vless:type_name -> service.Vless
+	20, // 10: service.Proxy.trojan:type_name -> service.Trojan
+	21, // 11: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
+	22, // 12: service.Proxy.wireguard:type_name -> service.Wireguard
+	23, // 13: service.Proxy.hysteria:type_name -> service.Hysteria
+	24, // 14: service.User.proxies:type_name -> service.Proxy
+	25, // 15: service.Users.users:type_name -> service.User
+	25, // 16: service.UsersChunk.users:type_name -> service.User
+	28, // 17: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
+	40, // 18: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
+	2,  // 19: service.NodeEvent.type:type_name -> service.NodeEventType
+	6,  // 20: service.NodeService.Start:input_type -> service.Backend
+	3,  // 21: service.NodeService.Stop:input_type -> service.Empty
+	38, // 22: service.NodeService.StopCore:input_type -> service.StopCore
+	3,  // 23: service.NodeService.GetBaseInfo:input_type -> service.Empty
+	3,  // 24: service.NodeService.GetLogs:input_type -> service.Empty
+	3,  // 25: service.NodeService.SubscribeEvents:input_type -> service.Empty
+	3,  // 26: service.NodeService.GetSystemStats:input_type -> service.Empty
+	3,  // 27: service.NodeService.GetBackendStats:input_type -> service.Empty
+	10, // 28: service.NodeService.GetStats:input_type -> service.StatRequest
+	14, // 29: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
+	10, // 30: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
+	10, // 31: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
+	25, // 32: service.NodeService.SyncUser:input_type -> service.User
+	26, // 33: service.NodeService.SyncUsers:input_type -> service.Users
+	27, // 34: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
+	3,  // 35: service.NodeService.ListRoutingRules:input_type -> service.Empty
+	30, // 36: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
+	32, // 37: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
+	34, // 38: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
+	35, // 39: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
+	36, // 40: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
+	5,  // 41: service.NodeService.Start:output_type -> service.BaseInfoResponse
+	3,  // 42: service.NodeService.Stop:output_type -> service.Empty
+	3,  // 43: service.NodeService.StopCore:output_type -> service.Empty
+	5,  // 44: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
+	7,  // 45: service.NodeService.GetLogs:output_type -> service.Log
+	37, // 46: service.NodeService.SubscribeEvents:output_type -> service.NodeEvent
+	17, // 47: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
+	16, // 48: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
+	9,  // 49: service.NodeService.GetStats:output_type -> service.StatResponse
+	15, // 50: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
+	11, // 51: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
+	12, // 52: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
+	3,  // 53: service.NodeService.SyncUser:output_type -> service.Empty
+	3,  // 54: service.NodeService.SyncUsers:output_type -> service.Empty
+	3,  // 55: service.NodeService.SyncUsersChunked:output_type -> service.Empty
+	29, // 56: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
+	31, // 57: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
+	33, // 58: service.NodeService.TestRoute:output_type -> service.RouteResult
+	3,  // 59: service.NodeService.AddRoutingRule:output_type -> service.Empty
+	3,  // 60: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
+	3,  // 61: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
+	41, // [41:62] is the sub-list for method output_type
+	20, // [20:41] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_common_service_proto_init() }
@@ -2533,7 +2758,7 @@ func file_common_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_service_proto_rawDesc), len(file_common_service_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   36,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
