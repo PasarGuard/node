@@ -170,12 +170,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
-			removeEmail := user.GetEmail()
-			if inbound.Protocol == Wireguard && proxySetting.Wireguard != nil {
-				removeEmail = proxySetting.Wireguard.GetEmail()
-			}
-			_ = handler.RemoveInboundUser(ctx, inbound.Tag, removeEmail)
-			inbound.removeUser(removeEmail)
+			inbound.removeUser(user.GetEmail())
 		}
 	}
 

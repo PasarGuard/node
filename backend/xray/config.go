@@ -100,11 +100,7 @@ func (c *Config) buildInboundUpdates(users []*common.User) (map[string]*Inbound,
 			if isActive {
 				update.accounts = append(update.accounts, account)
 			} else {
-				removeEmail := userEmail
-				if inbound.Protocol == Wireguard && settings.Wireguard != nil {
-					removeEmail = settings.Wireguard.GetEmail()
-				}
-				update.removeEmailSet[removeEmail] = struct{}{}
+				update.removeEmailSet[userEmail] = struct{}{}
 			}
 		}
 	}
