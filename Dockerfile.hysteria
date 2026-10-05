@@ -1,0 +1,60 @@
+# hysteria2 flavour: node + the pinned Hysteria2 release binary.
+#
+# Supply chain: unlike the sing-box image (which builds from source), hysteria
+# ships a signed-tagged raw binary, so the pin is a sha256 rather than a commit.
+# Upstream publishes no checksum file, so these hashes were computed from the
+# downloaded assets and recorded in docs/multi/UPSTREAM.md:15 — the install step
+# refuses a mismatch instead of trusting the download.
+#
+# Why a separate image rather than a second binary in the sing-box one: an
+# operator who does not run hysteria2 should not ship an extra 23 MB proxy, and
+# the node only starts the core when a hysteria2 core is assigned.
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG HYSTERIA_VERSION=2.13.0
+
+RUN apk update && apk add --no-cache make curl
+
+WORKDIR /src
+
+COPY go* .
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
+
+# One ARG per architecture; the build picks and fails on an unpinned target
+# rather than installing an unverified binary.
+ARG HYSTERIA_SHA256_linux_amd64=907ba8c9693edb104b20582681fb7dc15639d5b64a9cbb616a7b539190a86691
+ARG HYSTERIA_SHA256_linux_arm64=
+ARG HYSTERIA_SHA256_linux_armv7=
+
+RUN case "${TARGETARCH}" in \
+      amd64) hy_sha="${HYSTERIA_SHA256_linux_amd64}" ;; \
+      arm64) hy_sha="${HYSTERIA_SHA256_linux_arm64}" ;; \
+      arm)   hy_sha="${HYSTERIA_SHA256_linux_armv7}" ;; \
+      *) echo "no pinned hysteria sha256 for ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    if [ -z "$hy_sha" ]; then \
+      echo "no pinned hysteria sha256 for ${TARGETARCH}; refusing to install an unverified binary"; exit 1; \
+    fi; \
+    curl -fsSL -o /usr/local/bin/hysteria \
+      "https://github.com/HyNetworks/hysteria/releases/download/app/v${HYSTERIA_VERSION}/hysteria-linux-${TARGETARCH}" && \
+    echo "${hy_sha}  /usr/local/bin/hysteria" | sha256sum -c - && \
+    chmod +x /usr/local/bin/hysteria
+
+FROM alpine:latest
+
+LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
+
+WORKDIR /app
+COPY --from=builder /src/main /app/main
+
+# Fail the build at container start if the binary is not the pinned version:
+# the node's traffic accounting keys on hysteria's API contract, and a silent
+# major bump would change the wire behaviour this image was pinned for.
+RUN /usr/local/bin/hysteria version | grep -F "v${HYSTERIA_VERSION}"
+
+ENTRYPOINT ["./main"]

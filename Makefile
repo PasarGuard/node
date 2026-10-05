@@ -221,3 +221,44 @@ build_singbox_v2api:
 	 sudo install /tmp/sing-box-src/sing-box /usr/local/bin/sing-box)
 	rm -rf /tmp/sing-box-src
 	sing-box version
+
+# Hysteria2 (HyNetworks/hysteria, MIT). Pinned in docs/multi/UPSTREAM.md:15 at
+# app/v2.13.0, assets hysteria-linux-amd64 / hysteria-windows-amd64.exe (raw, no
+# archive). The sha256 is checked because an unpinned proxy binary on a node is a
+# supply-chain hole, not a convenience.
+HYSTERIA_VERSION ?= 2.13.0
+HYSTERIA_REPO ?= HyNetworks/hysteria
+# sha256 of the released asset for this version/arch, from docs/multi/UPSTREAM.md
+# (the `?` column there means upstream publishes no checksum file, so these were
+# computed by the verifier from the downloaded asset).
+HYSTERIA_SHA256_linux_amd64 ?= 907ba8c9693edb104b20582681fb7dc15639d5b64a9cbb616a7b539190a86691
+HYSTERIA_SHA256_linux_arm64 ?=
+HYSTERIA_SHA256_windows_amd64 ?= 162ef8fe55dc7ec810dda662908f8e65ec36bd6da39cb87c3bd66184ab68f067
+
+# install_hysteria fetches the pinned release and refuses a hash mismatch.
+install_hysteria: update_os
+ifeq ($(UNAME_S),Linux)
+	@echo "Installing hysteria $(HYSTERIA_VERSION) for $(GOARCH)..."
+	@arch=$$(uname -m); \
+	case $$arch in \
+		x86_64)  hy_arch=amd64; hy_sha="$(HYSTERIA_SHA256_linux_amd64)" ;; \
+		aarch64) hy_arch=arm64; hy_sha="$(HYSTERIA_SHA256_linux_arm64)" ;; \
+		*) echo "unsupported architecture: $$arch"; exit 1 ;; \
+	esac; \
+	if [ -z "$$hy_sha" ]; then echo "no pinned sha256 for $$hy_arch; refusing to install"; exit 1; fi; \
+	curl -fsSL -o /tmp/hysteria "https://github.com/$(HYSTERIA_REPO)/releases/download/app/v$(HYSTERIA_VERSION)/hysteria-linux-$$hy_arch" && \
+	echo "$$hy_sha  /tmp/hysteria" | sha256sum -c - && \
+	(install /tmp/hysteria /usr/local/bin/hysteria || sudo install /tmp/hysteria /usr/local/bin/hysteria) && \
+	rm -f /tmp/hysteria && \
+	hysteria version
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
+# test-hysteria runs the hysteria2 loopback suite against the pinned binary.
+# Every test in backend/hysteria skips without HYSTERIA_TEST_BINARY, so this is
+# opt-in rather than silently skipped by the default `make test`.
+test-hysteria:
+	HYSTERIA_TEST_BINARY="$${HYSTERIA_TEST_BINARY:-/usr/local/bin/hysteria}" \
+		GOTOOLCHAIN=auto go test -v -p 1 ./backend/hysteria
