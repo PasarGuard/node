@@ -2,76 +2,77 @@ package rpc
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
+	"log"
+	"net"
 
-	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/controller"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
-func (s *Service) backend() (backend.Backend, error) {
-	backend := s.Backend()
-	if backend == nil {
-		return nil, status.Errorf(codes.Unavailable, "backend not initialized")
-	}
-	return backend, nil
+type Service struct {
+	common.UnimplementedNodeServiceServer
+	controller.Controller
 }
 
-func (s *Service) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
+func New(cfg *config.Config) *Service {
+	return &Service{
+		Controller: *controller.New(cfg),
 	}
-
-	stats, err := backend.GetStats(ctx, request)
-	if err != nil {
-		err = common.InterceptNotFound(err)
-		return nil, err
-	}
-	return stats, nil
 }
 
-func (s *Service) GetUserOnlineStats(ctx context.Context, request *common.StatRequest) (*common.OnlineStatResponse, error) {
-	backend, err := s.backend()
+func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
+	s := New(cfg)
+
+	creds := credentials.NewTLS(tlsConfig)
+
+	// Create the gRPC server with conditional middleware
+	// Set max message size to 64MB to handle large configs and user data
+	const maxMsgSize = 64 * 1024 * 1024 // 64MB
+	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+		grpc.UnaryInterceptor(ConditionalMiddleware(s)),
+		grpc.StreamInterceptor(ConditionalStreamMiddleware(s)),
+	)
+
+	// Register the service
+	common.RegisterNodeServiceServer(grpcServer, s)
+
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 
-	stats, err := backend.GetUserOnlineStats(ctx, request.GetName())
-	if err != nil {
-		err = common.InterceptNotFound(err)
-		return nil, err
-	}
-	return stats, nil
-}
+	go func() {
+		log.Println("gRPC Server listening on", addr)
+		log.Println("Press Ctrl+C to stop")
+		if err = grpcServer.Serve(listener); err != nil {
+			log.Printf("gRPC server error: %v", err)
+		}
+	}()
 
-func (s *Service) GetUserOnlineIpListStats(ctx context.Context, request *common.StatRequest) (*common.StatsOnlineIpListResponse, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
-	}
+	// Return a shutdown function for gRPC server
+	return func(ctx context.Context) error {
+		// Graceful stop for gRPC server
+		stopped := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			close(stopped)
+		}()
 
-	stats, err := backend.GetUserOnlineIpListStats(ctx, request.GetName())
-	if err != nil {
-		err = common.InterceptNotFound(err)
-		return nil, err
-	}
-	return stats, nil
-}
-
-func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common.BackendStatsResponse, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
-	}
-
-	return backend.GetSysStats(ctx)
-}
-
-func (s *Service) GetOutboundsLatency(ctx context.Context, request *common.LatencyRequest) (*common.LatencyResponse, error) {
-	return s.OutboundsLatency(ctx, request)
-}
-
-func (s *Service) GetSystemStats(ctx context.Context, _ *common.Empty) (*common.SystemStatsResponse, error) {
-	return s.SystemStats(ctx), nil
+		// Wait for server to stop or context to timeout
+		select {
+		case <-stopped:
+			return nil
+		case <-ctx.Done():
+			grpcServer.Stop() // Force stop if graceful stop times out
+			return ctx.Err()
+		}
+	}, s, nil
 }

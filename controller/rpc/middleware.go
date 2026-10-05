@@ -75,6 +75,9 @@ func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	}
 }
 
+// checkBackendStatus gates on the default core (core 1), which is what a
+// node with one core has always had. Start and StopCore are exempt: they are
+// the RPCs that create and remove cores.
 func checkBackendStatus(s *Service) error {
 	back := s.Backend()
 	if back == nil {
@@ -191,6 +194,7 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/GetBackendStats":          true,
 	"/service.NodeService/GetSystemStats":           true,
 	"/service.NodeService/Stop":                     true,
+	"/service.NodeService/StopCore":                 true,
 	"/service.NodeService/SyncUser":                 true,
 	"/service.NodeService/SyncUsers":                true,
 	"/service.NodeService/SyncUsersChunked":         true,

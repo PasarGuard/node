@@ -10,13 +10,19 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/controller"
 )
 
+// The user fan-out RPCs carry no core selector yet (User/Users/UsersChunk
+// gained no core_id in batch 1.0), so a sync reaches every running core. With
+// one core that is byte-for-byte today's behaviour. ponytail: add a targeted
+// push when the proto carries the selector — see the change request in the batch
+// report.
+
 func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common.Empty]) error {
-	backend, err := s.backend()
-	if err != nil {
+	if _, err := s.backend(); err != nil {
 		return err
 	}
 
@@ -32,7 +38,9 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 
 		log.Printf("Got user: %v", user.GetEmail())
 
-		if err = backend.SyncUser(stream.Context(), user); err != nil {
+		if err = s.eachBackend(func(b backend.Backend) error {
+			return b.SyncUser(stream.Context(), user)
+		}); err != nil {
 			log.Printf("Error syncing user: %v", err)
 			return status.Errorf(codes.Internal, "failed to update user: %v", err)
 		}
@@ -40,12 +48,9 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 }
 
 func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.Empty, error) {
-	backend, err := s.backend()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := backend.SyncUsers(ctx, users.GetUsers()); err != nil {
+	if err := s.eachBackend(func(b backend.Backend) error {
+		return b.SyncUsers(ctx, users.GetUsers())
+	}); err != nil {
 		return nil, err
 	}
 
@@ -82,14 +87,21 @@ func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.User
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	backend, err := s.backend()
-	if err != nil {
-		return err
-	}
-
-	if err := controller.ApplyChunkedUserUpdate(stream.Context(), backend, users); err != nil {
+	if err := s.eachBackend(func(b backend.Backend) error {
+		return controller.ApplyChunkedUserUpdate(stream.Context(), b, users)
+	}); err != nil {
 		return status.Errorf(codes.Internal, "failed to update users: %v", err)
 	}
 
 	return stream.SendAndClose(&common.Empty{})
+}
+
+// eachBackend runs fn against every running core, mapping the no-core case to
+// the codes.Unavailable every other handler already returns.
+func (s *Service) eachBackend(fn func(backend.Backend) error) error {
+	err := s.EachBackend(func(_ uint64, b backend.Backend) error { return fn(b) })
+	if err != nil {
+		return status.Errorf(codes.Unavailable, "%v", err)
+	}
+	return nil
 }

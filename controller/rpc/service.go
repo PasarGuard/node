@@ -2,77 +2,39 @@ package rpc
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
-	"log"
-	"net"
 
 	"github.com/pasarguard/node/common"
-	"github.com/pasarguard/node/config"
-	"github.com/pasarguard/node/controller"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
-type Service struct {
-	common.UnimplementedNodeServiceServer
-	controller.Controller
-}
+func (s *Service) Start(ctx context.Context, data *common.Backend) (*common.BaseInfoResponse, error) {
+	s.LockControl(data.GetCoreId())
+	defer s.UnlockControl(data.GetCoreId())
 
-func New(cfg *config.Config) *Service {
-	return &Service{
-		Controller: *controller.New(cfg),
-	}
-}
-
-func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
-	s := New(cfg)
-
-	creds := credentials.NewTLS(tlsConfig)
-
-	// Create the gRPC server with conditional middleware
-	// Set max message size to 64MB to handle large configs and user data
-	const maxMsgSize = 64 * 1024 * 1024 // 64MB
-	grpcServer := grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.MaxRecvMsgSize(maxMsgSize),
-		grpc.MaxSendMsgSize(maxMsgSize),
-		grpc.UnaryInterceptor(ConditionalMiddleware(s)),
-		grpc.StreamInterceptor(ConditionalStreamMiddleware(s)),
-	)
-
-	// Register the service
-	common.RegisterNodeServiceServer(grpcServer, s)
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
+	if err := s.StartOrAttach(ctx, data); err != nil {
+		return nil, err
 	}
 
-	go func() {
-		log.Println("gRPC Server listening on", addr)
-		log.Println("Press Ctrl+C to stop")
-		if err = grpcServer.Serve(listener); err != nil {
-			log.Printf("gRPC server error: %v", err)
-		}
-	}()
+	return s.BaseInfoResponse(), nil
+}
 
-	// Create a shutdown function for gRPC server
-	return func(ctx context.Context) error {
-		// Graceful stop for gRPC server
-		stopped := make(chan struct{})
-		go func() {
-			grpcServer.GracefulStop()
-			close(stopped)
-		}()
+// Stop stops every core — unchanged behaviour for a single-core node.
+func (s *Service) Stop(_ context.Context, _ *common.Empty) (*common.Empty, error) {
+	s.LockControl(0)
+	defer s.UnlockControl(0)
 
-		// Wait for server to stop or context to timeout
-		select {
-		case <-stopped:
-			return nil
-		case <-ctx.Done():
-			grpcServer.Stop() // Force stop if graceful stop times out
-			return ctx.Err()
-		}
-	}, s, nil
+	s.Disconnect()
+	return &common.Empty{}, nil
+}
+
+// StopCore stops one core and leaves the rest running.
+func (s *Service) StopCore(_ context.Context, request *common.StopCore) (*common.Empty, error) {
+	s.LockControl(request.GetCoreId())
+	defer s.UnlockControl(request.GetCoreId())
+
+	s.DisconnectCore(request.GetCoreId())
+	return &common.Empty{}, nil
+}
+
+func (s *Service) GetBaseInfo(_ context.Context, _ *common.Empty) (*common.BaseInfoResponse, error) {
+	return s.BaseInfoResponse(), nil
 }

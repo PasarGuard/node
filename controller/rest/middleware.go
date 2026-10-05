@@ -33,6 +33,8 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 	})
 }
 
+// checkBackendMiddleware gates on the default core (core 1), which is what a
+// node with one core has always had.
 func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		back := s.Backend()

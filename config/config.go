@@ -3,8 +3,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"time"
@@ -123,6 +125,28 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// ForCore returns a shallow copy of cfg whose GeneratedConfigPath points at
+// that core's own directory.
+//
+// core_id 0 is the node's default/only core and lands in core-1/, so a
+// single-core node's config path changes but nothing else about it does. Two
+// same-type cores can no longer overwrite each other's config file.
+//
+// CoreID 0 in, core-1 out: the default core is the first core.
+func (c *Config) ForCore(coreID uint64) *Config {
+	if coreID == 0 {
+		coreID = 1
+	}
+	scoped := *c
+	scoped.GeneratedConfigPath = CoreConfigPath(c.GeneratedConfigPath, coreID)
+	return &scoped
+}
+
+// CoreConfigPath is the per-core config directory under generatedConfigPath.
+func CoreConfigPath(generatedConfigPath string, coreID uint64) string {
+	return filepath.Join(generatedConfigPath, fmt.Sprintf("core-%d", coreID))
 }
 
 // NewTestConfig creates a config for testing

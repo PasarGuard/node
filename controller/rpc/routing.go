@@ -20,6 +20,8 @@ func asRoutingBackend(b backend.Backend) (backend.RoutingBackend, error) {
 	return rb, nil
 }
 
+// routingBackend resolves the default core: routing is an xray-only capability
+// and the panel addresses it without a core selector, so it is core 1's backend.
 func (s *Service) routingBackend() (backend.RoutingBackend, error) {
 	b, err := s.backend()
 	if err != nil {

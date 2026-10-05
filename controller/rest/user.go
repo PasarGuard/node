@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/controller"
 )
@@ -36,7 +37,9 @@ func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Got user: %v", user.GetEmail())
 
-	if err = s.Backend().SyncUser(r.Context(), user); err != nil {
+	if err = s.EachBackend(func(_ uint64, b backend.Backend) error {
+		return b.SyncUser(r.Context(), user)
+	}); err != nil {
 		log.Printf("Error syncing user: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -65,7 +68,9 @@ func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
+	if err = s.EachBackend(func(_ uint64, b backend.Backend) error {
+		return b.SyncUsers(r.Context(), users.GetUsers())
+	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -129,7 +134,9 @@ func (s *Service) SyncUsersChunked(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := controller.ApplyChunkedUserUpdate(r.Context(), s.Backend(), users); err != nil {
+	if err := s.EachBackend(func(_ uint64, b backend.Backend) error {
+		return controller.ApplyChunkedUserUpdate(r.Context(), b, users)
+	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

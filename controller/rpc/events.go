@@ -40,6 +40,9 @@ func (s *Service) SubscribeEvents(_ *common.Empty, stream common.NodeService_Sub
 				UserId:    ev.UserID,
 				Type:      ev.EventType,
 				Remaining: ev.Remaining,
+				// Only one event stream is read, so the event is attributed to
+				// the core that produced it — 0 otherwise would misfile it.
+				CoreId: s.CoreIDOf(backend),
 			}); err != nil {
 				return fmt.Errorf("failed to send node event: %w", err)
 			}
