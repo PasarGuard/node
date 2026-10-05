@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,6 +156,94 @@ func TestUnboundLoggerIsInert(t *testing.T) {
 	l := New(false)
 	l.Log(LogInfo, "nowhere")
 
+	if l.LogLines() != nil {
+		t.Error("an unbound Logger must not expose a channel")
+	}
+}
+
+// TestLinesPublishedBeforeBindSurvive is the regression for the defect a live
+// three-core gate found: a core that was actively serving traffic contributed
+// ZERO log records, because the channel was created on the first line and
+// GetLogs snapshots its sources once, so everything logged before the stream
+// attached was gone. A core's records must exist from the moment it starts.
+func TestLinesPublishedBeforeBindSurvive(t *testing.T) {
+	root := t.TempDir()
+
+	// A Logger that has not seen its core directory yet: it publishes, and has
+	// no channel to publish to. This is the state every core is in between
+	// construction and its first BindOnce.
+	l := New(false)
+
+	l.Log(LogInfo, "before-bind-1")
+	l.Log(LogError, "before-bind-2")
+
+	if l.LogLines() != nil {
+		t.Fatal("an unbound Logger must not expose a channel")
+	}
+
+	// Now it learns which core it belongs to — as a core does when its config
+	// directory is handed to it.
+	l.BindOnce(filepath.Join(root, "core-3"))
+	defer l.Close()
+
+	ch := l.LogLines()
+	if ch == nil {
+		t.Fatal("a bound Logger must expose a channel")
+	}
+
+	// Both lines, in order. This is the whole assertion: a consumer that
+	// attaches now must still see what the core logged before it attached.
+	for _, want := range []string{"before-bind-1", "before-bind-2"} {
+		select {
+		case got := <-ch:
+			if got.Detail != want {
+				t.Fatalf("channel delivered %q, want %q (backfill must preserve order)", got.Detail, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("channel delivered nothing for %q; lines published before bind were lost", want)
+		}
+	}
+}
+
+// TestBackfillIsBounded: the fix must not be "buffer without limit". The ring
+// keeps the same DefaultLogBuffer bound the live channel already had, so the
+// worst case is identical to the worst case a slow consumer already had.
+func TestBackfillIsBounded(t *testing.T) {
+	l := New(false)
+
+	total := DefaultLogBuffer * 2
+	for i := range total {
+		l.Publish(LogLine{Detail: fmt.Sprintf("line-%d", i), Level: LogInfo})
+	}
+	if len(l.backfill) > DefaultLogBuffer {
+		t.Fatalf("an unbound Logger kept %d lines, want at most %d: the backfill must be bounded",
+			len(l.backfill), DefaultLogBuffer)
+	}
+
+	l.BindOnce(filepath.Join(t.TempDir(), "core-1"))
+	defer l.Close()
+
+	ch := l.LogLines()
+	// The newest DefaultLogBuffer lines survive; the oldest were dropped. Read
+	// the first one back: it must NOT be line-0.
+	select {
+	case got := <-ch:
+		if got.Detail == "line-0" {
+			t.Fatal("the backfill kept the oldest lines; a bounded ring must keep the most recent")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bounded backfill replayed nothing")
+	}
+}
+
+// TestUnboundLoggerStillWritesNothingElse: the backfill is only reachable
+// through BindOnce, so a Logger that never binds still publishes nowhere and
+// still exposes no channel — the behaviour a non-core caller relies on.
+func TestUnboundLoggerStillWritesNothingElse(t *testing.T) {
+	l := New(false)
+	for i := range 5 {
+		l.Publish(LogLine{Detail: fmt.Sprintf("nowhere-%d", i), Level: LogInfo})
+	}
 	if l.LogLines() != nil {
 		t.Error("an unbound Logger must not expose a channel")
 	}

@@ -455,11 +455,27 @@ func (c *Controller) Backend() backend.Backend {
 }
 
 // BackendFor returns one core's backend. coreID 0 resolves to the default core.
+//
+// A NAMED core resolves to itself or to nothing. Falling back to the default
+// core for a core id that does not exist would be wrong for every caller that
+// named one deliberately — the RPC gate would admit a request for core 99 into
+// core 1's stats, and the panel would bill one core's traffic under another's
+// answer. Only core_id 0 (the node's default / only core, CONTRACT §1.2) gets the
+// default-core fallback.
 func (c *Controller) BackendFor(coreID uint64) (backend.Backend, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	co := c.defaultCoreLocked(normalizeCoreID(coreID))
-	if co == nil || co.backend == nil {
+
+	if coreID == 0 {
+		co := c.defaultCoreLocked(1)
+		if co == nil || co.backend == nil {
+			return nil, false
+		}
+		return co.backend, true
+	}
+
+	co, ok := c.cores[coreID]
+	if !ok || co.backend == nil {
 		return nil, false
 	}
 	return co.backend, true
