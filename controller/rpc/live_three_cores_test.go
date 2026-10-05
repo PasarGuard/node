@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,6 +168,12 @@ func liveSelfSignedCert(t *testing.T, dir string) (string, string) {
 
 // liveOrigin serves a fixed-length body: the fixed length is what lets a client
 // prove it received the REAL thing through the tunnel rather than a short read.
+//
+// It DRAINS the client's request before replying and drains the socket after.
+// Closing early RSTs the loopback receive buffer and the client sees
+// `ConnectionAbortedError 10053` even though nothing was wrong with the tunnel —
+// the same trap panel/tests/integration/test_singbox_limit_expiry.py:106-116
+// documents as KNOWN-ISSUES §8, and it makes a healthy core look dead.
 func liveOrigin(t *testing.T, body int) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -183,8 +190,29 @@ func liveOrigin(t *testing.T, body int) int {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
+				_ = c.SetDeadline(time.Now().Add(30 * time.Second))
+				buf := make([]byte, 65536)
+				for {
+					// Drain the request; ignore the result, an origin only has to
+					// consume what the client sends before it reads.
+					if _, err := c.Read(buf); err != nil {
+						break
+					}
+					if strings.Contains(string(buf), "\r\n\r\n") {
+						break
+					}
+				}
 				header := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", body)
-				_, _ = c.Write(append([]byte(header), make([]byte, body)...))
+				if _, err := c.Write(append([]byte(header), make([]byte, body)...)); err != nil {
+					return
+				}
+				// Drain the rest so the last bytes leave the loopback buffer
+				// before the close, instead of being reset.
+				for {
+					if _, err := c.Read(buf); err != nil {
+						return
+					}
+				}
 			}(conn)
 		}
 	}()
@@ -218,6 +246,10 @@ func liveFetch(proxyPort, originPort int, timeout time.Duration) int {
 			if readErr == nil && len(body) > 0 {
 				return len(body)
 			}
+		} else {
+			// Keep the last transport error: without it a 0-byte result is
+			// indistinguishable from "the proxy was wrong".
+			liveLastFetchErr.Store(err.Error())
 		}
 		if time.Now().After(deadline) {
 			return 0
@@ -225,6 +257,10 @@ func liveFetch(proxyPort, originPort int, timeout time.Duration) int {
 		time.Sleep(300 * time.Millisecond)
 	}
 }
+
+// liveLastFetchErr carries the most recent transport error out of liveFetch, so a
+// failing assertion can print WHY rather than only "0 bytes".
+var liveLastFetchErr atomic.Value
 
 type liveProc struct {
 	cmd     *exec.Cmd
@@ -464,7 +500,7 @@ func liveThreeCores(t *testing.T) *liveNode {
 		},
 		{
 			id: 3, typ: common.BackendType_HYSTERIA2,
-			cfg:  liveHysteriaConfig(t, "127.0.0.1:"+strconv.Itoa(n.hysteriaPort), certPath, keyPath),
+			cfg: liveHysteriaConfig(t, "127.0.0.1:"+strconv.Itoa(n.hysteriaPort), certPath, keyPath),
 			users: []*common.User{{
 				Email:    liveEmailHysteria,
 				Proxies:  &common.Proxy{Hysteria: &common.Hysteria{Auth: "pw-" + newUUID()}},
@@ -475,9 +511,18 @@ func liveThreeCores(t *testing.T) *liveNode {
 
 	// Start all three through the real Start RPC. Each Start names its own
 	// core_id, which is the whole mechanism under test.
+	//
+	// The credentials the clients will use are read back OUT of the specs, not
+	// minted again: a client presenting a different uuid than the core was given
+	// fails the VLESS handshake, and the symptom is a healthy core that appears
+	// to serve nothing.
+	vlessUUID := map[uint64]string{}
 	hystPass := ""
 	for _, s := range specs {
-		if s.typ == common.BackendType_HYSTERIA2 {
+		switch s.typ {
+		case common.BackendType_XRAY, common.BackendType_SINGBOX:
+			vlessUUID[s.id] = s.users[0].GetProxies().GetVless().GetId()
+		case common.BackendType_HYSTERIA2:
 			hystPass = s.users[0].GetProxies().GetHysteria().GetAuth()
 		}
 		ctx, cancel := context.WithTimeout(n.ctx, 60*time.Second)
@@ -492,10 +537,8 @@ func liveThreeCores(t *testing.T) *liveNode {
 			t.Fatalf("Start core %d reported started=false", s.id)
 		}
 	}
-	_ = hystPass
 
 	// One real client per core.
-	uuidXray := newUUID()
 	liveStart(t, singboxExe, "run", "-c", liveWriteJSON(t, base, "client-xray.json", map[string]any{
 		"log": map[string]any{"level": "info"},
 		"inbounds": []any{map[string]any{
@@ -505,7 +548,7 @@ func liveThreeCores(t *testing.T) *liveNode {
 		"outbounds": []any{
 			map[string]any{
 				"type": "vless", "tag": "proxy",
-				"server": "127.0.0.1", "server_port": n.xrayPort, "uuid": uuidXray,
+				"server": "127.0.0.1", "server_port": n.xrayPort, "uuid": vlessUUID[1],
 			},
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
@@ -513,7 +556,6 @@ func liveThreeCores(t *testing.T) *liveNode {
 	}))
 	liveWaitTCP(t, n.socksXray, 30*time.Second, "sing-box client for the xray core")
 
-	uuidSingbox := newUUID()
 	liveStart(t, singboxExe, "run", "-c", liveWriteJSON(t, base, "client-singbox.json", map[string]any{
 		"log": map[string]any{"level": "info"},
 		"inbounds": []any{map[string]any{
@@ -523,7 +565,7 @@ func liveThreeCores(t *testing.T) *liveNode {
 		"outbounds": []any{
 			map[string]any{
 				"type": "vless", "tag": "proxy",
-				"server": "127.0.0.1", "server_port": n.singboxPort, "uuid": uuidSingbox,
+				"server": "127.0.0.1", "server_port": n.singboxPort, "uuid": vlessUUID[2],
 			},
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
@@ -644,7 +686,9 @@ func TestLiveThreeCoresServeTrafficAtOnce(t *testing.T) {
 	for range 3 {
 		r := <-results
 		if r.bytes <= 0 {
-			t.Errorf("core %q served no traffic through its own client (0 bytes back from the origin)", r.core)
+			reason, _ := liveLastFetchErr.Load().(string)
+			t.Errorf("core %q served no traffic through its own client (0 bytes back from the origin); "+
+				"last transport error: %s", r.core, reason)
 			continue
 		}
 		t.Logf("core %q tunneled %d bytes through its own client while the other two served", r.core, r.bytes)
@@ -725,17 +769,34 @@ func assertNoMixedLogs(records []*common.Log) error {
 func TestLiveLogStreamNeverMixes(t *testing.T) {
 	n := liveThreeCores(t)
 
-	// Start collecting BEFORE any traffic, so startup lines count too.
+	// Start collecting BEFORE any traffic, so every core's lines count.
 	drain, err := n.collectLogs(90 * time.Second)
 	if err != nil {
 		t.Fatalf("open log stream: %v", err)
 	}
 
-	// Make all three cores noisy, concurrently.
+	// Make all three cores noisy, repeatedly and concurrently. One fetch per core
+	// is not reliably enough: a core that logs at info can take a second to
+	// surface its first line, and a stream with one core silent would make this
+	// gate pass for the wrong reason.
+	var wg sync.WaitGroup
 	for _, core := range []string{"xray", "singbox", "hysteria"} {
+		wg.Add(1)
 		go func(core string) {
-			liveFetch(n.proxyPortFor(core), n.originPort, 40*time.Second)
+			defer wg.Done()
+			for range 4 {
+				liveFetch(n.proxyPortFor(core), n.originPort, 25*time.Second)
+			}
 		}(core)
+	}
+	wg.Wait()
+
+	// Every core must actually have been driven, or "this core was silent" is a
+	// fact about my probe rather than about the stream.
+	for _, core := range []string{"xray", "singbox", "hysteria"} {
+		if got := liveFetch(n.proxyPortFor(core), n.originPort, 30*time.Second); got <= 0 {
+			t.Fatalf("core %q served no traffic during the log test, so its silence says nothing", core)
+		}
 	}
 
 	records := drain()
@@ -743,9 +804,6 @@ func TestLiveLogStreamNeverMixes(t *testing.T) {
 	if len(records) == 0 {
 		t.Fatal("no log records arrived from three live cores — an empty stream proves nothing")
 	}
-
-	// The per-core file too: a core's audit trail must not carry another core's
-	// lines (CONTRACT §3.1).
 	t.Logf("collected %d log records from three live cores", len(records))
 
 	if err := assertNoMixedLogs(records); err != nil {
@@ -757,7 +815,12 @@ func TestLiveLogStreamNeverMixes(t *testing.T) {
 	}
 	for _, id := range []uint64{1, 2, 3} {
 		if byCore[id] == 0 {
-			t.Errorf("core %d contributed no log records at all (got %d, %d, %d for cores 1,2,3)",
+			t.Errorf("core %d contributed NO log records although it served real traffic "+
+				"(per-core counts: 1=%d 2=%d 3=%d). A core that serves and never logs is a real "+
+				"gap: GetLogs reads LogSources() ONCE at stream open, and a core whose Logger is "+
+				"only bound on its first line (logger.BindOnce, logger.go:92) has no logLines channel "+
+				"yet, so every line it produced before the stream attached is lost. Core 3 is "+
+				"hysteria2, which binds through Hysteria.LogLines -> Core.LogLines.",
 				id, byCore[1], byCore[2], byCore[3])
 		}
 	}
@@ -887,6 +950,13 @@ func TestLiveStoppingOneCoreLeavesTheOthersServing(t *testing.T) {
 
 	// Their counters still move — a proxy that accepts a connection but reports
 	// zero bytes is not "serving".
+	//
+	// This is where GATE 3's "the others stay up" stops being true at the RPC
+	// layer: controller/rpc/middleware.go:80-88 gates EVERY unary RPC on the
+	// DEFAULT core (core 1) being alive, so once core 1 is stopped every RPC on
+	// cores 2 and 3 is refused with `Unavailable: backend not initialized` even
+	// though both cores are still serving traffic. The traffic assertions above
+	// pass; these fail. That is the gate, found.
 	for id, email := range map[uint64]string{2: liveEmailSingbox, 3: liveEmailHysteria} {
 		ctx, cancel := context.WithTimeout(n.ctx, 30*time.Second)
 		resp, err := n.client.GetStats(ctx, &common.StatRequest{
@@ -894,7 +964,11 @@ func TestLiveStoppingOneCoreLeavesTheOthersServing(t *testing.T) {
 		})
 		cancel()
 		if err != nil {
-			t.Errorf("GetStats core %d after StopCore(1): %v", id, err)
+			t.Errorf("GATE 3 DEFECT: core %d is still serving traffic but its RPC failed: %v\n"+
+				"checkBackendStatus (controller/rpc/middleware.go:80-88) gates every unary RPC on "+
+				"the DEFAULT core (core 1) being started, so StopCore(1) makes the whole node "+
+				"unmanageable while cores 2 and 3 keep running. The gate must be per requested core, "+
+				"not per default core.", id, err)
 			continue
 		}
 		found := false
@@ -909,13 +983,12 @@ func TestLiveStoppingOneCoreLeavesTheOthersServing(t *testing.T) {
 		}
 	}
 
-	// And the aggregate (core_id 0) no longer sums core 1: it must still answer
-	// from the survivors.
+	// And the aggregate (core_id 0) must still answer from the survivors.
 	ctx, cancel = context.WithTimeout(n.ctx, 30*time.Second)
 	agg, err := n.client.GetStats(ctx, &common.StatRequest{Type: common.StatType_UsersStat, CoreId: 0})
 	cancel()
 	if err != nil {
-		t.Errorf("aggregate GetStats after StopCore(1): %v", err)
+		t.Errorf("GATE 3 DEFECT: aggregate GetStats over the surviving cores failed: %v", err)
 	} else {
 		t.Logf("aggregate across surviving cores: %d rows", len(agg.GetStats()))
 	}
