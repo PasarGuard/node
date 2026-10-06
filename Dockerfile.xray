@@ -2,8 +2,8 @@ FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
-# Pinned Xray pre-release: the WireGuard UserManager API is only in pre-releases, no stable tag ships it yet
-ARG XRAY_TAG=v26.9.30
+# Empty resolves the newest Xray release including pre-releases (the WireGuard UserManager API ships only in pre-releases); set --build-arg XRAY_TAG=vX.Y.Z to pin
+ARG XRAY_TAG=
 
 RUN apk update && apk add --no-cache make
 
