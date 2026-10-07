@@ -178,9 +178,38 @@ func ResolveBinary(tool, bundleDir string) (string, error) {
 		if !strings.EqualFold(got, want) {
 			return "", fmt.Errorf("%w: %s has %s, pin wants %s (%s@%s)", ErrBinaryMismatch, path, got, want, tool, p.Version)
 		}
+		if err := ensureExecutable(path); err != nil {
+			return "", err
+		}
 		return path, nil
 	}
 	return "", fmt.Errorf("%w: %s (set TUNNEL_BUNDLE_DIR to an offline bundle)", ErrBinaryNotFound, tool)
+}
+
+// ensureExecutable heals the exec bit on a bundle binary. Upstream archives
+// are not uniform: erebe/wstunnel v11.0.0 stores its tar member as -rw-r--r--,
+// so a faithful extraction lands a file that dies at fork/exec with "permission
+// denied" — on Linux only, and only for a user who is not the bundle owner.
+// Windows has no exec bit; there is nothing to heal there.
+// ponytail: chmod at resolve time (one seam, every Start/Preflight path); a
+// bundle read-only to this user gets an error naming mode and fix instead of a
+// raw exec failure at Start. Upgrade path: set modes at extraction, once an
+// extraction step exists.
+func ensureExecutable(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&0o111 != 0 {
+		return nil
+	}
+	if err := os.Chmod(path, fi.Mode()|0o111); err != nil {
+		return fmt.Errorf("tunnel: %s is mode %04o and is not executable, and chmod +x failed: %w", path, fi.Mode().Perm(), err)
+	}
+	return nil
 }
 
 // FileSHA256 is the hex sha256 of a file, lower case.

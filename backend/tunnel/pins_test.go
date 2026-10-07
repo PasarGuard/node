@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -133,5 +134,34 @@ func TestRegisterPinValidation(t *testing.T) {
 		if err := RegisterPin(p); err == nil {
 			t.Fatalf("case %d: want an error, got nil", i)
 		}
+	}
+}
+
+// TestResolveBinaryMakesBundleExecutable: an upstream archive may store its
+// binary without the exec bit (erebe/wstunnel v11.0.0 ships -rw-r--r--), so a
+// faithful extraction lands a file that dies at fork/exec with "permission
+// denied" — Linux only, and only for a user who is not the bundle owner.
+// ResolveBinary is the seam every Start and Preflight goes through, so it must
+// heal the mode before returning the path. Windows has no exec bit to heal.
+func TestResolveBinaryMakesBundleExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX exec bits do not exist on Windows")
+	}
+	const tool = "testtool-noexec"
+	dir := writePin(t, tool, "tool.tar.gz", "archive-bytes", "tool", "extracted-binary")
+	bin := filepath.Join(dir, "tool")
+	if err := os.Chmod(bin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path, err := ResolveBinary(tool, dir)
+	if err != nil {
+		t.Fatalf("ResolveBinary: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&0o111 == 0 {
+		t.Fatalf("bundle binary resolved as mode %04o, want an exec bit set", fi.Mode().Perm())
 	}
 }

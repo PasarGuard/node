@@ -48,7 +48,16 @@ func relaySpec(id string, side tunnel.Side, mode string) tunnel.Spec {
 // 1. The four-part testkit: traffic, restart, negative control, logs — on the
 //    pinned binary, through loopback, zero skips on a host that can run it.
 
-func TestFourPartRelay(t *testing.T) {
+func TestFourPartRelay(t *testing.T) { runKit(t, tunnel.ModeRelay) }
+
+// TestFourPartReverse runs the same kit in mode=reverse. The kit's Endpoints
+// always carry ModeRelay (tunneltest.endpoints hard-codes it), so the mode is
+// closed over here exactly as gost/chisel/frp do: side b sits behind NAT and
+// dials side a, and the kit's client connects to side a's published port —
+// the same shape the manual reverse loopback below asserts (CONTRACT §2.0).
+func TestFourPartReverse(t *testing.T) { runKit(t, tunnel.ModeReverse) }
+
+func runKit(t *testing.T, mode string) {
 	requireBundle(t)
 	t.Setenv(SecretToken, "four-part-secret")
 
@@ -56,7 +65,7 @@ func TestFourPartRelay(t *testing.T) {
 	tunneltest.Run(t, tunneltest.Kit{
 		Adapter: adapter,
 		NewSpec: func(e tunneltest.Endpoints) tunnel.Spec {
-			spec := relaySpec(e.TunnelID, e.Side, e.Mode)
+			spec := relaySpec(e.TunnelID, e.Side, mode)
 			spec.Params[paramTarget] = e.Target
 			spec.Params[paramPeer] = e.Peer
 			return spec
@@ -75,10 +84,10 @@ func TestFourPartRelay(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. reverse mode. The kit only builds relay endpoints (tunneltest.endpoints
-//    hard-codes ModeRelay), so reverse gets its own loopback run: side a
-//    publishes a port, side b — the far side, behind NAT in a real deployment
-//    — delivers to a service listening here (CONTRACT §2.0).
+// 2. reverse mode, manual loopback. The kit above now covers reverse too; this
+//    run keeps the reverse-specific assertions the kit does not make: side b's
+//    own listen port is never used, and the bytes must come from side a's
+//    published port (CONTRACT §2.0).
 
 func TestReverseLoopback(t *testing.T) {
 	requireBundle(t)
