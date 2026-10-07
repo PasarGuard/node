@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+
+	"github.com/pasarguard/node/common"
 )
 
 type Config struct {
@@ -47,6 +50,16 @@ type Config struct {
 	WGNATDisable         bool
 	WGRouteTable         string
 	WGRouteOutInterface  string
+
+	// Role is the node's role (CONTRACT §1.7): proxy (default, today's
+	// behaviour) or tunnel. A tunnel node runs no proxy cores and holds no
+	// users; the role comes from NODE_ROLE and is not synced from the panel —
+	// a panel/node mismatch shows up in Preflight and status, never silently.
+	Role common.NodeRole
+	// TunnelBundleDir is the operator's offline bundle of pinned tunnel
+	// binaries (TUNNEL_BUNDLE_DIR). Empty means "no bundle"; nothing is ever
+	// downloaded at runtime without it (CONTRACT §2.1).
+	TunnelBundleDir string
 }
 
 // quotaSecretEnv is the environment variable the sing-box child reads; the same
@@ -101,6 +114,9 @@ func Load() (*Config, error) {
 		WGNATDisable:         GetEnvAsBool("PG_NODE_WG_NAT_DISABLE", false),
 		WGRouteTable:         GetEnv("PG_NODE_WG_ROUTE_TABLE", ""),
 		WGRouteOutInterface:  GetEnv("PG_NODE_WG_ROUTE_OUT_INTERFACE", ""),
+
+		Role:            ParseRole(GetEnv("NODE_ROLE", "proxy")),
+		TunnelBundleDir: GetEnv("TUNNEL_BUNDLE_DIR", ""),
 	}
 
 	if cfg.LogBufferSize <= 0 {
@@ -165,6 +181,27 @@ func GetEnv(key, fallback string) string {
 		value = fallback
 	}
 	return value
+}
+
+// ParseRole maps NODE_ROLE onto the proto enum (CONTRACT §1.7). Anything that
+// is not "tunnel" is a proxy node with today's behaviour, and an unknown value
+// says so in the log rather than being silently ignored.
+func ParseRole(v string) common.NodeRole {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "proxy":
+		return common.NodeRole_NODE_ROLE_PROXY
+	case "tunnel":
+		return common.NodeRole_NODE_ROLE_TUNNEL
+	default:
+		log.Printf("[Warning] NODE_ROLE=%q is not proxy|tunnel; running as a proxy node", v)
+		return common.NodeRole_NODE_ROLE_PROXY
+	}
+}
+
+// IsTunnelRole reports whether this node runs tunnels only: no proxy cores,
+// no users (CONTRACT §1.7).
+func (c *Config) IsTunnelRole() bool {
+	return c != nil && c.Role == common.NodeRole_NODE_ROLE_TUNNEL
 }
 
 func GetEnvAsBool(name string, defaultVal bool) bool {
