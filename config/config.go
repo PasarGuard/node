@@ -74,7 +74,11 @@ func Load() (*Config, error) {
 	// would leave the node accepting the all-zero UUID, so Load reports it as an error
 	// (main exits). cfg is still returned complete for NewTestConfig, which sets its own key.
 	var apiKeyErr error
-	cfg.ApiKey, apiKeyErr = GetEnvAsUUID("API_KEY")
+	if GetEnv("API_KEY", "") == "" {
+		apiKeyErr = errors.New("API_KEY is not set")
+	} else {
+		cfg.ApiKey, apiKeyErr = GetEnvAsUUID("API_KEY")
+	}
 	if apiKeyErr == nil && cfg.ApiKey == uuid.Nil {
 		apiKeyErr = errors.New("must not be the all-zero UUID")
 	}
