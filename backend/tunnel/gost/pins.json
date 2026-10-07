@@ -1,0 +1,19 @@
+{
+  "tool": "gost",
+  "version": "3.3.0",
+  "upstream": "go-gost/gost/releases/download/v3.3.0",
+  "assets": {
+    "linux-amd64": {
+      "name": "gost_3.3.0_linux_amd64.tar.gz",
+      "sha256": "676fb7f78d267b6ae73df719c0c7f2b565dde7147da935cfafbc1e1da558b6d5",
+      "bin": "gost",
+      "bin_sha256": "1d8f971e9447cf4114fb1376b85c8c14e840db50ae8dbe895398a34e97c13e08"
+    },
+    "windows-amd64": {
+      "name": "gost_3.3.0_windows_amd64.zip",
+      "sha256": "cc8ac946f86994a3aed47ef1f838cfb6b7649d9245c91fcb9899654b33d61170",
+      "bin": "gost.exe",
+      "bin_sha256": "6f6b66cbdc4a5aa5685d0017abd3f65843a28bcc2bb4e5b78d6d12a844a51aa8"
+    }
+  }
+}
