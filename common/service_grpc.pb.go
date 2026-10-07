@@ -27,6 +27,7 @@ const (
 	NodeService_StopTunnel_FullMethodName               = "/service.NodeService/StopTunnel"
 	NodeService_ListTunnels_FullMethodName              = "/service.NodeService/ListTunnels"
 	NodeService_GetTunnelLogs_FullMethodName            = "/service.NodeService/GetTunnelLogs"
+	NodeService_GetTunnelSchemas_FullMethodName         = "/service.NodeService/GetTunnelSchemas"
 	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
 	NodeService_SubscribeEvents_FullMethodName          = "/service.NodeService/SubscribeEvents"
 	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
@@ -63,6 +64,9 @@ type NodeServiceClient interface {
 	StopTunnel(ctx context.Context, in *TunnelId, opts ...grpc.CallOption) (*Empty, error)
 	ListTunnels(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TunnelStatusList, error)
 	GetTunnelLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TunnelLog], error)
+	// The adapters' own params schema (glue-2): the UI generates its field
+	// inputs from this reply instead of hand-writing a form per tool.
+	GetTunnelSchemas(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TunnelSchemas, error)
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
 	SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error)
 	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
@@ -178,6 +182,16 @@ func (c *nodeServiceClient) GetTunnelLogs(ctx context.Context, in *Empty, opts .
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetTunnelLogsClient = grpc.ServerStreamingClient[TunnelLog]
+
+func (c *nodeServiceClient) GetTunnelSchemas(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TunnelSchemas, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TunnelSchemas)
+	err := c.cc.Invoke(ctx, NodeService_GetTunnelSchemas_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *nodeServiceClient) GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -390,6 +404,9 @@ type NodeServiceServer interface {
 	StopTunnel(context.Context, *TunnelId) (*Empty, error)
 	ListTunnels(context.Context, *Empty) (*TunnelStatusList, error)
 	GetTunnelLogs(*Empty, grpc.ServerStreamingServer[TunnelLog]) error
+	// The adapters' own params schema (glue-2): the UI generates its field
+	// inputs from this reply instead of hand-writing a form per tool.
+	GetTunnelSchemas(context.Context, *Empty) (*TunnelSchemas, error)
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
 	SubscribeEvents(*Empty, grpc.ServerStreamingServer[NodeEvent]) error
 	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
@@ -440,6 +457,9 @@ func (UnimplementedNodeServiceServer) ListTunnels(context.Context, *Empty) (*Tun
 }
 func (UnimplementedNodeServiceServer) GetTunnelLogs(*Empty, grpc.ServerStreamingServer[TunnelLog]) error {
 	return status.Error(codes.Unimplemented, "method GetTunnelLogs not implemented")
+}
+func (UnimplementedNodeServiceServer) GetTunnelSchemas(context.Context, *Empty) (*TunnelSchemas, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTunnelSchemas not implemented")
 }
 func (UnimplementedNodeServiceServer) GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error {
 	return status.Error(codes.Unimplemented, "method GetLogs not implemented")
@@ -649,6 +669,24 @@ func _NodeService_GetTunnelLogs_Handler(srv interface{}, stream grpc.ServerStrea
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type NodeService_GetTunnelLogsServer = grpc.ServerStreamingServer[TunnelLog]
+
+func _NodeService_GetTunnelSchemas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetTunnelSchemas(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetTunnelSchemas_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetTunnelSchemas(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _NodeService_GetLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(Empty)
@@ -954,6 +992,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTunnels",
 			Handler:    _NodeService_ListTunnels_Handler,
+		},
+		{
+			MethodName: "GetTunnelSchemas",
+			Handler:    _NodeService_GetTunnelSchemas_Handler,
 		},
 		{
 			MethodName: "GetSystemStats",

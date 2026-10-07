@@ -164,6 +164,26 @@ func (s *Service) ListTunnels(_ context.Context, _ *common.Empty) (*common.Tunne
 	return out, nil
 }
 
+// GetTunnelSchemas publishes every adapter's params schema (glue-2): the
+// dialog generates its field inputs from this reply instead of a hand-written
+// form per tool. Render stays the authority on what a Spec accepts — a wrong
+// entry here is a wrong form field, never a wrong config.
+func (s *Service) GetTunnelSchemas(_ context.Context, _ *common.Empty) (*common.TunnelSchemas, error) {
+	out := &common.TunnelSchemas{}
+	for _, ts := range tunnel.Schemas() {
+		tool := &common.ToolSchema{Tool: ts.Tool}
+		for _, f := range ts.Params {
+			tool.Params = append(tool.Params, &common.TunnelParamField{
+				Key:         f.Key,
+				RequiredFor: append([]string(nil), f.RequiredFor...),
+				Help:        f.Help,
+			})
+		}
+		out.Tools = append(out.Tools, tool)
+	}
+	return out, nil
+}
+
 // GetTunnelLogs is the live, multiplexed log stream: every record from every
 // tunnel this node runs, each carrying its tunnel_id (CONTRACT §3.1 — same
 // shape as GetLogs with core_id, filter client-side, no filter RPC).

@@ -136,7 +136,10 @@ func TestReverseLoopback(t *testing.T) {
 // 3. Render: deterministic, mode-typed, and strict about its parameters.
 
 func TestRenderIsDeterministicForBothSides(t *testing.T) {
-	for _, tc := range []struct{ side tunnel.Side; mode, want string }{
+	for _, tc := range []struct {
+		side       tunnel.Side
+		mode, want string
+	}{
 		{tunnel.SideA, tunnel.ModeRelay, "mode=relay"},
 		{tunnel.SideB, tunnel.ModeRelay, "mode=relay"},
 		{tunnel.SideA, tunnel.ModeReverse, "mode=reverse"},

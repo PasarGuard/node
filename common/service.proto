@@ -303,6 +303,25 @@ message TunnelStatusList {
   repeated TunnelStatus tunnels = 1;
 }
 
+// One params key the adapter owns. `required_for` entries are "<mode>:<side>"
+// ("relay:a"); a key with no entry is optional wherever it applies. The panel
+// sends ONE params map to both sides, so a field is required in the dialog
+// when any entry for the selected mode exists.
+message TunnelParamField {
+  string key = 1;
+  repeated string required_for = 2;
+  string help = 3;
+}
+
+message ToolSchema {
+  string tool = 1;
+  repeated TunnelParamField params = 2;
+}
+
+message TunnelSchemas {
+  repeated ToolSchema tools = 1;
+}
+
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
@@ -317,6 +336,9 @@ service NodeService {
   rpc StopTunnel(TunnelId) returns (Empty) {}
   rpc ListTunnels(Empty) returns (TunnelStatusList) {}
   rpc GetTunnelLogs(Empty) returns (stream TunnelLog) {}
+  // The adapters' own params schema (glue-2): the UI generates its field
+  // inputs from this reply instead of hand-writing a form per tool.
+  rpc GetTunnelSchemas(Empty) returns (TunnelSchemas) {}
 
   rpc GetLogs (Empty) returns (stream Log) {}
   rpc SubscribeEvents (Empty) returns (stream NodeEvent) {}

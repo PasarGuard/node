@@ -30,6 +30,17 @@ import (
 	// The reference tunnel adapter registers itself the same way, so every
 	// binary built on this controller can start a plain tunnel (CONTRACT §2).
 	_ "github.com/pasarguard/node/backend/tunnel/plain"
+
+	// The six pinned-binary tunnel adapters, same seam. Without these the
+	// shipped node has only `plain` registered and every Start of a real tool
+	// fails ErrUnknownTool — each tool's own test imports its package, so the
+	// gap was invisible until the whole binary was asked for a gost tunnel.
+	_ "github.com/pasarguard/node/backend/tunnel/backhaul"
+	_ "github.com/pasarguard/node/backend/tunnel/chisel"
+	_ "github.com/pasarguard/node/backend/tunnel/frp"
+	_ "github.com/pasarguard/node/backend/tunnel/gost"
+	_ "github.com/pasarguard/node/backend/tunnel/rathole"
+	_ "github.com/pasarguard/node/backend/tunnel/wstunnel"
 )
 
 const NodeVersion = "0.5.4"
