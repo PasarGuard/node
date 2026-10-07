@@ -340,13 +340,13 @@ func logIsolation(m *tunnel.Manager, k Kit, specA, specB tunnel.Spec, portsA, po
 		return err
 	}
 
-	mine := m.Logs(specA.TunnelID)
-	if len(mine) == 0 {
-		return fmt.Errorf("tunnel %s produced no log records", specA.TunnelID)
+	mine, err := awaitRing(m, specA.TunnelID, "tunnel", "")
+	if err != nil {
+		return err
 	}
-	theirs := m.Logs(decoyID)
-	if len(theirs) == 0 {
-		return fmt.Errorf("decoy tunnel %s produced no log records — the isolation check would prove nothing", decoyID)
+	theirs, err := awaitRing(m, decoyID, "decoy tunnel", " — the isolation check would prove nothing")
+	if err != nil {
+		return err
 	}
 
 	for _, rec := range mine {
@@ -394,6 +394,23 @@ func mentionsAny(detail string, needles ...string) bool {
 
 // awaitStreamRecord waits for one record whose tunnel_id is want, rejecting a
 // record that carries neither the tunnel under test nor its decoy.
+// awaitRing waits until a tunnel's ring holds at least one record. The ring is
+// filled by the manager's pump goroutine, so a read taken the instant the
+// stream showed a record can still race it — the same reason awaitStreamRecord
+// polls. A ring that never fills is still a failure: this waits ioTimeout first.
+func awaitRing(m *tunnel.Manager, id, what, tail string) ([]tunnel.Record, error) {
+	deadline := time.Now().Add(ioTimeout)
+	for {
+		if recs := m.Logs(id); len(recs) > 0 {
+			return recs, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("%s %s produced no log records%s", what, id, tail)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func awaitStreamRecord(stream <-chan tunnel.Record, want, decoy string) error {
 	deadline := time.After(ioTimeout)
 	for {

@@ -35,16 +35,27 @@ func TestChecksSayWhyTheyCannotRunOnThisHost(t *testing.T) {
 		if len(problems) != 1 || !strings.Contains(problems[0].Detail, runtime.GOOS) {
 			t.Fatalf("non-linux host: want one problem naming %s, got %+v", runtime.GOOS, problems)
 		}
-	} else if len(problems) != 1 || !strings.Contains(problems[0].Detail, "nf_conntrack") {
-		// A module that is not loaded must be reported with its name and a fix.
-		t.Fatalf("linux: want the missing module named, got %+v", problems)
 	}
 
-	// A loaded-module probe for a module every Linux box has answers "ready"
-	// (empty) or "missing" — never an empty-detail problem.
+	// A module probe answers "ready" (no problems) or names what is missing.
+	// Whether a module is builtin, loaded or merely loadable differs per host —
+	// `loop` is builtin on some boxes and an unloaded module on others (the
+	// Linux test server this suite also runs on reports it unloaded) — so the
+	// assertion is the contract, never one host's state.
 	if runtime.GOOS == "linux" {
-		for _, p := range CheckKernelModule("loop") {
-			t.Fatalf("loop is built in on every kernel; got %+v", p)
+		assertModuleProblemContract(t, "nf_conntrack")
+		assertModuleProblemContract(t, "loop")
+	}
+}
+
+// assertModuleProblemContract: either the module is available (no problems), or
+// every problem it reports names the module and offers a fix. A problem with a
+// blank Fix is how "here is why this cannot run" turns into a dead end.
+func assertModuleProblemContract(t *testing.T, module string) {
+	t.Helper()
+	for _, p := range CheckKernelModule(module) {
+		if !strings.Contains(p.Detail, module) || !strings.Contains(p.Fix, module) {
+			t.Fatalf("CheckKernelModule(%q): problem must name the module in Detail and Fix, got %+v", module, p)
 		}
 	}
 }
