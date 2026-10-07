@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -68,9 +70,16 @@ func Load() (*Config, error) {
 		cfg.LogBufferSize = 1
 	}
 
-	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")
-	if err != nil {
-		log.Printf("[Error] Failed to load API Key, error: %v", err)
+	// The API key is the node's only authentication. A missing, malformed or all-zero key
+	// would leave the node accepting the all-zero UUID, so Load reports it as an error
+	// (main exits). cfg is still returned complete for NewTestConfig, which sets its own key.
+	var apiKeyErr error
+	cfg.ApiKey, apiKeyErr = GetEnvAsUUID("API_KEY")
+	if apiKeyErr == nil && cfg.ApiKey == uuid.Nil {
+		apiKeyErr = errors.New("must not be the all-zero UUID")
+	}
+	if apiKeyErr != nil {
+		apiKeyErr = fmt.Errorf("invalid API_KEY: %w", apiKeyErr)
 	}
 
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
@@ -84,7 +93,7 @@ func Load() (*Config, error) {
 		cfg.NodeHost = "127.0.0.1"
 	}
 
-	return cfg, nil
+	return cfg, apiKeyErr
 }
 
 // NewTestConfig creates a config for testing
