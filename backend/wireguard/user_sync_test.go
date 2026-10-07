@@ -948,6 +948,8 @@ func TestUpdateUsersRemovesPeerWhenUserLosesWireguardAccess(t *testing.T) {
 				state: lifecycleRunning,
 			}
 
+			wg.statsTracker.UpdateStatsBatch([]stats.Sample{{PublicKey: key, Email: "gone@example.com", Rx: 10, Tx: 5}})
+
 			users := []*common.User{{Email: "gone@example.com", Inbounds: []string{}, Proxies: proxies}}
 			if err := wg.UpdateUsers(context.Background(), users); err != nil {
 				t.Fatalf("UpdateUsers failed: %v", err)
@@ -959,6 +961,64 @@ func TestUpdateUsersRemovesPeerWhenUserLosesWireguardAccess(t *testing.T) {
 			if ps.GetByEmail("gone@example.com") != nil {
 				t.Fatal("expected the stale peer to be dropped from the peer store")
 			}
+			if entry := wg.statsTracker.GetStatsEntries([]string{key})[key]; entry == nil || !entry.IsDeleted {
+				t.Fatalf("expected the stale peer's stats entry to be marked deleted, got %+v", entry)
+			}
 		})
+	}
+}
+
+// A key moves from a user who lost WireGuard access (sent with empty peer_ips) to another user in the
+// same batch. The former owner is touched, so the handover is allowed instead of failing the batch.
+func TestUpdateUsersAllowsKeyHandoverFromUserWhoLostAccess(t *testing.T) {
+	cfg, err := NewConfig(`{
+		"interface_name":"wg-test",
+		"listen_port":51820,
+		"address":["10.73.0.1/24"]
+	}`)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	_, key, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	ps := NewPeerStore()
+	ps.ReplaceAll([]*PeerInfo{mustPeerInfo("old@example.com", key, []string{"10.73.0.2/32"})})
+
+	wg := &WireGuard{
+		config:       cfg,
+		peerStore:    ps,
+		statsTracker: stats.New(),
+		manager: &Manager{
+			iFaceName: "wg-test",
+			client: &fakeWGClient{
+				configureDeviceFn: func(interfaceName string, cfg wgtypes.Config) error { return nil },
+			},
+		},
+		state: lifecycleRunning,
+	}
+
+	users := []*common.User{
+		{Email: "old@example.com", Proxies: &common.Proxy{Wireguard: &common.Wireguard{PublicKey: key}}},
+		{
+			Email:    "new@example.com",
+			Inbounds: []string{"wg-test"},
+			Proxies: &common.Proxy{
+				Wireguard: &common.Wireguard{PublicKey: key, PeerIps: []string{"10.73.0.3/32"}},
+			},
+		},
+	}
+	if err := wg.UpdateUsers(context.Background(), users); err != nil {
+		t.Fatalf("UpdateUsers failed: %v", err)
+	}
+
+	if peer := ps.GetByKey(key); peer == nil || peer.Email != "new@example.com" {
+		t.Fatalf("expected the key to belong to new@example.com, got %+v", peer)
+	}
+	if ps.GetByEmail("old@example.com") != nil {
+		t.Fatal("expected the former owner to have no peer")
 	}
 }
