@@ -1,0 +1,19 @@
+{
+  "tool": "chisel",
+  "version": "1.12.0",
+  "upstream": "jpillora/chisel/releases/download/v1.12.0",
+  "assets": {
+    "linux-amd64": {
+      "name": "chisel_1.12.0_linux_amd64.gz",
+      "sha256": "f3f180f1d93aa72cce4e6386f98cc06569a0146fbd65eb4423cf83e6434bcfe6",
+      "bin": "linux/chisel",
+      "bin_sha256": "811362311f13ac4bdc42fe4e7650aca618a68e3a40f930de88536d18b14d2b52"
+    },
+    "windows-amd64": {
+      "name": "chisel_1.12.0_windows_amd64.zip",
+      "sha256": "600a8ad6f03bc7f6d285fd01ab6a3f8a657204adaafa5666ade9451d18df1ebc",
+      "bin": "win/chisel.exe",
+      "bin_sha256": "ca5f8e5247f1a044b8be45ef03187726b9af3ac30fd93fb5bb54144e34ed3738"
+    }
+  }
+}
