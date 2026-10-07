@@ -215,7 +215,10 @@ func TestRenderIsDeterministicAndTyped(t *testing.T) {
 		t.Fatalf("reverse render does not say so:\n%s", reverse)
 	}
 
-	// Side b: serverPort = listen+1, remotePort = listen+2, localPort = relay.
+	// Side b: serverPort = listen+1, remotePort = listen+2, and the counting
+	// tap at listen+3 — frps owns listen..listen+2, and with one shared pin
+	// both sides are handed the same numbers (see
+	// TestSideBTapStepsAsideWhenTheSharedPinCollides).
 	sideB := spec
 	sideB.Side = tunnel.SideB
 	sideB.Params = map[string]string{
@@ -229,7 +232,7 @@ func TestRenderIsDeterministicAndTyped(t *testing.T) {
 	}
 	for _, want := range []string{
 		`serverAddr = "10.0.0.9"`, "serverPort = 7101", "remotePort = 7102",
-		"localPort = 7100", `type = "tcp"`, "loginFailExit = true",
+		"localPort = 7103", `type = "tcp"`, "loginFailExit = true",
 	} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("side b render is missing %q:\n%s", want, b)
@@ -286,6 +289,43 @@ func TestConfigValidation(t *testing.T) {
 	specA.Params = map[string]string{paramListenHost: "127.0.0.1"}
 	if _, err := a.Render(specA); err == nil || !strings.Contains(err.Error(), tunnel.ParamListenPort) {
 		t.Fatalf("side a without listen_port must be refused, got %v", err)
+	}
+}
+
+// TestSideBTapStepsAsideWhenTheSharedPinCollides: the panel pins ONE
+// listen_port for both sides — that is how frpc learns frps's control port
+// (listen+1) — and side a already owns listen..listen+2. Handed the same
+// number, this side's counting tap would bind a port frps holds, which is
+// exactly what a single-host deployment (two node processes on one box) does.
+func TestSideBTapStepsAsideWhenTheSharedPinCollides(t *testing.T) {
+	spec := tunnel.Spec{
+		TunnelID: "tap-1", Tool: Tool, Side: tunnel.SideB, Mode: tunnel.ModeRelay,
+		Params: map[string]string{
+			tunnel.ParamListenPort: "7100",
+			paramServerAddr:        "10.0.0.9",
+			paramLocalPort:         "8080",
+		},
+	}
+
+	cfg, err := resolve(spec, tunnel.Ports{Listen: 7100, Control: 7101})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.relayPort == 7100 {
+		t.Fatalf("the counting tap sits on frps's ingress port %d; it must step aside", cfg.relayPort)
+	}
+	if cfg.relayPort != 7103 {
+		t.Fatalf("tap port = %d, want %d — the number frps does not own", cfg.relayPort, 7103)
+	}
+
+	// A framework-allocated port (the kit, two hosts) is already distinct and
+	// must be used exactly as handed out.
+	cfg, err = resolve(spec, tunnel.Ports{Listen: 8200, Control: 8201})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.relayPort != 8200 {
+		t.Fatalf("tap port = %d, want the allocated 8200", cfg.relayPort)
 	}
 }
 

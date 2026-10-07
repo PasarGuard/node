@@ -46,8 +46,8 @@ func checkParams(spec tunnel.Spec) error {
 			continue
 		}
 		if !allowedOn(spec.Side, k) {
-			return fmt.Errorf("rathole: param %q is not a side %s param (side %s accepts: %s)",
-				k, spec.Side, spec.Side, strings.Join(sideParams[spec.Side], ", "))
+			return fmt.Errorf("rathole: param %q is not a rathole param (side a accepts: %s; side b accepts: %s)",
+				k, strings.Join(sideParams[tunnel.SideA], ", "), strings.Join(sideParams[tunnel.SideB], ", "))
 		}
 	}
 	if spec.Side == tunnel.SideB {
@@ -65,8 +65,33 @@ func checkParams(spec tunnel.Spec) error {
 	return nil
 }
 
+// allowedOn reports whether a key belongs to rathole at all — either side.
+//
+// The panel sends ONE params map to both sides (TunnelSpec), so side A
+// inevitably carries `remote_addr`/`target`, the keys side B renders with.
+// Refusing them made rathole the one tool that could never be started from
+// the panel. A key no side declares is still refused by name, which is the
+// typo check this table exists for; each side's own *requirements* (above)
+// are unchanged.
 func allowedOn(side tunnel.Side, key string) bool {
-	for _, k := range sideParams[side] {
+	if hasKey(sideParams[side], key) {
+		return true
+	}
+	other, known := otherSide[side]
+	if !known {
+		return false // an unknown side has no partner to borrow keys from
+	}
+	return hasKey(sideParams[other], key)
+}
+
+// otherSide is the pair of sides that share one params map.
+var otherSide = map[tunnel.Side]tunnel.Side{
+	tunnel.SideA: tunnel.SideB,
+	tunnel.SideB: tunnel.SideA,
+}
+
+func hasKey(keys []string, key string) bool {
+	for _, k := range keys {
 		if k == key {
 			return true
 		}

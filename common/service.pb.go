@@ -2567,6 +2567,10 @@ type TunnelStatus struct {
 	UptimeSeconds uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
 	BytesUp       uint64                 `protobuf:"varint,6,opt,name=bytes_up,json=bytesUp,proto3" json:"bytes_up,omitempty"`
 	BytesDown     uint64                 `protobuf:"varint,7,opt,name=bytes_down,json=bytesDown,proto3" json:"bytes_down,omitempty"`
+	// The port this side actually bound. The other end's peer/publish params are
+	// written from it, so a node that allocated its own port can tell the panel
+	// where to point the other side. 0 from a node that predates this field.
+	ListenPort    uint32 `protobuf:"varint,8,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2646,6 +2650,13 @@ func (x *TunnelStatus) GetBytesUp() uint64 {
 func (x *TunnelStatus) GetBytesDown() uint64 {
 	if x != nil {
 		return x.BytesDown
+	}
+	return 0
+}
+
+func (x *TunnelStatus) GetListenPort() uint32 {
+	if x != nil {
+		return x.ListenPort
 	}
 	return 0
 }
@@ -3153,7 +3164,7 @@ const file_common_service_proto_rawDesc = "" +
 	"\x04mode\x18\b \x01(\tR\x04mode\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdb\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfc\x01\n" +
 	"\fTunnelStatus\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1d\n" +
@@ -3163,7 +3174,9 @@ const file_common_service_proto_rawDesc = "" +
 	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12\x19\n" +
 	"\bbytes_up\x18\x06 \x01(\x04R\abytesUp\x12\x1d\n" +
 	"\n" +
-	"bytes_down\x18\a \x01(\x04R\tbytesDown\"t\n" +
+	"bytes_down\x18\a \x01(\x04R\tbytesDown\x12\x1f\n" +
+	"\vlisten_port\x18\b \x01(\rR\n" +
+	"listenPort\"t\n" +
 	"\tTunnelLog\x12\x1b\n" +
 	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x14\n" +
 	"\x05level\x18\x02 \x01(\tR\x05level\x12\x1c\n" +

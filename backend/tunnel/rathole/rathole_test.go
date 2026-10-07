@@ -197,8 +197,6 @@ func TestStrictConfigValidation(t *testing.T) {
 		want string
 	}{
 		{"unknown key", sideA, func(s *tunnel.Spec) { s.Params["proto"] = "udp" }, "proto"},
-		{"client key on side a", sideA, func(s *tunnel.Spec) { s.Params[paramTarget] = "127.0.0.1:80" }, paramTarget},
-		{"server key on side b", sideB, func(s *tunnel.Spec) { s.Params[paramControlHost] = "0.0.0.0" }, paramControlHost},
 		{"missing remote_addr", sideA, func(s *tunnel.Spec) { s.Side = tunnel.SideB }, paramRemoteAddr},
 		{"service name is not a bare key", sideA, func(s *tunnel.Spec) { s.Params[paramService] = "my.service" }, paramService},
 		{"listen port is not a number", sideA, func(s *tunnel.Spec) { s.Params[tunnel.ParamListenPort] = "abc" }, tunnel.ParamListenPort},
@@ -215,6 +213,44 @@ func TestStrictConfigValidation(t *testing.T) {
 				t.Fatalf("error must name %q, got: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// TestSharedParamsMapIsAcceptedOnBothSides: the panel sends ONE params map to
+// both sides (TunnelSpec), so side A inevitably carries `target`/`remote_addr`
+// — the keys side B needs to render. Refusing them made rathole the one tool
+// that could never be started from the panel. Keys no side declares are still
+// refused by name (that is the typo check), and side B's own requirements are
+// unchanged.
+func TestSharedParamsMapIsAcceptedOnBothSides(t *testing.T) {
+	setBundle(t)
+	shared := map[string]string{
+		paramListenHost: "127.0.0.1",
+		paramRemoteAddr: "127.0.0.1:23101",
+		paramTarget:     "127.0.0.1:80",
+	}
+
+	adapter := Adapter{}
+	sideA := baseSpec("shared-a", tunnel.SideA)
+	for k, v := range shared {
+		sideA.Params[k] = v
+	}
+	if _, err := adapter.Render(sideA); err != nil {
+		t.Fatalf("side a refused the shared params map: %v", err)
+	}
+
+	sideB := baseSpec("shared-b", tunnel.SideB)
+	for k, v := range shared {
+		sideB.Params[k] = v
+	}
+	if _, err := adapter.Render(sideB); err != nil {
+		t.Fatalf("side b refused the shared params map: %v", err)
+	}
+
+	// The typo check survives: a key no side owns is still an error.
+	sideA.Params["proto"] = "udp"
+	if _, err := adapter.Render(sideA); err == nil || !strings.Contains(err.Error(), "proto") {
+		t.Fatalf("an undeclared key must still be refused naming it, got %v", err)
 	}
 }
 

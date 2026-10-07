@@ -45,6 +45,11 @@ type Status struct {
 	UptimeSeconds uint64
 	BytesUp       uint64
 	BytesDown     uint64
+	// ListenPort is the port this side actually bound. The other end's
+	// peer/publish params are written from it, so it is the one number the
+	// panel cannot choose on the node's behalf (CONTRACT §2.1, "Ports are
+	// per tunnel"). 0 while nothing runs.
+	ListenPort uint32
 }
 
 // Record is one log record, tagged with tunnel_id (CONTRACT §3.1 vocabulary).
@@ -287,11 +292,12 @@ func (m *Manager) Status(tunnelID string) (Status, bool) {
 
 func (m *Manager) statusOf(inst *instance) Status {
 	st := Status{
-		TunnelID: inst.spec.TunnelID,
-		Side:     inst.spec.Side.String(),
-		Tool:     inst.spec.Tool,
-		Mode:     inst.spec.Mode,
-		State:    "stopped",
+		TunnelID:   inst.spec.TunnelID,
+		Side:       inst.spec.Side.String(),
+		Tool:       inst.spec.Tool,
+		Mode:       inst.spec.Mode,
+		State:      "stopped",
+		ListenPort: uint32(inst.ports.Listen),
 	}
 	if inst.handle.Started() {
 		st.State = "healthy"
@@ -343,6 +349,42 @@ func (m *Manager) Subscribe(buffer int) (<-chan Record, func()) {
 	m.subs[ch] = struct{}{}
 	m.mu.Unlock()
 	return ch, func() {
+		m.mu.Lock()
+		if _, ok := m.subs[ch]; ok {
+			delete(m.subs, ch)
+			close(ch)
+		}
+		m.mu.Unlock()
+	}
+}
+
+// ReplayAndSubscribe returns every retained record *and* a live stream,
+// registered in one critical section: nothing is missed between the two, and
+// the caller can suppress the handful of duplicates a record that appended to
+// its ring just before we locked can still produce in the fan-out after we
+// unlock (the ring append and the fan-out are not atomic together).
+//
+// GetLogs does the same for cores — a read path that only ever saw records
+// emitted after it opened would make `limit` meaningless and an operator's
+// "show me the logs" come back empty.
+func (m *Manager) ReplayAndSubscribe(buffer int) ([]Record, <-chan Record, func()) {
+	if buffer <= 0 {
+		buffer = 256
+	}
+	ch := make(chan Record, buffer)
+
+	m.mu.Lock()
+	var replay []Record
+	for _, inst := range m.running {
+		inst.mu.Lock()
+		replay = append(replay, inst.lines...)
+		inst.mu.Unlock()
+	}
+	m.subs[ch] = struct{}{}
+	m.mu.Unlock()
+
+	sort.Slice(replay, func(i, j int) bool { return replay[i].TsUnixMs < replay[j].TsUnixMs })
+	return replay, ch, func() {
 		m.mu.Lock()
 		if _, ok := m.subs[ch]; ok {
 			delete(m.subs, ch)

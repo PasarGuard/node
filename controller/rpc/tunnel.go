@@ -188,20 +188,41 @@ func (s *Service) GetTunnelSchemas(_ context.Context, _ *common.Empty) (*common.
 // tunnel this node runs, each carrying its tunnel_id (CONTRACT §3.1 — same
 // shape as GetLogs with core_id, filter client-side, no filter RPC).
 func (s *Service) GetTunnelLogs(_ *common.Empty, stream common.NodeService_GetTunnelLogsServer) error {
-	ch, cancel := s.Tunnels().Subscribe(256)
+	replay, ch, cancel := s.Tunnels().ReplayAndSubscribe(256)
 	defer cancel()
+
+	send := func(rec tunnel.Record) error {
+		return stream.Send(&common.TunnelLog{
+			TunnelId:  rec.TunnelID,
+			Level:     rec.Level,
+			TsUnixMs:  rec.TsUnixMs,
+			Detail:    rec.Detail,
+		})
+	}
+
+	// What the rings already hold first — a read path that only reported
+	// records emitted after it opened would answer an operator's "show me the
+	// logs" with nothing — then whatever arrives live. A record that was in a
+	// ring *and* fanned out to this subscriber is sent once: the ring append
+	// and the fan-out are not one critical section, so that overlap is real.
+	pending := map[tunnel.Record]int{}
+	for _, rec := range replay {
+		pending[rec]++
+		if err := send(rec); err != nil {
+			return err
+		}
+	}
 	for {
 		select {
 		case rec, ok := <-ch:
 			if !ok {
 				return nil
 			}
-			if err := stream.Send(&common.TunnelLog{
-				TunnelId: rec.TunnelID,
-				Level:    rec.Level,
-				TsUnixMs: rec.TsUnixMs,
-				Detail:   rec.Detail,
-			}); err != nil {
+			if pending[rec] > 0 {
+				pending[rec]--
+				continue
+			}
+			if err := send(rec); err != nil {
 				return err
 			}
 		case <-stream.Context().Done():
@@ -219,5 +240,6 @@ func statusToProto(st tunnel.Status) *common.TunnelStatus {
 		UptimeSeconds: st.UptimeSeconds,
 		BytesUp:       st.BytesUp,
 		BytesDown:     st.BytesDown,
+		ListenPort:    st.ListenPort,
 	}
 }

@@ -286,6 +286,10 @@ message TunnelStatus {
   uint64 uptime_seconds = 5;
   uint64 bytes_up = 6;
   uint64 bytes_down = 7;
+  // The port this side actually bound. The other end's peer/publish params are
+  // written from it, so a node that allocated its own port can tell the panel
+  // where to point the other side. 0 from a node that predates this field.
+  uint32 listen_port = 8;
 }
 
 message TunnelLog {

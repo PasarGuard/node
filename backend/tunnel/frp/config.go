@@ -175,10 +175,19 @@ func resolve(spec tunnel.Spec, ports tunnel.Ports) (sideConfig, error) {
 		// The relay counts what frpc delivers; frpc points at it, not at the
 		// destination, so TunnelStatus has numbers frp itself never reports.
 		cfg.relayHost = "127.0.0.1"
-		if ports.Listen != 0 {
+		if ports.Listen != 0 && ports.Listen != listen {
+			// The node allocated us a distinct port (the kit, two hosts).
 			cfg.relayPort = ports.Listen
 		} else {
-			cfg.relayPort = listen // Render's view: the node pins this side's port too
+			// The shared pin puts us on the same triple frps owns (listen..+2),
+			// which is fine across hosts but a bind collision on one box. When
+			// the allocated port and the pin agree — the panel pins one number
+			// for both sides — side B's tap must step aside to the number frps
+			// does not hold: listen+3. Nothing else can take it: side a owns
+			// listen..listen+2 and the node's tunnel allocator reserves
+			// listen+1 beside every listen it hands out, and the panel's pin
+			// is the only other source of numbers here.
+			cfg.relayPort = listen + 3
 		}
 	}
 	return cfg, nil

@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -117,6 +118,12 @@ func TestTunnelRPCEndToEndOnATunnelNode(t *testing.T) {
 		t.Fatalf("fresh tunnel already reports bytes: up=%d down=%d",
 			got.GetBytesUp(), got.GetBytesDown())
 	}
+	// The one number the panel cannot choose on the node's behalf: the port
+	// this side actually bound, which the peer side's `peer`/`publish` are
+	// written from. A 0 here leaves the panel unable to bring up the far end.
+	if got.GetListenPort() == 0 {
+		t.Fatal("listen_port = 0 after a successful start; the panel writes the other side's peer from it")
+	}
 
 	present, err := listHas(ctx, "rpc-e2e-1")
 	if err != nil {
@@ -124,6 +131,71 @@ func TestTunnelRPCEndToEndOnATunnelNode(t *testing.T) {
 	}
 	if !present {
 		t.Fatal("ListTunnels does not contain the tunnel that was just started")
+	}
+
+	// GetTunnelLogs must hand back what the tunnel logged *before* the stream
+	// opened — the panel's GET /api/tunnel/{id}/logs is a history read, and a
+	// live-only stream answers an operator's "show me the logs" with nothing
+	// (no tunnel activity happens while a logs page sits open).
+	// Both streams read the same ring with no further activity at all, which
+	// is the whole guarantee: history first, then whatever arrives live.
+	firstCtx, firstCancel := call(cfg.ApiKey.String())
+	stream1, err := client.GetTunnelLogs(firstCtx, &common.Empty{})
+	if err != nil {
+		t.Fatalf("GetTunnelLogs (first): %v", err)
+	}
+	seed, err := stream1.Recv()
+	if err != nil {
+		t.Fatalf("GetTunnelLogs (first) Recv: %v", err)
+	}
+	if seed.GetTunnelId() != "rpc-e2e-1" {
+		t.Fatalf("first record tunnel_id = %q, want rpc-e2e-1", seed.GetTunnelId())
+	}
+	firstCancel()
+	stream1.CloseSend()
+
+	replayCtx, replayCancel := call(cfg.ApiKey.String())
+	defer replayCancel()
+	stream2, err := client.GetTunnelLogs(replayCtx, &common.Empty{})
+	if err != nil {
+		t.Fatalf("GetTunnelLogs (replay): %v", err)
+	}
+	replayed, err := stream2.Recv()
+	if err != nil {
+		t.Fatalf("GetTunnelLogs (replay) Recv: %v (the ring is never replayed, so a quiet node answers nothing)", err)
+	}
+	if replayed.GetTunnelId() != seed.GetTunnelId() || replayed.GetDetail() != seed.GetDetail() {
+		t.Fatalf("replay = %q/%q, want the earlier %q/%q",
+			replayed.GetTunnelId(), replayed.GetDetail(), seed.GetTunnelId(), seed.GetDetail())
+	}
+
+	// A panel-pinned port must come back as pinned, not as whatever the
+	// allocator picked — the peer side is written from this number before the
+	// other side ever starts.
+	pinned := netutil.FindFreePort()
+	pinnedSpec := &common.TunnelSpec{
+		TunnelId:    "rpc-e2e-pinned",
+		Tool:        "plain",
+		ToolVersion: "test",
+		Side:        "a",
+		Mode:        "relay",
+		Params: map[string]string{
+			"listen_host": "127.0.0.1",
+			"peer":        "127.0.0.1:1",
+			"listen_port": strconv.Itoa(pinned),
+		},
+		SecretNames: []string{"PLAIN_TOKEN"},
+		Enabled:     true,
+	}
+	pinnedStatus, err := client.StartTunnel(ctx, pinnedSpec)
+	if err != nil {
+		t.Fatalf("StartTunnel with a pinned port: %v", err)
+	}
+	if got := int(pinnedStatus.GetListenPort()); got != pinned {
+		t.Fatalf("listen_port = %d, want the pinned %d", got, pinned)
+	}
+	if _, err := client.StopTunnel(ctx, &common.TunnelId{TunnelId: "rpc-e2e-pinned"}); err != nil {
+		t.Fatalf("StopTunnel(pinned): %v", err)
 	}
 
 	if _, err := client.StopTunnel(ctx, &common.TunnelId{TunnelId: "rpc-e2e-1"}); err != nil {
