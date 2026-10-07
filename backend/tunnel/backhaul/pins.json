@@ -1,0 +1,13 @@
+{
+  "tool": "backhaul",
+  "version": "0.7.2",
+  "upstream": "Musixal/Backhaul/releases/download/v0.7.2",
+  "assets": {
+    "linux-amd64": {
+      "name": "backhaul_linux_amd64.tar.gz",
+      "sha256": "57bf95c2eabeddb1152d2e94ac42f4310883ce0fb909ee2a57bd53503b2dabbc",
+      "bin": "backhaul",
+      "bin_sha256": "7f1b1439d7fe1d15ae0b376e15614fe13d8a12f6e07a90263e310ea2a9d601fb"
+    }
+  }
+}
