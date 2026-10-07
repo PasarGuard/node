@@ -23,6 +23,10 @@ const (
 	NodeService_Stop_FullMethodName                     = "/service.NodeService/Stop"
 	NodeService_StopCore_FullMethodName                 = "/service.NodeService/StopCore"
 	NodeService_GetBaseInfo_FullMethodName              = "/service.NodeService/GetBaseInfo"
+	NodeService_StartTunnel_FullMethodName              = "/service.NodeService/StartTunnel"
+	NodeService_StopTunnel_FullMethodName               = "/service.NodeService/StopTunnel"
+	NodeService_ListTunnels_FullMethodName              = "/service.NodeService/ListTunnels"
+	NodeService_GetTunnelLogs_FullMethodName            = "/service.NodeService/GetTunnelLogs"
 	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
 	NodeService_SubscribeEvents_FullMethodName          = "/service.NodeService/SubscribeEvents"
 	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
@@ -52,6 +56,13 @@ type NodeServiceClient interface {
 	Stop(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	StopCore(ctx context.Context, in *StopCore, opts ...grpc.CallOption) (*Empty, error)
 	GetBaseInfo(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BaseInfoResponse, error)
+	// Phase 3 tunnels (CONTRACT 4.3). Additive: no existing rpc or message is
+	// touched. The node implements none of them until tunnel-framework lands;
+	// gRPC answering Unimplemented is the correct state in between.
+	StartTunnel(ctx context.Context, in *TunnelSpec, opts ...grpc.CallOption) (*TunnelStatus, error)
+	StopTunnel(ctx context.Context, in *TunnelId, opts ...grpc.CallOption) (*Empty, error)
+	ListTunnels(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TunnelStatusList, error)
+	GetTunnelLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TunnelLog], error)
 	GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error)
 	SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error)
 	GetSystemStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemStatsResponse, error)
@@ -119,9 +130,58 @@ func (c *nodeServiceClient) GetBaseInfo(ctx context.Context, in *Empty, opts ...
 	return out, nil
 }
 
+func (c *nodeServiceClient) StartTunnel(ctx context.Context, in *TunnelSpec, opts ...grpc.CallOption) (*TunnelStatus, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TunnelStatus)
+	err := c.cc.Invoke(ctx, NodeService_StartTunnel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) StopTunnel(ctx context.Context, in *TunnelId, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, NodeService_StopTunnel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) ListTunnels(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TunnelStatusList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TunnelStatusList)
+	err := c.cc.Invoke(ctx, NodeService_ListTunnels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *nodeServiceClient) GetTunnelLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TunnelLog], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[0], NodeService_GetTunnelLogs_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Empty, TunnelLog]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_GetTunnelLogsClient = grpc.ServerStreamingClient[TunnelLog]
+
 func (c *nodeServiceClient) GetLogs(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Log], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[0], NodeService_GetLogs_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_GetLogs_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +200,7 @@ type NodeService_GetLogsClient = grpc.ServerStreamingClient[Log]
 
 func (c *nodeServiceClient) SubscribeEvents(ctx context.Context, in *Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NodeEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_SubscribeEvents_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[2], NodeService_SubscribeEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +279,7 @@ func (c *nodeServiceClient) GetUserOnlineIpListStats(ctx context.Context, in *St
 
 func (c *nodeServiceClient) SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[2], NodeService_SyncUser_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[3], NodeService_SyncUser_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +302,7 @@ func (c *nodeServiceClient) SyncUsers(ctx context.Context, in *Users, opts ...gr
 
 func (c *nodeServiceClient) SyncUsersChunked(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UsersChunk, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[3], NodeService_SyncUsersChunked_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[4], NodeService_SyncUsersChunked_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +383,13 @@ type NodeServiceServer interface {
 	Stop(context.Context, *Empty) (*Empty, error)
 	StopCore(context.Context, *StopCore) (*Empty, error)
 	GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error)
+	// Phase 3 tunnels (CONTRACT 4.3). Additive: no existing rpc or message is
+	// touched. The node implements none of them until tunnel-framework lands;
+	// gRPC answering Unimplemented is the correct state in between.
+	StartTunnel(context.Context, *TunnelSpec) (*TunnelStatus, error)
+	StopTunnel(context.Context, *TunnelId) (*Empty, error)
+	ListTunnels(context.Context, *Empty) (*TunnelStatusList, error)
+	GetTunnelLogs(*Empty, grpc.ServerStreamingServer[TunnelLog]) error
 	GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error
 	SubscribeEvents(*Empty, grpc.ServerStreamingServer[NodeEvent]) error
 	GetSystemStats(context.Context, *Empty) (*SystemStatsResponse, error)
@@ -361,6 +428,18 @@ func (UnimplementedNodeServiceServer) StopCore(context.Context, *StopCore) (*Emp
 }
 func (UnimplementedNodeServiceServer) GetBaseInfo(context.Context, *Empty) (*BaseInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBaseInfo not implemented")
+}
+func (UnimplementedNodeServiceServer) StartTunnel(context.Context, *TunnelSpec) (*TunnelStatus, error) {
+	return nil, status.Error(codes.Unimplemented, "method StartTunnel not implemented")
+}
+func (UnimplementedNodeServiceServer) StopTunnel(context.Context, *TunnelId) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopTunnel not implemented")
+}
+func (UnimplementedNodeServiceServer) ListTunnels(context.Context, *Empty) (*TunnelStatusList, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListTunnels not implemented")
+}
+func (UnimplementedNodeServiceServer) GetTunnelLogs(*Empty, grpc.ServerStreamingServer[TunnelLog]) error {
+	return status.Error(codes.Unimplemented, "method GetTunnelLogs not implemented")
 }
 func (UnimplementedNodeServiceServer) GetLogs(*Empty, grpc.ServerStreamingServer[Log]) error {
 	return status.Error(codes.Unimplemented, "method GetLogs not implemented")
@@ -505,6 +584,71 @@ func _NodeService_GetBaseInfo_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	return interceptor(ctx, in, info, handler)
 }
+
+func _NodeService_StartTunnel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TunnelSpec)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).StartTunnel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_StartTunnel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).StartTunnel(ctx, req.(*TunnelSpec))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_StopTunnel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TunnelId)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).StopTunnel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_StopTunnel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).StopTunnel(ctx, req.(*TunnelId))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_ListTunnels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).ListTunnels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_ListTunnels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).ListTunnels(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NodeService_GetTunnelLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(NodeServiceServer).GetTunnelLogs(m, &grpc.GenericServerStream[Empty, TunnelLog]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type NodeService_GetTunnelLogsServer = grpc.ServerStreamingServer[TunnelLog]
 
 func _NodeService_GetLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(Empty)
@@ -800,6 +944,18 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeService_GetBaseInfo_Handler,
 		},
 		{
+			MethodName: "StartTunnel",
+			Handler:    _NodeService_StartTunnel_Handler,
+		},
+		{
+			MethodName: "StopTunnel",
+			Handler:    _NodeService_StopTunnel_Handler,
+		},
+		{
+			MethodName: "ListTunnels",
+			Handler:    _NodeService_ListTunnels_Handler,
+		},
+		{
 			MethodName: "GetSystemStats",
 			Handler:    _NodeService_GetSystemStats_Handler,
 		},
@@ -853,6 +1009,11 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "GetTunnelLogs",
+			Handler:       _NodeService_GetTunnelLogs_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "GetLogs",
 			Handler:       _NodeService_GetLogs_Handler,
