@@ -21,9 +21,14 @@ func (wg *WireGuard) buildExistingPeersSubsetForTouched(touchedEmails map[string
 
 func (wg *WireGuard) syncUsersPartialReconcile(users []*common.User) error {
 	normalizedUsers := normalizeUsers(users)
-	touchedEmails := make(map[string]struct{}, len(normalizedUsers))
-	for _, user := range normalizedUsers {
-		touchedEmails[user.GetEmail()] = struct{}{}
+	// Every user in the request is touched, including ones normalizeUsers drops (empty
+	// peer_ips or no WireGuard credentials): the panel sends those when a user loses
+	// WireGuard access, and their existing peer must be removed.
+	touchedEmails := make(map[string]struct{}, len(users))
+	for _, user := range users {
+		if email := user.GetEmail(); email != "" {
+			touchedEmails[email] = struct{}{}
+		}
 	}
 
 	existingSubset := wg.buildExistingPeersSubsetForTouched(touchedEmails)
