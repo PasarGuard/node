@@ -185,7 +185,7 @@ func opposite(s tunnel.Side) tunnel.Side {
 
 // validate is the value-level check: every field is one the kernel tools will
 // accept, refused here with the key named instead of at exec time.
-func (sp sideParams) validate() error {
+func (sp *sideParams) validate() error {
 	if _, _, err := net.ParseCIDR(sp.Address); err != nil {
 		return fmt.Errorf("wireguard: params.%saddress %q is not a CIDR (want e.g. 10.67.0.1/24)", sp.Prefix, sp.Address)
 	}

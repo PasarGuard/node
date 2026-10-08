@@ -166,6 +166,29 @@ func TestLoadParamsReadsOnlyItsOwnSide(t *testing.T) {
 	}
 }
 
+// TestValidateKeepsTheRouteList guards the parse step Start drives the `ip
+// route` commands from: validate used to run on a value copy, the list was
+// built on the copy, and every LAN route silently vanished (point links still
+// worked via the connected /24 — only subnet traffic noticed).
+func TestValidateKeepsTheRouteList(t *testing.T) {
+	sp, err := loadParams(rowSpec(tunnel.SideA, nil))
+	if err != nil {
+		t.Fatalf("loadParams: %v", err)
+	}
+	if err := sp.validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	want := []string{"10.67.0.2/32", "192.168.20.0/24"}
+	if len(sp.Allowed) != len(want) {
+		t.Fatalf("Allowed = %v, want %v", sp.Allowed, want)
+	}
+	for i := range want {
+		if sp.Allowed[i] != want[i] {
+			t.Errorf("Allowed[%d] = %q, want %q", i, sp.Allowed[i], want[i])
+		}
+	}
+}
+
 func TestStartRefusesAnUnresolvedSecret(t *testing.T) {
 	spec := rowSpec(tunnel.SideA, func(s *tunnel.Spec) { s.Secrets[SecretPrivateKey] = "" })
 	_, err := Adapter{}.Start(context.Background(), spec, tunnel.Ports{Listen: 51820, Control: 51821})
