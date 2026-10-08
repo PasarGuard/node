@@ -387,12 +387,14 @@ func mustPing(t *testing.T, ns, dst string) {
 	t.Logf("ping %s in %s:\n%s", dst, ns, out)
 }
 
-// waitStats polls until both sides count bytes in both directions.
-func waitStats(t *testing.T, m *tunnel.Manager, budget time.Duration) {
+// waitStats polls until both sides count bytes in both directions. On
+// failure it dumps the kernel's own transfer counters so the log shows
+// whether the counters moved and what the parser was supposed to see.
+func waitStats(t *testing.T, p *pairT, budget time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
-		list := m.List()
+		list := p.m.List()
 		ok := len(list) >= 2
 		for _, st := range list {
 			if st.BytesUp == 0 || st.BytesDown == 0 {
@@ -408,7 +410,13 @@ func waitStats(t *testing.T, m *tunnel.Manager, budget time.Duration) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("stats never counted both directions within %s: %+v", budget, m.List())
+	for _, side := range []struct{ ns, ifn string }{
+		{p.tp.nsRA, p.ifA()}, {p.tp.nsRB, p.ifB()},
+	} {
+		rc, out := nsCmd(side.ns, "wg", "show", side.ifn, "transfer")
+		t.Logf("kernel transfer in %s on %s: rc=%d out=%q", side.ns, side.ifn, rc, out)
+	}
+	t.Fatalf("stats never counted both directions within %s: %+v", budget, p.m.List())
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +456,7 @@ func TestSiteToSiteSubnetTraffic(t *testing.T) {
 	pingUntilOK(t, tp.nsHA, tp.hostB, 20*time.Second)
 	mustPing(t, tp.nsHA, tp.hostB) // LAN A host -> LAN B host
 	mustPing(t, tp.nsHB, tp.hostA) // LAN B host -> LAN A host (the way back)
-	waitStats(t, m, 10*time.Second)
+	waitStats(t, pair, 10*time.Second)
 }
 
 // TestRestartSameSpec: stop, prove interface/address/routes are gone, re-Render
@@ -497,7 +505,7 @@ func TestRestartSameSpec(t *testing.T) {
 	}
 	pingUntilOK(t, tp.nsHA, tp.hostB, 20*time.Second)
 	mustPing(t, tp.nsHB, tp.hostA)
-	waitStats(t, m, 10*time.Second)
+	waitStats(t, pair, 10*time.Second)
 }
 
 // assertAbsence is the leak check: no interface, no address, no route via

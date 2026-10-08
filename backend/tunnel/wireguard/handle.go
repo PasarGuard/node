@@ -248,13 +248,21 @@ func (h *handle) Stats(ctx context.Context) (tunnel.Bytes, error) {
 	}
 	var up, down uint64
 	for _, line := range strings.Split(out, "\n") {
-		// <interface>\t<peer-publickey>\t<rx>\t<tx>
+		// `wg show <iface> transfer` prints "<peer>\t<rx>\t<tx>" per peer;
+		// the headerless `wg show transfer` form adds the interface name as a
+		// first column. Accept both.
 		fields := strings.Fields(line)
-		if len(fields) < 4 {
+		var rxS, txS string
+		switch len(fields) {
+		case 3:
+			rxS, txS = fields[1], fields[2]
+		case 4:
+			rxS, txS = fields[2], fields[3]
+		default:
 			continue
 		}
-		rx, errRx := strconv.ParseUint(fields[2], 10, 64)
-		tx, errTx := strconv.ParseUint(fields[3], 10, 64)
+		rx, errRx := strconv.ParseUint(rxS, 10, 64)
+		tx, errTx := strconv.ParseUint(txS, 10, 64)
 		if errRx != nil || errTx != nil {
 			continue
 		}
