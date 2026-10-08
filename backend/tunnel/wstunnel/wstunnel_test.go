@@ -664,3 +664,27 @@ func writeTestCert(t *testing.T) (certFile, keyFile string) {
 	}
 	return certFile, keyFile
 }
+
+// TestReverseSideADerivesInnerFromListen pins the derivation the panel path
+// depends on: the RPC layer hands over Listen+Control only, so reverse side a
+// takes the websocket entry from Listen+2. Without this, wstunnel/reverse can
+// pass the four-part kit (which allocates Extra) and still be unstartable
+// from the panel — that gap is what the round-2a reverse E2E hit.
+func TestReverseSideADerivesInnerFromListen(t *testing.T) {
+	spec := tunnel.Spec{
+		TunnelID: "derive-inner", Tool: Tool, Side: tunnel.SideA, Mode: tunnel.ModeReverse,
+		Params: map[string]string{tunnel.ParamListenPort: "47869", paramTarget: "127.0.0.1:8199"},
+		Secrets: map[string]string{SecretToken: "tok"},
+	}
+	ports := tunnel.Ports{Listen: 47869, Control: 47870}
+	p, err := newPlan(spec, ports)
+	if err != nil {
+		t.Fatalf("newPlan: %v", err)
+	}
+	if p.inner != 47871 {
+		t.Fatalf("inner = %d, want Listen+2 = 47871", p.inner)
+	}
+	if _, err := (Adapter{}).Start(context.Background(), spec, ports); err == nil {
+		t.Fatal("Start must still refuse without a resolved binary; the plan is what this test pins")
+	}
+}

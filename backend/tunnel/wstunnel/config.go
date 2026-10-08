@@ -160,6 +160,15 @@ func newPlan(spec tunnel.Spec, ports tunnel.Ports) (*plan, error) {
 	if ports.Extra != nil {
 		p.inner = ports.Extra[extraInner]
 	}
+	if mode == tunnel.ModeReverse && spec.Side == tunnel.SideA && p.inner == 0 && p.listen != 0 {
+		// ponytail: the RPC layer allocates Listen+Control only, so the
+		// websocket entry the counting proxy dials derives Listen+2 — the
+		// same trade frp's tap makes for its own extra port. A guaranteed-
+		// free third port would need AllocPair plumbed through the RPC
+		// surface (a CONTRACT §2.1 change); until then +2 is operator-visible
+		// and documented in docs/multi/tunnels/wstunnel.md.
+		p.inner = p.listen + 2
+	}
 
 	// What this side dials, and what the payload is delivered to.
 	needPeer := (mode == tunnel.ModeRelay && spec.Side == tunnel.SideA) ||
