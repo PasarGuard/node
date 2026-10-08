@@ -1,0 +1,1 @@
+{"tool":"udp2raw","version":"20230206.0","upstream":"wangyu-/udp2raw/releases/download/20230206.0","assets":{"linux-amd64":{"name":"udp2raw_binaries.tar.gz","sha256":"503cf5781aa97e50b4954c6bc4622c3ea6be02f6a35def4bb3b3eaf95bd2c7e8","bin":"linux/udp2raw","bin_sha256":"c81c7699194188172f37f747cdeba9fb54214bc4b3ba2d85cfdfccd5f7f70c3c"}}}

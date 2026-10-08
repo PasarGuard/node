@@ -40,6 +40,7 @@ import (
 	_ "github.com/pasarguard/node/backend/tunnel/frp"
 	_ "github.com/pasarguard/node/backend/tunnel/gost"
 	_ "github.com/pasarguard/node/backend/tunnel/rathole"
+	_ "github.com/pasarguard/node/backend/tunnel/udp2raw"
 	_ "github.com/pasarguard/node/backend/tunnel/wstunnel"
 )
 
