@@ -35,6 +35,7 @@ import (
 	// shipped node has only `plain` registered and every Start of a real tool
 	// fails ErrUnknownTool — each tool's own test imports its package, so the
 	// gap was invisible until the whole binary was asked for a gost tunnel.
+	_ "github.com/pasarguard/node/backend/tunnel/amnezia"
 	_ "github.com/pasarguard/node/backend/tunnel/backhaul"
 	_ "github.com/pasarguard/node/backend/tunnel/chisel"
 	_ "github.com/pasarguard/node/backend/tunnel/frp"
