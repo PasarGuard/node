@@ -15,5 +15,7 @@ func init() {
 		{Key: ParamCipherMode, Help: "Cipher, identical on both ends. aes128cbc (default) | aes128cfb | xor | none."},
 		{Key: ParamAuthMode, Help: "Packet auth, identical on both ends. md5 (default) | hmac_sha1 | crc32 | simple | none."},
 		{Key: ParamAutoRule, Help: "Let udp2raw add and remove its own iptables rules (true/false). Default: true for raw_mode=faketcp and icmp, false for udp and easy-faketcp."},
+		{Key: ParamANetns, Help: "Side a only: existing network namespace to run this side's udp2raw in (ip netns add <name>). Empty = the node process's own namespace. The namespace's rules and packets stay inside it."},
+		{Key: ParamBNetns, Help: "Side b only: existing network namespace to run this side's udp2raw in. Empty = the node process's own namespace."},
 	})
 }

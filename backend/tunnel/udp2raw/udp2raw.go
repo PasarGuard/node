@@ -104,6 +104,7 @@ func (Adapter) Preflight(_ context.Context, spec tunnel.Spec) []tunnel.Problem {
 		}
 		out = append(out, tunnel.Problem{Check: check, Detail: err.Error()})
 	}
+	out = append(out, netnsProblems(spec)...)
 	out = append(out, tunnel.CheckRawSocket()...)
 	if autoRule(spec) {
 		out = append(out, tunnel.CheckFirewallTooling()...)
@@ -126,6 +127,15 @@ func (Adapter) Start(ctx context.Context, spec tunnel.Spec, ports tunnel.Ports) 
 	}
 	if err := checkParams(spec); err != nil {
 		return nil, err
+	}
+	if ns := netnsFor(spec); ns != "" {
+		// Most specific, most actionable failure first: a namespace the
+		// operator named and this host does not have. Checked before the
+		// privilege gate so the message is about the namespace, not about
+		// raw sockets on a host that would have both problems.
+		if probs := netnsProblems(spec); len(probs) > 0 {
+			return nil, fmt.Errorf("udp2raw cannot start on this host: %s", joinProblems(probs))
+		}
 	}
 	if probs := (Adapter{}).Preflight(ctx, spec); hasPrivilegeProblem(probs) {
 		return nil, fmt.Errorf("udp2raw cannot start on this host: %s", joinProblems(privilegeProblems(probs)))
@@ -170,6 +180,7 @@ func (Adapter) Start(ctx context.Context, spec tunnel.Spec, ports tunnel.Ports) 
 		bin:     bin,
 		cfgPath: cfgPath,
 		key:     key,
+		netns:   netnsFor(spec),
 		side:    spec.Side,
 		version: Version,
 		logs:    make(chan string, 1024),
@@ -217,6 +228,7 @@ type handle struct {
 	bin     string
 	cfgPath string
 	key     string
+	netns   string // pre-placed namespace; "" = the process's own
 	side    tunnel.Side
 	version string
 
@@ -239,7 +251,7 @@ type handle struct {
 // the pipe is closed in the parent so the reader sees EOF when udp2raw exits.
 func (h *handle) launch() error {
 	h.ready.Store(false)
-	cmd := exec.Command(h.bin, "--conf-file", h.cfgPath)
+	cmd := h.command()
 	r, w, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("udp2raw: pipe: %w", err)
@@ -269,6 +281,58 @@ func (h *handle) launch() error {
 		close(h.exited)
 	}()
 	h.started.Store(true)
+	return nil
+}
+
+// command is the process this side runs. With a namespace it is
+// `ip netns exec <ns> <bin> ...`: iproute2 setns()s and exec()s in the same
+// process, so the pid we hold IS udp2raw and Shutdown's signal reaches it —
+// verified on the reference host (2a-udp2raw-netns-exec-probe-*.log). Note
+// `ip netns exec <ns> -- <cmd>` is NOT accepted by iproute2 (`exec of "--"
+// failed`), so there is no double dash here.
+func (h *handle) command() *exec.Cmd {
+	if h.netns == "" {
+		return exec.Command(h.bin, "--conf-file", h.cfgPath)
+	}
+	return exec.Command("ip", "netns", "exec", h.netns, h.bin, "--conf-file", h.cfgPath)
+}
+
+// netnsProblems is what this spec's namespace placement needs from the host:
+// Linux (ip netns is a Linux facility), an ip(8) that can enter it, and a
+// namespace that already exists. Empty means "this side can be placed".
+func netnsProblems(spec tunnel.Spec) []tunnel.Problem {
+	ns := netnsFor(spec)
+	if ns == "" {
+		return nil
+	}
+	if runtime.GOOS != "linux" {
+		return []tunnel.Problem{{
+			Check:  "netns",
+			Detail: fmt.Sprintf("params netns placement of %q is not available on %s/%s", ns, runtime.GOOS, runtime.GOARCH),
+			Fix:    "run this side on a Linux node, or clear a_netns/b_netns to use the node's own namespace",
+		}}
+	}
+	if _, err := exec.LookPath("ip"); err != nil {
+		return []tunnel.Problem{{
+			Check:  "netns",
+			Detail: fmt.Sprintf("ip(8) not found, cannot enter network namespace %q: %v", ns, err),
+			Fix:    "install iproute2",
+		}}
+	}
+	// ip netns add binds the namespace at $IP_NETNS_PATH (default
+	// /run/netns/<name>); that file is what `ip netns list` reads, so its
+	// absence IS "this namespace does not exist".
+	base := os.Getenv("IP_NETNS_PATH")
+	if base == "" {
+		base = "/run/netns"
+	}
+	if _, err := os.Stat(filepath.Join(base, ns)); err != nil {
+		return []tunnel.Problem{{
+			Check:  "netns",
+			Detail: fmt.Sprintf("network namespace %q does not exist on this host", ns),
+			Fix:    fmt.Sprintf("ip netns add %s", ns),
+		}}
+	}
 	return nil
 }
 
