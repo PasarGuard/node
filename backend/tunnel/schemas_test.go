@@ -20,7 +20,7 @@ import (
 // node and every real Start failed ErrUnknownTool. Each adapter's own test
 // imports its own package, so the suite stayed green.
 func TestEveryShippedToolIsRegisteredAndHasASchema(t *testing.T) {
-	want := []string{"backhaul", "chisel", "frp", "gost", "plain", "rathole", "wstunnel"}
+	want := []string{"backhaul", "chisel", "frp", "gost", "plain", "rathole", "wireguard", "wstunnel"}
 
 	got := tunnel.Tools()
 	sort.Strings(got)
