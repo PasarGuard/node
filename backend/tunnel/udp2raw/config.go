@@ -32,6 +32,15 @@ const (
 	// ParamAutoRule toggles `-a`: udp2raw's own iptables rules, added and
 	// removed by the process. Defaults per raw_mode — see autoRule().
 	ParamAutoRule = "auto_rule"
+	// ParamANetns / ParamBNetns are the row encoding CONTRACT §2.4 uses: one
+	// params map travels to both sides and each side reads its own key. When
+	// set, that side's udp2raw is exec'd under `ip netns exec <ns>`, so its
+	// raw socket, its -a rules and its packets all live inside the namespace.
+	// Empty means today's behaviour: the node process's own namespace.
+	// The namespace must already exist — Preflight names the `ip netns add`
+	// that creates it, before Start.
+	ParamANetns = "a_netns"
+	ParamBNetns = "b_netns"
 )
 
 // SecretKey is the shared password both ends derive their cipher and MAC from
@@ -49,6 +58,8 @@ var toolParams = map[string]bool{
 	ParamCipherMode:        true,
 	ParamAuthMode:          true,
 	ParamAutoRule:          true,
+	ParamANetns:            true,
+	ParamBNetns:            true,
 	tunnel.ParamListenPort: true, // framework: the caller's pinned port
 }
 
@@ -130,7 +141,36 @@ func checkParams(spec tunnel.Spec) error {
 			return fmt.Errorf("%w: params.auto_rule %q must be true or false", tunnel.ErrInvalidSpec, v)
 		}
 	}
+	// Both keys live in the one shared map, so both are checked on every side
+	// — a typo in the other side's namespace must be caught here, not at the
+	// moment the other node starts. The name becomes an argv element of
+	// `ip netns exec`, never a shell word, so the risk is not injection but
+	// a name ip(8) would reject anyway: whitespace, control bytes, a leading
+	// dash that ip would read as a flag.
+	for _, key := range []string{ParamANetns, ParamBNetns} {
+		raw := spec.Params[key]
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		ns := strings.TrimSpace(raw)
+		if ns != raw || strings.HasPrefix(ns, "-") ||
+			strings.ContainsFunc(ns, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			return fmt.Errorf("%w: params.%s %q is not a network namespace name", tunnel.ErrInvalidSpec, key, raw)
+		}
+	}
 	return nil
+}
+
+// netnsFor is this side's namespace from the shared params map (CONTRACT
+// §2.4's row encoding): side a reads a_netns, side b reads b_netns. Empty
+// means the node process's own namespace — the default, and what a host
+// without namespaces runs.
+func netnsFor(spec tunnel.Spec) string {
+	key := ParamANetns
+	if spec.Side == tunnel.SideB {
+		key = ParamBNetns
+	}
+	return strings.TrimSpace(spec.Params[key])
 }
 
 // checkAddress validates a "host:port" param when the side needs it; a value
