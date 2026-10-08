@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -18,11 +18,14 @@ import (
 // pathname socket, so the node process reaches it even when the daemon lives
 // in another network namespace (abstract sockets are namespaced; pathname
 // ones are not). Proven on the reference host:
-// tools/runlogs/2a-amnezia-uapi-crossnetns-<UTCstamp>.log
+// tools/runlogs/2a-amnezia-uapi-crossnetns-20261008T145936Z.log
 const socketDirectory = "/var/run/amneziawg"
 
+// sockPath joins with forward slashes on purpose: Render prints this path, and
+// a config rendered on Windows must be byte-identical to one rendered on the
+// Linux node it runs on. Dialing a unix socket on Linux takes it as-is.
 func sockPath(ifname string) string {
-	return filepath.Join(socketDirectory, ifname+".sock")
+	return path.Join(socketDirectory, ifname+".sock")
 }
 
 // uapiConn is one connection to one side's amneziawg-go control socket.
