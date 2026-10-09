@@ -197,6 +197,43 @@ func TestStartRefusesAnUnresolvedSecret(t *testing.T) {
 	}
 }
 
+// TestParseTransferCountsTxAsUpAndRxAsDown pins the direction mapping in
+// Stats against both shapes `wg show` prints: rx is what the peer sent us
+// (down), tx what we sent (up). A parser that wants the wrong column count
+// silently reads 0 — that bug shipped once already.
+func TestParseTransferCountsTxAsUpAndRxAsDown(t *testing.T) {
+	const peer = "peerkey"
+	cases := []struct {
+		name, out string
+		up, down  uint64
+	}{
+		{"per-peer form <peer> rx tx", peer + "\t100\t200\n", 200, 100},
+		{"interface form <iface> peer rx tx", "wg-abc\t" + peer + "\t100\t200\n", 200, 100},
+		{"two peers sum, junk ignored", "junk line\n" + peer + "\t10\t20\n" + peer + "\t1\t2\n", 22, 11},
+		{"empty output", "", 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			up, down := parseTransfer(tc.out)
+			if up != tc.up || down != tc.down {
+				t.Errorf("parseTransfer(%q) = up=%d down=%d, want up=%d down=%d", tc.out, up, down, tc.up, tc.down)
+			}
+		})
+	}
+}
+
+// TestStatsZeroWhenNothingMoved: a handle that never carried a byte must
+// report 0 — the counter may not invent a starting number.
+func TestStatsZeroWhenNothingMoved(t *testing.T) {
+	got, err := (&handle{}).Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats on a fresh handle: %v", err)
+	}
+	if got.Up != 0 || got.Down != 0 {
+		t.Errorf("Stats = %+v, want 0/0 for a tunnel that never moved traffic", got)
+	}
+}
+
 func TestIfNameIsStableAndFitsIFNAMSIZ(t *testing.T) {
 	a := rowSpec(tunnel.SideA, nil)
 	b := rowSpec(tunnel.SideB, nil)

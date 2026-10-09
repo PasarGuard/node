@@ -246,11 +246,17 @@ func (h *handle) Stats(ctx context.Context) (tunnel.Bytes, error) {
 		return tunnel.Bytes{Up: h.up.Load(), Down: h.down.Load()},
 			fmt.Errorf("wireguard: wg show %s transfer: %w", h.ifname, err)
 	}
-	var up, down uint64
+	up, down := parseTransfer(out)
+	h.up.Store(up)
+	h.down.Store(down)
+	return tunnel.Bytes{Up: up, Down: down}, nil
+}
+
+// parseTransfer reads `wg show <iface> transfer`: "<peer>\t<rx>\t<tx>" per
+// peer, or the headerless `wg show transfer` form with the interface name as
+// a first column. rx is bytes the peer sent us (down), tx bytes we sent (up).
+func parseTransfer(out string) (up, down uint64) {
 	for _, line := range strings.Split(out, "\n") {
-		// `wg show <iface> transfer` prints "<peer>\t<rx>\t<tx>" per peer;
-		// the headerless `wg show transfer` form adds the interface name as a
-		// first column. Accept both.
 		fields := strings.Fields(line)
 		var rxS, txS string
 		switch len(fields) {
@@ -269,9 +275,7 @@ func (h *handle) Stats(ctx context.Context) (tunnel.Bytes, error) {
 		down += rx
 		up += tx
 	}
-	h.up.Store(up)
-	h.down.Store(down)
-	return tunnel.Bytes{Up: up, Down: down}, nil
+	return up, down
 }
 
 // Restart tears this side down and brings it back from the same Spec — same
