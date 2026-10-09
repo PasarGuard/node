@@ -1205,6 +1205,7 @@ type Wireguard struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicKey     string                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	PeerIps       []string               `protobuf:"bytes,2,rep,name=peer_ips,json=peerIps,proto3" json:"peer_ips,omitempty"`
+	PreSharedKey  string                 `protobuf:"bytes,3,opt,name=pre_shared_key,json=preSharedKey,proto3" json:"pre_shared_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1251,6 +1252,13 @@ func (x *Wireguard) GetPeerIps() []string {
 		return x.PeerIps
 	}
 	return nil
+}
+
+func (x *Wireguard) GetPreSharedKey() string {
+	if x != nil {
+		return x.PreSharedKey
+	}
+	return ""
 }
 
 type Hysteria struct {
@@ -2084,183 +2092,168 @@ func (x *OverrideBalancerTargetRequest) GetTarget() string {
 var File_common_service_proto protoreflect.FileDescriptor
 
 const file_common_service_proto_rawDesc = "" +
-	"\n" +
-	"\x14common/service.proto\x12\aservice\"\a\n" +
-	"\x05Empty\"r\n" +
-	"\x10BaseInfoResponse\x12\x18\n" +
-	"\astarted\x18\x01 \x01(\bR\astarted\x12!\n" +
-	"\fcore_version\x18\x02 \x01(\tR\vcoreVersion\x12!\n" +
-	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\xba\x01\n" +
-	"\aBackend\x12(\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x16\n" +
-	"\x06config\x18\x02 \x01(\tR\x06config\x12#\n" +
-	"\x05users\x18\x03 \x03(\v2\r.service.UserR\x05users\x12\x1d\n" +
-	"\n" +
-	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\x12)\n" +
-	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\"\x1d\n" +
-	"\x03Log\x12\x16\n" +
-	"\x06detail\x18\x01 \x01(\tR\x06detail\"X\n" +
-	"\x04Stat\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
-	"\x04link\x18\x03 \x01(\tR\x04link\x12\x14\n" +
-	"\x05value\x18\x04 \x01(\x03R\x05value\"3\n" +
-	"\fStatResponse\x12#\n" +
-	"\x05stats\x18\x01 \x03(\v2\r.service.StatR\x05stats\"^\n" +
-	"\vStatRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05reset\x18\x02 \x01(\bR\x05reset\x12%\n" +
-	"\x04type\x18\x03 \x01(\x0e2\x11.service.StatTypeR\x04type\">\n" +
-	"\x12OnlineStatResponse\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value\"\xa6\x01\n" +
-	"\x19StatsOnlineIpListResponse\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12=\n" +
-	"\x03ips\x18\x02 \x03(\v2+.service.StatsOnlineIpListResponse.IpsEntryR\x03ips\x1a6\n" +
-	"\bIpsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xbf\x01\n" +
-	"\aLatency\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05alive\x18\x02 \x01(\bR\x05alive\x12\x14\n" +
-	"\x05delay\x18\x03 \x01(\x03R\x05delay\x12\x12\n" +
-	"\x04link\x18\x04 \x01(\tR\x04link\x12$\n" +
-	"\x0elast_seen_time\x18\x05 \x01(\x03R\flastSeenTime\x12\"\n" +
-	"\rlast_try_time\x18\x06 \x01(\x03R\vlastTryTime\x12\x16\n" +
-	"\x06source\x18\a \x01(\tR\x06source\"$\n" +
-	"\x0eLatencyRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"A\n" +
-	"\x0fLatencyResponse\x12.\n" +
-	"\tlatencies\x18\x01 \x03(\v2\x10.service.LatencyR\tlatencies\"\xac\x02\n" +
-	"\x14BackendStatsResponse\x12#\n" +
-	"\rnum_goroutine\x18\x01 \x01(\rR\fnumGoroutine\x12\x15\n" +
-	"\x06num_gc\x18\x02 \x01(\rR\x05numGc\x12\x14\n" +
-	"\x05alloc\x18\x03 \x01(\x04R\x05alloc\x12\x1f\n" +
-	"\vtotal_alloc\x18\x04 \x01(\x04R\n" +
-	"totalAlloc\x12\x10\n" +
-	"\x03sys\x18\x05 \x01(\x04R\x03sys\x12\x18\n" +
-	"\amallocs\x18\x06 \x01(\x04R\amallocs\x12\x14\n" +
-	"\x05frees\x18\a \x01(\x04R\x05frees\x12!\n" +
-	"\flive_objects\x18\b \x01(\x04R\vliveObjects\x12$\n" +
-	"\x0epause_total_ns\x18\t \x01(\x04R\fpauseTotalNs\x12\x16\n" +
-	"\x06uptime\x18\n" +
-	" \x01(\rR\x06uptime\"\x93\x02\n" +
-	"\x13SystemStatsResponse\x12\x1b\n" +
-	"\tmem_total\x18\x01 \x01(\x04R\bmemTotal\x12\x19\n" +
-	"\bmem_used\x18\x02 \x01(\x04R\amemUsed\x12\x1b\n" +
-	"\tcpu_cores\x18\x03 \x01(\x04R\bcpuCores\x12\x1b\n" +
-	"\tcpu_usage\x18\x04 \x01(\x01R\bcpuUsage\x128\n" +
-	"\x18incoming_bandwidth_speed\x18\x05 \x01(\x04R\x16incomingBandwidthSpeed\x128\n" +
-	"\x18outgoing_bandwidth_speed\x18\x06 \x01(\x04R\x16outgoingBandwidthSpeed\x12\x16\n" +
-	"\x06uptime\x18\a \x01(\x04R\x06uptime\"\x17\n" +
-	"\x05Vmess\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"+\n" +
-	"\x05Vless\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04flow\x18\x02 \x01(\tR\x04flow\"$\n" +
-	"\x06Trojan\x12\x1a\n" +
-	"\bpassword\x18\x01 \x01(\tR\bpassword\"A\n" +
-	"\vShadowsocks\x12\x1a\n" +
-	"\bpassword\x18\x01 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06method\x18\x02 \x01(\tR\x06method\"E\n" +
-	"\tWireguard\x12\x1d\n" +
-	"\n" +
-	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x19\n" +
-	"\bpeer_ips\x18\x02 \x03(\tR\apeerIps\"\x1e\n" +
-	"\bHysteria\x12\x12\n" +
-	"\x04auth\x18\x01 \x01(\tR\x04auth\"\x95\x02\n" +
-	"\x05Proxy\x12$\n" +
-	"\x05vmess\x18\x01 \x01(\v2\x0e.service.VmessR\x05vmess\x12$\n" +
-	"\x05vless\x18\x02 \x01(\v2\x0e.service.VlessR\x05vless\x12'\n" +
-	"\x06trojan\x18\x03 \x01(\v2\x0f.service.TrojanR\x06trojan\x126\n" +
-	"\vshadowsocks\x18\x04 \x01(\v2\x14.service.ShadowsocksR\vshadowsocks\x120\n" +
-	"\twireguard\x18\x05 \x01(\v2\x12.service.WireguardR\twireguard\x12-\n" +
-	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"b\n" +
-	"\x04User\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\x12(\n" +
-	"\aproxies\x18\x02 \x01(\v2\x0e.service.ProxyR\aproxies\x12\x1a\n" +
-	"\binbounds\x18\x03 \x03(\tR\binbounds\",\n" +
-	"\x05Users\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\"[\n" +
-	"\n" +
-	"UsersChunk\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\x12\x14\n" +
-	"\x05index\x18\x02 \x01(\x04R\x05index\x12\x12\n" +
-	"\x04last\x18\x03 \x01(\bR\x04last\"K\n" +
-	"\vRoutingRule\x12!\n" +
-	"\foutbound_tag\x18\x01 \x01(\tR\voutboundTag\x12\x19\n" +
-	"\brule_tag\x18\x02 \x01(\tR\aruleTag\"B\n" +
-	"\x14RoutingRulesResponse\x12*\n" +
-	"\x05rules\x18\x01 \x03(\v2\x14.service.RoutingRuleR\x05rules\"'\n" +
-	"\x13BalancerInfoRequest\x12\x10\n" +
-	"\x03tag\x18\x01 \x01(\tR\x03tag\"j\n" +
-	"\x14BalancerInfoResponse\x12'\n" +
-	"\x0foverride_target\x18\x01 \x01(\tR\x0eoverrideTarget\x12)\n" +
-	"\x10principle_target\x18\x02 \x03(\tR\x0fprincipleTarget\"\xba\x03\n" +
-	"\x10TestRouteRequest\x12\x1f\n" +
-	"\vinbound_tag\x18\x01 \x01(\tR\n" +
-	"inboundTag\x12\x18\n" +
-	"\anetwork\x18\x02 \x01(\tR\anetwork\x12\x1b\n" +
-	"\ttarget_ip\x18\x03 \x01(\tR\btargetIp\x12#\n" +
-	"\rtarget_domain\x18\x04 \x01(\tR\ftargetDomain\x12\x1f\n" +
-	"\vtarget_port\x18\x05 \x01(\rR\n" +
-	"targetPort\x12\x1a\n" +
-	"\bprotocol\x18\x06 \x01(\tR\bprotocol\x12\x12\n" +
-	"\x04user\x18\a \x01(\tR\x04user\x12I\n" +
-	"\n" +
-	"attributes\x18\b \x03(\v2).service.TestRouteRequest.AttributesEntryR\n" +
-	"attributes\x12'\n" +
-	"\x0ffield_selectors\x18\t \x03(\tR\x0efieldSelectors\x12%\n" +
-	"\x0epublish_result\x18\n" +
-	" \x01(\bR\rpublishResult\x1a=\n" +
-	"\x0fAttributesEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc0\x01\n" +
-	"\vRouteResult\x12!\n" +
-	"\foutbound_tag\x18\x01 \x01(\tR\voutboundTag\x12.\n" +
-	"\x13outbound_group_tags\x18\x02 \x03(\tR\x11outboundGroupTags\x12\x1f\n" +
-	"\vinbound_tag\x18\x03 \x01(\tR\n" +
-	"inboundTag\x12\x18\n" +
-	"\anetwork\x18\x04 \x01(\tR\anetwork\x12#\n" +
-	"\rtarget_domain\x18\x05 \x01(\tR\ftargetDomain\"N\n" +
-	"\x15AddRoutingRuleRequest\x12\x12\n" +
-	"\x04rule\x18\x01 \x01(\tR\x04rule\x12!\n" +
-	"\fshould_reset\x18\x02 \x01(\bR\vshouldReset\"5\n" +
-	"\x18RemoveRoutingRuleRequest\x12\x19\n" +
-	"\brule_tag\x18\x01 \x01(\tR\aruleTag\"Z\n" +
-	"\x1dOverrideBalancerTargetRequest\x12!\n" +
-	"\fbalancer_tag\x18\x01 \x01(\tR\vbalancerTag\x12\x16\n" +
-	"\x06target\x18\x02 \x01(\tR\x06target*&\n" +
-	"\vBackendType\x12\b\n" +
-	"\x04XRAY\x10\x00\x12\r\n" +
-	"\tWIREGUARD\x10\x01*_\n" +
-	"\bStatType\x12\r\n" +
-	"\tOutbounds\x10\x00\x12\f\n" +
-	"\bOutbound\x10\x01\x12\f\n" +
-	"\bInbounds\x10\x02\x12\v\n" +
-	"\aInbound\x10\x03\x12\r\n" +
-	"\tUsersStat\x10\x04\x12\f\n" +
-	"\bUserStat\x10\x052\xdc\t\n" +
-	"\vNodeService\x126\n" +
-	"\x05Start\x12\x10.service.Backend\x1a\x19.service.BaseInfoResponse\"\x00\x12(\n" +
-	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12:\n" +
-	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12+\n" +
-	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x12@\n" +
-	"\x0eGetSystemStats\x12\x0e.service.Empty\x1a\x1c.service.SystemStatsResponse\"\x00\x12B\n" +
-	"\x0fGetBackendStats\x12\x0e.service.Empty\x1a\x1d.service.BackendStatsResponse\"\x00\x129\n" +
-	"\bGetStats\x12\x14.service.StatRequest\x1a\x15.service.StatResponse\"\x00\x12J\n" +
-	"\x13GetOutboundsLatency\x12\x17.service.LatencyRequest\x1a\x18.service.LatencyResponse\"\x00\x12I\n" +
-	"\x12GetUserOnlineStats\x12\x14.service.StatRequest\x1a\x1b.service.OnlineStatResponse\"\x00\x12V\n" +
-	"\x18GetUserOnlineIpListStats\x12\x14.service.StatRequest\x1a\".service.StatsOnlineIpListResponse\"\x00\x12-\n" +
-	"\bSyncUser\x12\r.service.User\x1a\x0e.service.Empty\"\x00(\x01\x12-\n" +
-	"\tSyncUsers\x12\x0e.service.Users\x1a\x0e.service.Empty\"\x00\x12;\n" +
-	"\x10SyncUsersChunked\x12\x13.service.UsersChunk\x1a\x0e.service.Empty\"\x00(\x01\x12C\n" +
-	"\x10ListRoutingRules\x12\x0e.service.Empty\x1a\x1d.service.RoutingRulesResponse\"\x00\x12P\n" +
-	"\x0fGetBalancerInfo\x12\x1c.service.BalancerInfoRequest\x1a\x1d.service.BalancerInfoResponse\"\x00\x12>\n" +
-	"\tTestRoute\x12\x19.service.TestRouteRequest\x1a\x14.service.RouteResult\"\x00\x12B\n" +
-	"\x0eAddRoutingRule\x12\x1e.service.AddRoutingRuleRequest\x1a\x0e.service.Empty\"\x00\x12H\n" +
-	"\x11RemoveRoutingRule\x12!.service.RemoveRoutingRuleRequest\x1a\x0e.service.Empty\"\x00\x12R\n" +
-	"\x16OverrideBalancerTarget\x12&.service.OverrideBalancerTargetRequest\x1a\x0e.service.Empty\"\x00B#Z!github.com/pasarguard/node/commonb\x06proto3"
+	"\x0a\x14common/service.proto\x12\x07service\"" +
+	"\x07\x0a\x05Empty\"r\x0a\x10BaseInfoResponse\x12\x18\x0a\x07" +
+	"started\x18\x01 \x01(\x08R\x07started\x12!\x0a\x0ccore_v" +
+	"ersion\x18\x02 \x01(\x09R\x0bcoreVersion\x12!\x0a\x0cnod" +
+	"e_version\x18\x03 \x01(\x09R\x0bnodeVersion\"\xba\x01\x0a" +
+	"\x07Backend\x12(\x0a\x04type\x18\x01 \x01(\x0e2\x14.service" +
+	".BackendTypeR\x04type\x12\x16\x0a\x06config\x18\x02 \x01" +
+	"(\x09R\x06config\x12#\x0a\x05users\x18\x03 \x03(\x0b2\x0d.serv" +
+	"ice.UserR\x05users\x12\x1d\x0a\x0akeep_alive\x18\x04 " +
+	"\x01(\x04R\x09keepAlive\x12)\x0a\x10exclude_inboun" +
+	"ds\x18\x05 \x03(\x09R\x0fexcludeInbounds\"\x1d\x0a\x03Log" +
+	"\x12\x16\x0a\x06detail\x18\x01 \x01(\x09R\x06detail\"X\x0a\x04Stat" +
+	"\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\x12\x12\x0a\x04type\x18\x02 \x01" +
+	"(\x09R\x04type\x12\x12\x0a\x04link\x18\x03 \x01(\x09R\x04link\x12\x14\x0a\x05" +
+	"value\x18\x04 \x01(\x03R\x05value\"3\x0a\x0cStatRespon" +
+	"se\x12#\x0a\x05stats\x18\x01 \x03(\x0b2\x0d.service.Stat" +
+	"R\x05stats\"^\x0a\x0bStatRequest\x12\x12\x0a\x04name\x18\x01" +
+	" \x01(\x09R\x04name\x12\x14\x0a\x05reset\x18\x02 \x01(\x08R\x05reset" +
+	"\x12%\x0a\x04type\x18\x03 \x01(\x0e2\x11.service.StatTyp" +
+	"eR\x04type\">\x0a\x12OnlineStatResponse\x12\x12\x0a" +
+	"\x04name\x18\x01 \x01(\x09R\x04name\x12\x14\x0a\x05value\x18\x02 \x01(\x03" +
+	"R\x05value\"\xa6\x01\x0a\x19StatsOnlineIpListRes" +
+	"ponse\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\x12=\x0a\x03ips" +
+	"\x18\x02 \x03(\x0b2+.service.StatsOnlineIpLi" +
+	"stResponse.IpsEntryR\x03ips\x1a6\x0a\x08IpsE" +
+	"ntry\x12\x10\x0a\x03key\x18\x01 \x01(\x09R\x03key\x12\x14\x0a\x05value\x18" +
+	"\x02 \x01(\x03R\x05value:\x028\x01\"\xbf\x01\x0a\x07Latency\x12\x12\x0a\x04" +
+	"name\x18\x01 \x01(\x09R\x04name\x12\x14\x0a\x05alive\x18\x02 \x01(\x08R" +
+	"\x05alive\x12\x14\x0a\x05delay\x18\x03 \x01(\x03R\x05delay\x12\x12\x0a\x04" +
+	"link\x18\x04 \x01(\x09R\x04link\x12$\x0a\x0elast_seen_ti" +
+	"me\x18\x05 \x01(\x03R\x0clastSeenTime\x12\"\x0a\x0dlast_t" +
+	"ry_time\x18\x06 \x01(\x03R\x0blastTryTime\x12\x16\x0a\x06so" +
+	"urce\x18\x07 \x01(\x09R\x06source\"$\x0a\x0eLatencyReq" +
+	"uest\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\"A\x0a\x0fLate" +
+	"ncyResponse\x12.\x0a\x09latencies\x18\x01 \x03(\x0b2\x10" +
+	".service.LatencyR\x09latencies\"\xac\x02\x0a\x14" +
+	"BackendStatsResponse\x12#\x0a\x0dnum_goro" +
+	"utine\x18\x01 \x01(\x0dR\x0cnumGoroutine\x12\x15\x0a\x06num" +
+	"_gc\x18\x02 \x01(\x0dR\x05numGc\x12\x14\x0a\x05alloc\x18\x03 \x01(\x04R" +
+	"\x05alloc\x12\x1f\x0a\x0btotal_alloc\x18\x04 \x01(\x04R\x0atot" +
+	"alAlloc\x12\x10\x0a\x03sys\x18\x05 \x01(\x04R\x03sys\x12\x18\x0a\x07mal" +
+	"locs\x18\x06 \x01(\x04R\x07mallocs\x12\x14\x0a\x05frees\x18\x07 \x01" +
+	"(\x04R\x05frees\x12!\x0a\x0clive_objects\x18\x08 \x01(\x04R" +
+	"\x0bliveObjects\x12$\x0a\x0epause_total_ns\x18\x09" +
+	" \x01(\x04R\x0cpauseTotalNs\x12\x16\x0a\x06uptime\x18\x0a \x01" +
+	"(\x0dR\x06uptime\"\x93\x02\x0a\x13SystemStatsRespon" +
+	"se\x12\x1b\x0a\x09mem_total\x18\x01 \x01(\x04R\x08memTotal\x12" +
+	"\x19\x0a\x08mem_used\x18\x02 \x01(\x04R\x07memUsed\x12\x1b\x0a\x09cp" +
+	"u_cores\x18\x03 \x01(\x04R\x08cpuCores\x12\x1b\x0a\x09cpu_u" +
+	"sage\x18\x04 \x01(\x01R\x08cpuUsage\x128\x0a\x18incoming" +
+	"_bandwidth_speed\x18\x05 \x01(\x04R\x16incoming" +
+	"BandwidthSpeed\x128\x0a\x18outgoing_bandw" +
+	"idth_speed\x18\x06 \x01(\x04R\x16outgoingBandwi" +
+	"dthSpeed\x12\x16\x0a\x06uptime\x18\x07 \x01(\x04R\x06uptime" +
+	"\"\x17\x0a\x05Vmess\x12\x0e\x0a\x02id\x18\x01 \x01(\x09R\x02id\"+\x0a\x05Vle" +
+	"ss\x12\x0e\x0a\x02id\x18\x01 \x01(\x09R\x02id\x12\x12\x0a\x04flow\x18\x02 \x01(\x09" +
+	"R\x04flow\"$\x0a\x06Trojan\x12\x1a\x0a\x08password\x18\x01 \x01" +
+	"(\x09R\x08password\"A\x0a\x0bShadowsocks\x12\x1a\x0a\x08p" +
+	"assword\x18\x01 \x01(\x09R\x08password\x12\x16\x0a\x06metho" +
+	"d\x18\x02 \x01(\x09R\x06method\"k\x0a\x09Wireguard\x12\x1d\x0a\x0a" +
+	"public_key\x18\x01 \x01(\x09R\x09publicKey\x12\x19\x0a\x08p" +
+	"eer_ips\x18\x02 \x03(\x09R\x07peerIps\x12$\x0a\x0epre_sh" +
+	"ared_key\x18\x03 \x01(\x09R\x0cpreSharedKey\"\x1e\x0a\x08" +
+	"Hysteria\x12\x12\x0a\x04auth\x18\x01 \x01(\x09R\x04auth\"\x95\x02\x0a" +
+	"\x05Proxy\x12$\x0a\x05vmess\x18\x01 \x01(\x0b2\x0e.service." +
+	"VmessR\x05vmess\x12$\x0a\x05vless\x18\x02 \x01(\x0b2\x0e.se" +
+	"rvice.VlessR\x05vless\x12'\x0a\x06trojan\x18\x03 \x01" +
+	"(\x0b2\x0f.service.TrojanR\x06trojan\x126\x0a\x0bs" +
+	"hadowsocks\x18\x04 \x01(\x0b2\x14.service.Shado" +
+	"wsocksR\x0bshadowsocks\x120\x0a\x09wireguard" +
+	"\x18\x05 \x01(\x0b2\x12.service.WireguardR\x09wire" +
+	"guard\x12-\x0a\x08hysteria\x18\x06 \x01(\x0b2\x11.servic" +
+	"e.HysteriaR\x08hysteria\"b\x0a\x04User\x12\x14\x0a\x05" +
+	"email\x18\x01 \x01(\x09R\x05email\x12(\x0a\x07proxies\x18\x02 " +
+	"\x01(\x0b2\x0e.service.ProxyR\x07proxies\x12\x1a\x0a\x08" +
+	"inbounds\x18\x03 \x03(\x09R\x08inbounds\",\x0a\x05User" +
+	"s\x12#\x0a\x05users\x18\x01 \x03(\x0b2\x0d.service.UserR" +
+	"\x05users\"[\x0a\x0aUsersChunk\x12#\x0a\x05users\x18\x01 " +
+	"\x03(\x0b2\x0d.service.UserR\x05users\x12\x14\x0a\x05ind" +
+	"ex\x18\x02 \x01(\x04R\x05index\x12\x12\x0a\x04last\x18\x03 \x01(\x08R\x04l" +
+	"ast\"K\x0a\x0bRoutingRule\x12!\x0a\x0coutbound_t" +
+	"ag\x18\x01 \x01(\x09R\x0boutboundTag\x12\x19\x0a\x08rule_ta" +
+	"g\x18\x02 \x01(\x09R\x07ruleTag\"B\x0a\x14RoutingRules" +
+	"Response\x12*\x0a\x05rules\x18\x01 \x03(\x0b2\x14.servic" +
+	"e.RoutingRuleR\x05rules\"'\x0a\x13Balancer" +
+	"InfoRequest\x12\x10\x0a\x03tag\x18\x01 \x01(\x09R\x03tag\"j\x0a" +
+	"\x14BalancerInfoResponse\x12'\x0a\x0foverrid" +
+	"e_target\x18\x01 \x01(\x09R\x0eoverrideTarget\x12)" +
+	"\x0a\x10principle_target\x18\x02 \x03(\x09R\x0fprinci" +
+	"pleTarget\"\xba\x03\x0a\x10TestRouteRequest\x12\x1f" +
+	"\x0a\x0binbound_tag\x18\x01 \x01(\x09R\x0ainboundTag\x12" +
+	"\x18\x0a\x07network\x18\x02 \x01(\x09R\x07network\x12\x1b\x0a\x09tar" +
+	"get_ip\x18\x03 \x01(\x09R\x08targetIp\x12#\x0a\x0dtarget" +
+	"_domain\x18\x04 \x01(\x09R\x0ctargetDomain\x12\x1f\x0a\x0bt" +
+	"arget_port\x18\x05 \x01(\x0dR\x0atargetPort\x12\x1a\x0a\x08" +
+	"protocol\x18\x06 \x01(\x09R\x08protocol\x12\x12\x0a\x04user" +
+	"\x18\x07 \x01(\x09R\x04user\x12I\x0a\x0aattributes\x18\x08 \x03(\x0b" +
+	"2).service.TestRouteRequest.Attr" +
+	"ibutesEntryR\x0aattributes\x12'\x0a\x0ffield" +
+	"_selectors\x18\x09 \x03(\x09R\x0efieldSelectors" +
+	"\x12%\x0a\x0epublish_result\x18\x0a \x01(\x08R\x0dpublis" +
+	"hResult\x1a=\x0a\x0fAttributesEntry\x12\x10\x0a\x03ke" +
+	"y\x18\x01 \x01(\x09R\x03key\x12\x14\x0a\x05value\x18\x02 \x01(\x09R\x05val" +
+	"ue:\x028\x01\"\xc0\x01\x0a\x0bRouteResult\x12!\x0a\x0coutbou" +
+	"nd_tag\x18\x01 \x01(\x09R\x0boutboundTag\x12.\x0a\x13out" +
+	"bound_group_tags\x18\x02 \x03(\x09R\x11outbound" +
+	"GroupTags\x12\x1f\x0a\x0binbound_tag\x18\x03 \x01(\x09R\x0a" +
+	"inboundTag\x12\x18\x0a\x07network\x18\x04 \x01(\x09R\x07net" +
+	"work\x12#\x0a\x0dtarget_domain\x18\x05 \x01(\x09R\x0ctar" +
+	"getDomain\"N\x0a\x15AddRoutingRuleReque" +
+	"st\x12\x12\x0a\x04rule\x18\x01 \x01(\x09R\x04rule\x12!\x0a\x0cshould" +
+	"_reset\x18\x02 \x01(\x08R\x0bshouldReset\"5\x0a\x18Rem" +
+	"oveRoutingRuleRequest\x12\x19\x0a\x08rule_ta" +
+	"g\x18\x01 \x01(\x09R\x07ruleTag\"Z\x0a\x1dOverrideBala" +
+	"ncerTargetRequest\x12!\x0a\x0cbalancer_ta" +
+	"g\x18\x01 \x01(\x09R\x0bbalancerTag\x12\x16\x0a\x06target\x18\x02" +
+	" \x01(\x09R\x06target*&\x0a\x0bBackendType\x12\x08\x0a\x04X" +
+	"RAY\x10\x00\x12\x0d\x0a\x09WIREGUARD\x10\x01*_\x0a\x08StatType" +
+	"\x12\x0d\x0a\x09Outbounds\x10\x00\x12\x0c\x0a\x08Outbound\x10\x01\x12\x0c\x0a" +
+	"\x08Inbounds\x10\x02\x12\x0b\x0a\x07Inbound\x10\x03\x12\x0d\x0a\x09User" +
+	"sStat\x10\x04\x12\x0c\x0a\x08UserStat\x10\x052\xdc\x09\x0a\x0bNodeSe" +
+	"rvice\x126\x0a\x05Start\x12\x10.service.Backend" +
+	"\x1a\x19.service.BaseInfoResponse\"\x00\x12(\x0a" +
+	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service." +
+	"Empty\"\x00\x12:\x0a\x0bGetBaseInfo\x12\x0e.service" +
+	".Empty\x1a\x19.service.BaseInfoRespons" +
+	"e\"\x00\x12+\x0a\x07GetLogs\x12\x0e.service.Empty\x1a\x0c" +
+	".service.Log\"\x000\x01\x12@\x0a\x0eGetSystemSta" +
+	"ts\x12\x0e.service.Empty\x1a\x1c.service.Sys" +
+	"temStatsResponse\"\x00\x12B\x0a\x0fGetBackend" +
+	"Stats\x12\x0e.service.Empty\x1a\x1d.service." +
+	"BackendStatsResponse\"\x00\x129\x0a\x08GetSta" +
+	"ts\x12\x14.service.StatRequest\x1a\x15.servi" +
+	"ce.StatResponse\"\x00\x12J\x0a\x13GetOutbound" +
+	"sLatency\x12\x17.service.LatencyReques" +
+	"t\x1a\x18.service.LatencyResponse\"\x00\x12I\x0a" +
+	"\x12GetUserOnlineStats\x12\x14.service.St" +
+	"atRequest\x1a\x1b.service.OnlineStatRe" +
+	"sponse\"\x00\x12V\x0a\x18GetUserOnlineIpListS" +
+	"tats\x12\x14.service.StatRequest\x1a\".ser" +
+	"vice.StatsOnlineIpListResponse\"\x00" +
+	"\x12-\x0a\x08SyncUser\x12\x0d.service.User\x1a\x0e.se" +
+	"rvice.Empty\"\x00(\x01\x12-\x0a\x09SyncUsers\x12\x0e.s" +
+	"ervice.Users\x1a\x0e.service.Empty\"\x00\x12;" +
+	"\x0a\x10SyncUsersChunked\x12\x13.service.Use" +
+	"rsChunk\x1a\x0e.service.Empty\"\x00(\x01\x12C\x0a\x10L" +
+	"istRoutingRules\x12\x0e.service.Empty\x1a" +
+	"\x1d.service.RoutingRulesResponse\"\x00" +
+	"\x12P\x0a\x0fGetBalancerInfo\x12\x1c.service.Ba" +
+	"lancerInfoRequest\x1a\x1d.service.Bala" +
+	"ncerInfoResponse\"\x00\x12>\x0a\x09TestRoute\x12" +
+	"\x19.service.TestRouteRequest\x1a\x14.ser" +
+	"vice.RouteResult\"\x00\x12B\x0a\x0eAddRouting" +
+	"Rule\x12\x1e.service.AddRoutingRuleReq" +
+	"uest\x1a\x0e.service.Empty\"\x00\x12H\x0a\x11Remove" +
+	"RoutingRule\x12!.service.RemoveRout" +
+	"ingRuleRequest\x1a\x0e.service.Empty\"\x00" +
+	"\x12R\x0a\x16OverrideBalancerTarget\x12&.ser" +
+	"vice.OverrideBalancerTargetReque" +
+	"st\x1a\x0e.service.Empty\"\x00B#Z!github.c" +
+	"om/pasarguard/node/commonb\x06proto" +
+	"3"
 
 var (
 	file_common_service_proto_rawDescOnce sync.Once

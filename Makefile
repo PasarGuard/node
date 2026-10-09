@@ -4,8 +4,11 @@ LDFLAGS = -s -w -buildid=
 PARAMS = -trimpath -ldflags "$(LDFLAGS)" -v
 MAIN = ./cmd/node
 PREFIX ?= $(shell go env GOPATH)
+XRAY_INSTALLER_URL ?= https://github.com/PasarGuard/scripts/raw/1fce1b19aaa54449ec0abdc4098b49027a170705/install_core.sh
 XRAY_OS ?=
 XRAY_ARCH ?=
+# Xray tag to install; empty resolves the newest release including pre-releases (the WireGuard UserManager API ships only in pre-releases). Set XRAY_TAG=vX.Y.Z to pin.
+XRAY_TAG ?=
 # Map GOARCH to installer arch flag (pure make vars to avoid shell leakage)
 XRAY_ARCH_MAP_amd64   = 64
 XRAY_ARCH_MAP_386     = 32
@@ -25,6 +28,8 @@ XRAY_ARCH_MAP_s390x   = s390x
 
 XRAY_OS_EFFECTIVE   := $(if $(XRAY_OS),$(XRAY_OS),$(GOOS))
 XRAY_ARCH_EFFECTIVE := $(if $(XRAY_ARCH),$(XRAY_ARCH),$(XRAY_ARCH_MAP_$(GOARCH)))
+XRAY_LATEST_TAG_CMD = curl -fsSL https://github.com/XTLS/Xray-core/releases.atom | grep -o 'releases/tag/[^"&<]*' | head -1 | sed 's|releases/tag/||'
+XRAY_RESOLVE_TAG = tag="$(XRAY_TAG)"; if [ -z "$$tag" ]; then tag=$$($(XRAY_LATEST_TAG_CMD)); fi; if [ -z "$$tag" ]; then echo "failed to resolve the latest Xray release tag, set XRAY_TAG" >&2; exit 1; fi; echo "Installing Xray $$tag";
 XRAY_INSTALL_ARGS   := $(strip $(if $(XRAY_OS_EFFECTIVE),--os $(XRAY_OS_EFFECTIVE)) $(if $(XRAY_ARCH_EFFECTIVE),--arch $(XRAY_ARCH_EFFECTIVE)))
 
 ifeq ($(GOOS),windows)
@@ -125,9 +130,9 @@ ifeq ($(UNAME_S),Linux)
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | sudo bash -s -- $(XRAY_INSTALL_ARGS); \
+		$(XRAY_RESOLVE_TAG) curl -L $(XRAY_INSTALLER_URL) | sudo bash -s -- --tag $$tag $(XRAY_INSTALL_ARGS); \
 	else \
-		curl -L https://github.com/PasarGuard/scripts/raw/main/install_core.sh | bash -s -- $(XRAY_INSTALL_ARGS); \
+		$(XRAY_RESOLVE_TAG) curl -L $(XRAY_INSTALLER_URL) | bash -s -- --tag $$tag $(XRAY_INSTALL_ARGS); \
 	fi
 
 else

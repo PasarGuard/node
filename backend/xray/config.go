@@ -26,6 +26,7 @@ const (
 	Trojan      = "trojan"
 	Shadowsocks = "shadowsocks"
 	Hysteria    = "hysteria"
+	Wireguard   = "wireguard"
 )
 
 type Config struct {
@@ -200,6 +201,21 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				i.clients[user.GetEmail()] = api.NewHysteriaAccount(user)
 			}
 		}
+
+	case Wireguard:
+		for _, user := range users {
+			if user.GetProxies().GetWireguard() == nil {
+				continue
+			}
+			if slices.Contains(user.Inbounds, i.Tag) {
+				account, err := api.NewWireguardAccount(user)
+				if err != nil {
+					log.Println("error for user", user.GetEmail(), ":", err)
+					continue
+				}
+				i.clients[account.GetEmail()] = account
+			}
+		}
 	}
 }
 
@@ -235,6 +251,9 @@ func (i *Inbound) updateUser(account api.Account) {
 		}
 
 	case *api.HysteriaAccount:
+		i.clients[email] = a
+
+	case *api.WireguardAccount:
 		i.clients[email] = a
 	}
 }
@@ -289,6 +308,13 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 	case Hysteria:
 		for _, account := range accounts {
 			if a, ok := account.(*api.HysteriaAccount); ok {
+				i.clients[account.GetEmail()] = a
+			}
+		}
+
+	case Wireguard:
+		for _, account := range accounts {
+			if a, ok := account.(*api.WireguardAccount); ok {
 				i.clients[account.GetEmail()] = a
 			}
 		}
@@ -349,7 +375,11 @@ func (c *Config) ToBytes() ([]byte, error) {
 		}
 
 		if len(i.clients) == 0 {
-			i.Settings["clients"] = []any{}
+			if i.Protocol == Wireguard {
+				i.Settings["peers"] = []any{}
+			} else {
+				i.Settings["clients"] = []any{}
+			}
 			continue
 		}
 
@@ -409,6 +439,15 @@ func (c *Config) ToBytes() ([]byte, error) {
 				}
 			}
 			i.Settings["clients"] = clients
+
+		case Wireguard:
+			peers := make([]*api.WireguardAccount, 0, len(i.clients))
+			for _, account := range i.clients {
+				if wgAccount, ok := account.(*api.WireguardAccount); ok {
+					peers = append(peers, wgAccount)
+				}
+			}
+			i.Settings["peers"] = peers
 		}
 	}
 
