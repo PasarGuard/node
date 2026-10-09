@@ -360,6 +360,18 @@ func TestParseGetHandshakeAndCounters(t *testing.T) {
 	}
 }
 
+// TestStatsZeroWhenNothingMoved: a handle that never carried a byte must
+// report 0 — the counter may not invent a starting number.
+func TestStatsZeroWhenNothingMoved(t *testing.T) {
+	got, err := (&handle{}).Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats on a fresh handle: %v", err)
+	}
+	if got.Up != 0 || got.Down != 0 {
+		t.Errorf("Stats = %+v, want 0/0 for a tunnel that never moved traffic", got)
+	}
+}
+
 func TestStartRefusesAnUnresolvedSecret(t *testing.T) {
 	spec := rowSpec(tunnel.SideA, func(s *tunnel.Spec) { s.Secrets[SecretPrivateKey] = "" })
 	_, err := Adapter{}.Start(context.Background(), spec, tunnel.Ports{Listen: 51820, Control: 51821})

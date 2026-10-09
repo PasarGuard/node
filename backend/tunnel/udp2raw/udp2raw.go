@@ -469,11 +469,12 @@ func (h *handle) LogLines() <-chan nodeLogger.LogLine { return h.lines }
 
 // Stats returns the tunnel's aggregate counters.
 //
-// ponytail: always zero — the pinned udp2raw (20230206.0) exposes no byte
-// counters anywhere (no metrics endpoint, no fifo command, nothing in its
-// logs), so there is nothing to report and inventing a number would be worse
-// than none. Upgrade path: tap the process with a per-interface counter the
-// day udp2raw grows one, or count at the port-forwarding layer above it.
+// ponytail: always zero, checked against the pinned build (20230206.0) —
+// `--help` has no stats/metrics option, the fifo dispatcher accepts only
+// "reconnect" and its strings carry no byte counter (the binary's counters
+// are internal: ack_seq, epoll). udp2raw rides an interface it does not own,
+// so the host NIC's counters would bill unrelated traffic — worse than 0.
+// Upgrade path: count at the port-forwarding layer above it.
 func (h *handle) Stats(context.Context) (tunnel.Bytes, error) {
 	return tunnel.Bytes{}, nil
 }

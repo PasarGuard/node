@@ -459,6 +459,50 @@ func TestSiteToSiteSubnetTraffic(t *testing.T) {
 	waitStats(t, pair, 10*time.Second)
 }
 
+// TestStatsCountTheSendingSideAsUp: the tx=up / rx=down mapping is proven by
+// traffic, not assumed — a one-way 20x1000-byte UDP blast from LAN A to a
+// closed port on LAN B must land in side a's Up and side b's Down. The
+// mirrored mapping fails both assertions by ~40KB.
+func TestStatsCountTheSendingSideAsUp(t *testing.T) {
+	tp := newTopo(t)
+	m := newTestManager(t)
+	_ = startPair(t, m, tp)
+	pingUntilOK(t, tp.nsHA, tp.hostB, 20*time.Second)
+
+	blast := "for i in $(seq 1 20); do head -c 1000 /dev/zero > /dev/udp/" + tp.hostB + "/9999; done"
+	rc, out := nsCmd(tp.nsHA, "bash", "-c", blast)
+	t.Logf("one-way blast %s -> %s:9999 (20x1000B): rc=%d %s", tp.hostA, tp.hostB, rc, oneLine(out))
+	if rc != 0 {
+		t.Fatalf("blast did not run (no direction proof without it): rc=%d %s", rc, oneLine(out))
+	}
+
+	var a, b tunnel.Status
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		a, b = tunnel.Status{}, tunnel.Status{}
+		for _, st := range m.List() {
+			if st.Side == "a" {
+				a = st
+			} else {
+				b = st
+			}
+		}
+		if int64(a.BytesUp)-int64(a.BytesDown) > 10000 && int64(b.BytesDown)-int64(b.BytesUp) > 10000 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Logf("side a: up=%d down=%d; side b: up=%d down=%d", a.BytesUp, a.BytesDown, b.BytesUp, b.BytesDown)
+	if d := int64(a.BytesUp) - int64(a.BytesDown); d < 10000 {
+		t.Fatalf("side a sent the blast but up-down = %d (<10000): tx is not counted as up (up=%d down=%d)",
+			d, a.BytesUp, a.BytesDown)
+	}
+	if d := int64(b.BytesDown) - int64(b.BytesUp); d < 10000 {
+		t.Fatalf("side b received the blast but down-up = %d (<10000): rx is not counted as down (up=%d down=%d)",
+			d, b.BytesUp, b.BytesDown)
+	}
+}
+
 // TestRestartSameSpec: stop, prove interface/address/routes are gone, re-Render
 // byte-identically, start again from the same Spec, traffic flows (brief item 3).
 func TestRestartSameSpec(t *testing.T) {

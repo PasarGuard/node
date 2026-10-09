@@ -209,6 +209,21 @@ func TestPreflightNamesRawSocket(t *testing.T) {
 	}
 }
 
+// TestStatsReportsNoCounter pins the honest zero: the pinned build exposes no
+// byte counter (see Stats), so Stats must report 0/0 — running or not — rather
+// than a number borrowed from the host NIC's unrelated traffic.
+func TestStatsReportsNoCounter(t *testing.T) {
+	h := &handle{}
+	h.started.Store(true)
+	got, err := h.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if got.Up != 0 || got.Down != 0 {
+		t.Errorf("Stats = %+v, want 0/0 — udp2raw has no counter to report", got)
+	}
+}
+
 func findProblem(probs []tunnel.Problem, check string) *tunnel.Problem {
 	for i := range probs {
 		if probs[i].Check == check {
