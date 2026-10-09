@@ -46,9 +46,15 @@ const (
 	paramPeer       = "peer"        // host:port (role-dependent, see newPlan)
 	paramTarget     = "target"      // host:port the payload is delivered to
 	paramRestrictTo = "restrict_to" // relay server: comma-separated dest allowlist
-	paramTransport  = "transport"   // ws (default) | wss
-	paramTLSCert    = "tls_cert"    // server: PEM certificate for wss
-	paramTLSKey     = "tls_key"     // server: PEM private key for wss
+	// paramBRestrictTo is paramRestrictTo under the CONTRACT §2.4 side prefix:
+	// a tunnels row carries ONE params map that reaches both sides, so the
+	// relay server's allowlist needs a key side a may carry without being
+	// refused. Only relay side b reads it — the name scopes it, so every other
+	// shape ignoring it is the design, not a silent drop of a shared name.
+	paramBRestrictTo = "b_restrict_to"
+	paramTransport   = "transport" // ws (default) | wss
+	paramTLSCert     = "tls_cert"  // server: PEM certificate for wss
+	paramTLSKey      = "tls_key"   // server: PEM private key for wss
 
 	// extraInner is the allocator Extra name reverse side a needs: the port
 	// wstunnel's own WebSocket listener binds while Ports.Control stays the
@@ -187,7 +193,7 @@ func newPlan(spec tunnel.Spec, ports tunnel.Ports) (*plan, error) {
 		return nil, err
 	}
 
-	if p.restrict, err = restrictList(spec.Params[paramRestrictTo]); err != nil {
+	if p.restrict, err = restrictList(paramRestrictTo, spec.Params[paramRestrictTo]); err != nil {
 		return nil, err
 	}
 	// restrict_to is where the SERVER dials: only relay's side b dials a
@@ -197,12 +203,22 @@ func newPlan(spec tunnel.Spec, ports tunnel.Ports) (*plan, error) {
 		return nil, fmt.Errorf("%w: params.%s only applies to mode=relay side=b (the side that dials the destination); %s=%q is not enforced in mode=%s side=%s",
 			tunnel.ErrInvalidSpec, paramRestrictTo, paramRestrictTo, spec.Params[paramRestrictTo], mode, spec.Side)
 	}
+	// The side-prefixed twin: same allowlist, read only by the shape that
+	// enforces it. Side a carrying b_restrict_to in the shared row map is the
+	// normal cross-host panel path, so it must render, not error.
+	if mode == tunnel.ModeRelay && spec.Side == tunnel.SideB {
+		b, berr := restrictList(paramBRestrictTo, spec.Params[paramBRestrictTo])
+		if berr != nil {
+			return nil, berr
+		}
+		p.restrict = append(p.restrict, b...)
+	}
 	// A server bound past loopback with no destination allowlist and no TLS is
 	// an open relay for anyone holding the token. Refuse (scope: "default the
 	// configuration to something safe, or refuse to start").
 	if spec.Side == tunnel.SideB && mode == tunnel.ModeRelay && !isLoopback(host) && len(p.restrict) == 0 {
-		return nil, fmt.Errorf("%w: mode=relay side=b bound to %s without params.%s would be an open relay — set %s (comma-separated host:port), or bind 127.0.0.1",
-			tunnel.ErrInvalidSpec, host, paramRestrictTo, paramRestrictTo)
+		return nil, fmt.Errorf("%w: mode=relay side=b bound to %s without params.%s would be an open relay — set %s or %s (comma-separated host:port), or bind 127.0.0.1",
+			tunnel.ErrInvalidSpec, host, paramRestrictTo, paramRestrictTo, paramBRestrictTo)
 	}
 
 	if err := p.checkTLS(spec.Params); err != nil {
@@ -226,7 +242,7 @@ func requiredHostPort(params map[string]string, key string, required bool) (stri
 	return v, nil
 }
 
-func restrictList(raw string) ([]string, error) {
+func restrictList(key, raw string) ([]string, error) {
 	var out []string
 	for _, item := range strings.Split(raw, ",") {
 		item = strings.TrimSpace(item)
@@ -234,7 +250,7 @@ func restrictList(raw string) ([]string, error) {
 			continue
 		}
 		if _, _, err := net.SplitHostPort(item); err != nil {
-			return nil, fmt.Errorf("%w: params.%s entry %q must be host:port", tunnel.ErrInvalidSpec, paramRestrictTo, item)
+			return nil, fmt.Errorf("%w: params.%s entry %q must be host:port", tunnel.ErrInvalidSpec, key, item)
 		}
 		out = append(out, item)
 	}

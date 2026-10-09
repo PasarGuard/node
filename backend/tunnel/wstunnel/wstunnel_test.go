@@ -673,7 +673,7 @@ func writeTestCert(t *testing.T) (certFile, keyFile string) {
 func TestReverseSideADerivesInnerFromListen(t *testing.T) {
 	spec := tunnel.Spec{
 		TunnelID: "derive-inner", Tool: Tool, Side: tunnel.SideA, Mode: tunnel.ModeReverse,
-		Params: map[string]string{tunnel.ParamListenPort: "47869", paramTarget: "127.0.0.1:8199"},
+		Params:  map[string]string{tunnel.ParamListenPort: "47869", paramTarget: "127.0.0.1:8199"},
 		Secrets: map[string]string{SecretToken: "tok"},
 	}
 	ports := tunnel.Ports{Listen: 47869, Control: 47870}
@@ -686,5 +686,79 @@ func TestReverseSideADerivesInnerFromListen(t *testing.T) {
 	}
 	if _, err := (Adapter{}).Start(context.Background(), spec, ports); err == nil {
 		t.Fatal("Start must still refuse without a resolved binary; the plan is what this test pins")
+	}
+}
+
+// TestBRestrictToIsRelaySideBsAllowlist: the side-prefixed allowlist is the
+// one relay side b dials with, and it alone lets a non-loopback bind through.
+// Round-3b2's cross-host panel E2E could not expose wstunnel/relay before it
+// existed — one row params map, both sides, and only side b may enforce.
+func TestBRestrictToIsRelaySideBsAllowlist(t *testing.T) {
+	spec := relaySpec(tunneltest.Endpoints{
+		TunnelID: "b-restrict-ok", Side: tunnel.SideB, Mode: tunnel.ModeRelay,
+		Peer: "127.0.0.1:1", Target: "127.0.0.1:2",
+	})
+	spec.Params[paramListenHost] = "0.0.0.0"
+	spec.Params[paramBRestrictTo] = "127.0.0.1:8199,10.0.0.5:443"
+
+	out, err := (Adapter{}).Render(spec)
+	if err != nil {
+		t.Fatalf("relay side b bound to 0.0.0.0 with %s must render: %v", paramBRestrictTo, err)
+	}
+	for _, want := range []string{"--restrict-to 127.0.0.1:8199", "--restrict-to 10.0.0.5:443"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("Render is missing %q — b_restrict_to must reach the server argv:\n%s", want, out)
+		}
+	}
+}
+
+// TestBRestrictToOnRelaySideARenders is the panel path that failed in
+// round-3b2: side a receives the same row params map and carries
+// b_restrict_to without being the side that enforces it. The name scopes the
+// key, so side a ignores it instead of erroring.
+func TestBRestrictToOnRelaySideARenders(t *testing.T) {
+	spec := relaySpec(tunneltest.Endpoints{
+		TunnelID: "b-restrict-a", Side: tunnel.SideA, Mode: tunnel.ModeRelay,
+		Peer: "127.0.0.1:25001", Target: "127.0.0.1:25002",
+	})
+	spec.Params[paramListenHost] = "0.0.0.0"
+	spec.Params[paramBRestrictTo] = "127.0.0.1:8199"
+
+	out, err := (Adapter{}).Render(spec)
+	if err != nil {
+		t.Fatalf("%s on relay side a must render, got %v", paramBRestrictTo, err)
+	}
+	if strings.Contains(out, "--restrict-to") {
+		t.Fatalf("side a is the client; it must not emit --restrict-to:\n%s", out)
+	}
+}
+
+// TestRestrictToOnRelaySideAStaysRefused: the pre-existing guard must not
+// weaken. restrict_to is still a shared name only side b may carry, so a spec
+// carrying it on side a is refused naming the key.
+func TestRestrictToOnRelaySideAStaysRefused(t *testing.T) {
+	spec := relaySpec(tunneltest.Endpoints{
+		TunnelID: "restrict-a", Side: tunnel.SideA, Mode: tunnel.ModeRelay,
+		Peer: "127.0.0.1:1", Target: "127.0.0.1:2",
+	})
+	spec.Params[paramRestrictTo] = "127.0.0.1:8199"
+	_, err := (Adapter{}).Render(spec)
+	if !errors.Is(err, tunnel.ErrInvalidSpec) || !strings.Contains(err.Error(), paramRestrictTo) {
+		t.Fatalf("restrict_to on relay side a must stay refused with %s, got %v", paramRestrictTo, err)
+	}
+}
+
+// TestRelaySideBOpenBindWithoutAnyAllowlistIsRefused: neither key means no
+// allowlist, and a non-loopback relay server without one is an open relay —
+// b_restrict_to must not have loosened that.
+func TestRelaySideBOpenBindWithoutAnyAllowlistIsRefused(t *testing.T) {
+	spec := relaySpec(tunneltest.Endpoints{
+		TunnelID: "open-b", Side: tunnel.SideB, Mode: tunnel.ModeRelay,
+		Peer: "127.0.0.1:1", Target: "127.0.0.1:2",
+	})
+	spec.Params[paramListenHost] = "0.0.0.0"
+	_, err := (Adapter{}).Render(spec)
+	if !errors.Is(err, tunnel.ErrInvalidSpec) || !strings.Contains(err.Error(), "open relay") {
+		t.Fatalf("relay side b bound to 0.0.0.0 with no allowlist must stay refused, got %v", err)
 	}
 }
