@@ -102,6 +102,11 @@ func TestSingBoxConfigUserInjection(t *testing.T) {
 		if entry["name"] != "42" {
 			t.Errorf("inbound %q: users[].name = %v, want \"42\" (stats identity key)", tag, entry["name"])
 		}
+		// hysteria2's whole-string auth: a stock client sends "name:auth",
+		// so the injected password must be that same string.
+		if tag == "hy2-in" && entry["password"] != "42:hy2-pw" {
+			t.Errorf("hy2-in users[].password = %v, want \"42:hy2-pw\" (whole-string client auth)", entry["password"])
+		}
 		delete(want, tag)
 	}
 	for tag := range want {

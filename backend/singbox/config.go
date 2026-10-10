@@ -564,7 +564,14 @@ func userEntryFor(inbound map[string]any, user *common.User) (map[string]any, bo
 		if h == nil || h.GetAuth() == "" {
 			return nil, false
 		}
-		return map[string]any{"name": name, "password": h.GetAuth()}, true
+		// A hysteria2 client sends ONE auth string (the URI userinfo, or the
+		// outbound's `password` verbatim). This inbound matches it whole
+		// against users[].password (sing-quic hysteria2 service.go userMap),
+		// so the entry must carry the same "name:auth" a stock client sends
+		// -- and the same string the standalone hysteria core's userpass
+		// splits on its first colon. TUIC is different: its protocol has a
+		// separate password field, so it keeps the bare auth.
+		return map[string]any{"name": name, "password": name + ":" + h.GetAuth()}, true
 
 	case "tuic":
 		// TUIC needs uuid+password; the proto has no tuic credential, so reuse
