@@ -74,6 +74,27 @@ func (h *Hysteria) applyUsers(ctx context.Context, snapshot []*common.User, repl
 		h.users = h.upsertUsers(snapshot)
 	}
 
+	// Idle wake/sleep: an idle core (zero eligible users) starts on the first
+	// real roster and a running core whose roster empties stops instead of
+	// restarting onto an empty userpass (upstream FATALs that config).
+	if h.isIdle() {
+		candidate := h.getConfig().Clone()
+		if err := candidate.syncUsers(h.users); err != nil {
+			h.users = previous
+			return err
+		}
+		if len(candidate.userNames()) == 0 {
+			// still nothing to serve; keep the desired roster and stay idle
+			h.setConfig(candidate)
+			return nil
+		}
+		if err := h.startIdleLocked(ctx, candidate); err != nil {
+			h.users = previous
+			return err
+		}
+		return nil
+	}
+
 	if err := h.flushLocked(ctx); err != nil {
 		// Roll the desired state back so the next call is not applied on top of
 		// a set the core never accepted, and re-run the old one so the core and
@@ -133,6 +154,16 @@ func (h *Hysteria) flushLocked(ctx context.Context) error {
 		return err
 	}
 
+	// The last eligible user is gone: stop the child and idle rather than
+	// restart onto the empty userpass upstream refuses to start.
+	if candidate.needsUsers() && len(candidate.userNames()) == 0 {
+		h.core.Stop()
+		h.setConfig(candidate)
+		h.setIdle(true)
+		log.Printf("hysteria core idle: no eligible users remain (%d removed)", len(removed))
+		return nil
+	}
+
 	if err := h.restartCoreWithConfig(candidate); err != nil {
 		return err
 	}
@@ -185,6 +216,26 @@ func (h *Hysteria) kickIDs(ctx context.Context, ids []string) error {
 		return errors.New("hysteria stats client not ready")
 	}
 	return handler.kick(ctx, ids)
+}
+
+// startIdleLocked starts the child for an idle core whose roster just became
+// non-empty. Caller holds syncMu; the core is not running so no counters to
+// drain and no sessions to kick.
+func (h *Hysteria) startIdleLocked(ctx context.Context, candidate *Config) error {
+	if err := h.restartCoreWithConfig(candidate); err != nil {
+		return err
+	}
+	h.setConfig(candidate)
+	h.setIdle(false)
+
+	checkCtx, cancel := context.WithTimeout(ctx, statsStartupTimeout)
+	defer cancel()
+	if err := h.checkStatus(checkCtx); err != nil {
+		return err
+	}
+	h.core.SwitchToRuntimeLogPhase()
+	log.Printf("hysteria core started from idle (%d users)", len(h.users))
+	return nil
 }
 
 // flushCountersLocked reads every per-user counter with clear=true and parks

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pasarguard/node/backend/proclib"
@@ -44,6 +45,11 @@ type Core struct {
 	runtimeMu      sync.RWMutex
 	runtimeLogs    []string
 	mu             sync.Mutex
+
+	// spawns counts child processes actually launched. Tests assert on it to
+	// prove idle cores do not crash-loop (one spawn per real start, zero while
+	// idle) — a claim no log grep can make as directly.
+	spawns atomic.Int64
 }
 
 const defaultStartupLogTailSize = 200
@@ -149,6 +155,12 @@ func (c *Core) Restarting() bool {
 	return c.restarting
 }
 
+// SpawnCount is how many child processes this core has launched. Test/diagnostic
+// use only: it is how a test proves an idle core spawns nothing.
+func (c *Core) SpawnCount() int64 {
+	return c.spawns.Load()
+}
+
 // writeConfigFile serializes the config for `hysteria server -c`.
 //
 // 0600, not 0644: the file carries every user's auth password and the traffic
@@ -218,6 +230,7 @@ func (c *Core) Start(config *Config) error {
 	c.stopping = false
 	c.waitDone = make(chan struct{})
 	c.startedAt = time.Now()
+	c.spawns.Add(1)
 
 	waitDone := c.waitDone
 	go func() {

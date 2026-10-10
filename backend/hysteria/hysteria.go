@@ -52,6 +52,14 @@ type Hysteria struct {
 	syncMu     sync.Mutex
 	restarting bool
 
+	// idle is true when a userpass core holds zero eligible users: upstream
+	// refuses to start such a config ("auth.userpass: empty auth userpass"),
+	// so the child is deliberately not running. An idle backend still answers
+	// RPCs (Started() reports true with uptime 0) — that is what keeps the
+	// panel health check green and the node out of the Start-retry loop the
+	// old behaviour caused. SyncUsers wakes it; an empty roster puts it back.
+	idle bool
+
 	// pendingStats holds per-user counters drained before a planned restart, so
 	// traffic that flowed between the panel's last poll and the restart is not
 	// lost with the core's memory. Same reason sing-box has one
@@ -119,12 +127,22 @@ func New(ctx context.Context, hyConfig *Config, users []*common.User, apiPort in
 	}
 	h.core = core
 
+	core.SetLogger(cfg.Debug)
+	h.handler = newStatsClient(apiPort, secret)
+
+	// A userpass core with an empty roster must not spawn the child: it would
+	// FATAL on the config parse and the panel would restart it every health
+	// tick (the crash-loop the round-2 E2E hit). Idle instead — the first
+	// SyncUsers with a real user starts it.
+	if hyConfig.needsUsers() && len(hyConfig.userNames()) == 0 {
+		h.idle = true
+		log.Println("hysteria core idle: no eligible users; will start on the first user sync")
+		return h, nil
+	}
+
 	if err = core.Start(hyConfig); err != nil {
 		return nil, err
 	}
-	core.SetLogger(cfg.Debug)
-
-	h.handler = newStatsClient(apiPort, secret)
 
 	if err = h.checkStatus(ctx); err != nil {
 		h.Shutdown()
@@ -134,6 +152,30 @@ func New(ctx context.Context, hyConfig *Config, users []*common.User, apiPort in
 
 	log.Println("hysteria started, Version:", h.Version())
 	return h, nil
+}
+
+// needsUsers reports whether this auth mode can only run with an injected
+// userpass map. password/http/command carry their own credentials and are
+// unaffected by the panel's user roster.
+func (c *Config) needsUsers() bool {
+	switch c.AuthType() {
+	case "password", "http", "command":
+		return false
+	default: // userpass (and anything the panel validated into it)
+		return true
+	}
+}
+
+func (h *Hysteria) isIdle() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.idle
+}
+
+func (h *Hysteria) setIdle(v bool) {
+	h.mu.Lock()
+	h.idle = v
+	h.mu.Unlock()
 }
 
 // newTrafficStatsSecret returns a fresh 32-byte hex secret. crypto/rand, not
@@ -162,10 +204,21 @@ func (h *Hysteria) Version() string {
 func (h *Hysteria) Started() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	// Idle is a deliberate not-running, not a crash: reporting false would make
+	// GetBackendStats fail the panel health check forever and re-arm the
+	// Start-retry loop this state exists to prevent. Uptime reads 0.
+	if h.idle {
+		return true
+	}
 	return h.core.Started()
 }
 
 func (h *Hysteria) Restart() error {
+	if h.isIdle() {
+		// Nothing to restart: the child is intentionally not running and the
+		// current config has no user to start for.
+		return nil
+	}
 	return h.restartCoreWithConfig(h.getConfig().Clone())
 }
 

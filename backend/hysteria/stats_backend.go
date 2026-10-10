@@ -80,6 +80,12 @@ func (h *Hysteria) GetStats(ctx context.Context, request *common.StatRequest) (*
 
 	reset := request.GetReset_()
 
+	// Idle core: the stats listener is not running (no child). Pending rows
+	// from before the last user left must still be billable; live is empty.
+	if h.isIdle() {
+		return h.mergePendingStats(nil, reset), nil
+	}
+
 	switch request.GetType() {
 	case common.StatType_UsersStat, common.StatType_UserStat:
 	default:
@@ -182,6 +188,10 @@ func sortStats(stats []*common.Stat) {
 // GetUserOnlineStats reads hysteria's /online map: id -> number of connected
 // client instances. This is a real online count, not sing-box's "unsupported".
 func (h *Hysteria) GetUserOnlineStats(ctx context.Context, email string) (*common.OnlineStatResponse, error) {
+	// Idle core: no child, so nobody can be online.
+	if h.isIdle() {
+		return &common.OnlineStatResponse{Name: email, Value: 0}, nil
+	}
 	handler, err := h.statsHandler()
 	if err != nil {
 		return nil, err
