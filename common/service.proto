@@ -256,93 +256,12 @@ message StopCore {
   uint64 core_id = 1;
 }
 
-// A tunnel node runs no proxy cores and holds no users (CONTRACT 1.7).
-// NODE_ROLE_PROXY is 0 so every row and every old peer keeps today's meaning.
-enum NodeRole {
-  NODE_ROLE_PROXY = 0;
-  NODE_ROLE_TUNNEL = 1;
-}
-
-// One tunnel's desired state, addressed by panel tunnels.id as a string
-// (CONTRACT 2). A tunnel is not a core: no core_id, no users, no stats.
-message TunnelSpec {
-  string tunnel_id = 1;
-  string tool = 2;
-  string tool_version = 3;
-  string side = 4;
-  map<string, string> params = 5;
-  // Secret *names* travel; values come from the node's environment at Start.
-  repeated string secret_names = 6;
-  bool enabled = 7;
-  // "relay" | "reverse" (CONTRACT 2.0); empty = the tool's default.
-  string mode = 8;
-}
-
-message TunnelStatus {
-  string tunnel_id = 1;
-  string state = 2;
-  string last_error = 3;
-  string version = 4;
-  uint64 uptime_seconds = 5;
-  uint64 bytes_up = 6;
-  uint64 bytes_down = 7;
-  // The port this side actually bound. The other end's peer/publish params are
-  // written from it, so a node that allocated its own port can tell the panel
-  // where to point the other side. 0 from a node that predates this field.
-  uint32 listen_port = 8;
-}
-
-message TunnelLog {
-  string tunnel_id = 1;
-  string level = 2;
-  int64 ts_unix_ms = 3;
-  string detail = 4;
-}
-
-message TunnelId {
-  string tunnel_id = 1;
-}
-
-message TunnelStatusList {
-  repeated TunnelStatus tunnels = 1;
-}
-
-// One params key the adapter owns. `required_for` entries are "<mode>:<side>"
-// ("relay:a"); a key with no entry is optional wherever it applies. The panel
-// sends ONE params map to both sides, so a field is required in the dialog
-// when any entry for the selected mode exists.
-message TunnelParamField {
-  string key = 1;
-  repeated string required_for = 2;
-  string help = 3;
-}
-
-message ToolSchema {
-  string tool = 1;
-  repeated TunnelParamField params = 2;
-}
-
-message TunnelSchemas {
-  repeated ToolSchema tools = 1;
-}
-
 // Service for node management and connection
 service NodeService {
   rpc Start (Backend) returns (BaseInfoResponse) {}
   rpc Stop (Empty) returns (Empty) {}
   rpc StopCore (service.StopCore) returns (Empty) {}
   rpc GetBaseInfo (Empty) returns (BaseInfoResponse) {}
-
-  // Phase 3 tunnels (CONTRACT 4.3). Additive: no existing rpc or message is
-  // touched. The node implements none of them until tunnel-framework lands;
-  // gRPC answering Unimplemented is the correct state in between.
-  rpc StartTunnel(TunnelSpec) returns (TunnelStatus) {}
-  rpc StopTunnel(TunnelId) returns (Empty) {}
-  rpc ListTunnels(Empty) returns (TunnelStatusList) {}
-  rpc GetTunnelLogs(Empty) returns (stream TunnelLog) {}
-  // The adapters' own params schema (glue-2): the UI generates its field
-  // inputs from this reply instead of hand-writing a form per tool.
-  rpc GetTunnelSchemas(Empty) returns (TunnelSchemas) {}
 
   rpc GetLogs (Empty) returns (stream Log) {}
   rpc SubscribeEvents (Empty) returns (stream NodeEvent) {}

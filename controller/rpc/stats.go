@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sync"
 
-	"github.com/pasarguard/node/backend/tunnel"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
@@ -19,12 +17,6 @@ import (
 type Service struct {
 	common.UnimplementedNodeServiceServer
 	controller.Controller
-
-	// tunnelMgr is the per-process tunnel manager (created lazily by
-	// Tunnels()); tunnelOnce guards it. Declared here because Service is
-	// defined here — the tunnel RPCs themselves live in tunnel.go.
-	tunnelMgr  *tunnel.Manager
-	tunnelOnce sync.Once
 }
 
 func New(cfg *config.Config) *Service {
@@ -35,16 +27,6 @@ func New(cfg *config.Config) *Service {
 
 func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
 	s := New(cfg)
-
-	// A tunnel comes back from config alone: every persisted tunnel is started
-	// before the first RPC can be served, so ListTunnels right after boot
-	// already reports it running (scope test 4). Failures are logged inside
-	// Restore and never take the node down.
-	if started, err := s.Tunnels().Restore(context.Background()); err != nil {
-		log.Printf("[Warning] tunnel restore: %v", err)
-	} else if started > 0 {
-		log.Printf("restored %d tunnel(s) from config", started)
-	}
 
 	creds := credentials.NewTLS(tlsConfig)
 

@@ -178,54 +178,6 @@ func (NodeEventType) EnumDescriptor() ([]byte, []int) {
 	return file_common_service_proto_rawDescGZIP(), []int{2}
 }
 
-// A tunnel node runs no proxy cores and holds no users (CONTRACT 1.7).
-// NODE_ROLE_PROXY is 0 so every row and every old peer keeps today's meaning.
-type NodeRole int32
-
-const (
-	NodeRole_NODE_ROLE_PROXY  NodeRole = 0
-	NodeRole_NODE_ROLE_TUNNEL NodeRole = 1
-)
-
-// Enum value maps for NodeRole.
-var (
-	NodeRole_name = map[int32]string{
-		0: "NODE_ROLE_PROXY",
-		1: "NODE_ROLE_TUNNEL",
-	}
-	NodeRole_value = map[string]int32{
-		"NODE_ROLE_PROXY":  0,
-		"NODE_ROLE_TUNNEL": 1,
-	}
-)
-
-func (x NodeRole) Enum() *NodeRole {
-	p := new(NodeRole)
-	*p = x
-	return p
-}
-
-func (x NodeRole) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (NodeRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_common_service_proto_enumTypes[3].Descriptor()
-}
-
-func (NodeRole) Type() protoreflect.EnumType {
-	return &file_common_service_proto_enumTypes[3]
-}
-
-func (x NodeRole) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use NodeRole.Descriptor instead.
-func (NodeRole) EnumDescriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{3}
-}
-
 type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2454,529 +2406,6 @@ func (x *StopCore) GetCoreId() uint64 {
 	return 0
 }
 
-// One tunnel's desired state, addressed by panel tunnels.id as a string
-// (CONTRACT 2). A tunnel is not a core: no core_id, no users, no stats.
-type TunnelSpec struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	TunnelId    string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	Tool        string                 `protobuf:"bytes,2,opt,name=tool,proto3" json:"tool,omitempty"`
-	ToolVersion string                 `protobuf:"bytes,3,opt,name=tool_version,json=toolVersion,proto3" json:"tool_version,omitempty"`
-	Side        string                 `protobuf:"bytes,4,opt,name=side,proto3" json:"side,omitempty"`
-	Params      map[string]string      `protobuf:"bytes,5,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Secret *names* travel; values come from the node's environment at Start.
-	SecretNames []string `protobuf:"bytes,6,rep,name=secret_names,json=secretNames,proto3" json:"secret_names,omitempty"`
-	Enabled     bool     `protobuf:"varint,7,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// "relay" | "reverse" (CONTRACT 2.0); empty = the tool's default.
-	Mode          string `protobuf:"bytes,8,opt,name=mode,proto3" json:"mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelSpec) Reset() {
-	*x = TunnelSpec{}
-	mi := &file_common_service_proto_msgTypes[36]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelSpec) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelSpec) ProtoMessage() {}
-
-func (x *TunnelSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[36]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelSpec.ProtoReflect.Descriptor instead.
-func (*TunnelSpec) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{36}
-}
-
-func (x *TunnelSpec) GetTunnelId() string {
-	if x != nil {
-		return x.TunnelId
-	}
-	return ""
-}
-
-func (x *TunnelSpec) GetTool() string {
-	if x != nil {
-		return x.Tool
-	}
-	return ""
-}
-
-func (x *TunnelSpec) GetToolVersion() string {
-	if x != nil {
-		return x.ToolVersion
-	}
-	return ""
-}
-
-func (x *TunnelSpec) GetSide() string {
-	if x != nil {
-		return x.Side
-	}
-	return ""
-}
-
-func (x *TunnelSpec) GetParams() map[string]string {
-	if x != nil {
-		return x.Params
-	}
-	return nil
-}
-
-func (x *TunnelSpec) GetSecretNames() []string {
-	if x != nil {
-		return x.SecretNames
-	}
-	return nil
-}
-
-func (x *TunnelSpec) GetEnabled() bool {
-	if x != nil {
-		return x.Enabled
-	}
-	return false
-}
-
-func (x *TunnelSpec) GetMode() string {
-	if x != nil {
-		return x.Mode
-	}
-	return ""
-}
-
-type TunnelStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
-	LastError     string                 `protobuf:"bytes,3,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	UptimeSeconds uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
-	BytesUp       uint64                 `protobuf:"varint,6,opt,name=bytes_up,json=bytesUp,proto3" json:"bytes_up,omitempty"`
-	BytesDown     uint64                 `protobuf:"varint,7,opt,name=bytes_down,json=bytesDown,proto3" json:"bytes_down,omitempty"`
-	// The port this side actually bound. The other end's peer/publish params are
-	// written from it, so a node that allocated its own port can tell the panel
-	// where to point the other side. 0 from a node that predates this field.
-	ListenPort    uint32 `protobuf:"varint,8,opt,name=listen_port,json=listenPort,proto3" json:"listen_port,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelStatus) Reset() {
-	*x = TunnelStatus{}
-	mi := &file_common_service_proto_msgTypes[37]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelStatus) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelStatus) ProtoMessage() {}
-
-func (x *TunnelStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[37]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelStatus.ProtoReflect.Descriptor instead.
-func (*TunnelStatus) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{37}
-}
-
-func (x *TunnelStatus) GetTunnelId() string {
-	if x != nil {
-		return x.TunnelId
-	}
-	return ""
-}
-
-func (x *TunnelStatus) GetState() string {
-	if x != nil {
-		return x.State
-	}
-	return ""
-}
-
-func (x *TunnelStatus) GetLastError() string {
-	if x != nil {
-		return x.LastError
-	}
-	return ""
-}
-
-func (x *TunnelStatus) GetVersion() string {
-	if x != nil {
-		return x.Version
-	}
-	return ""
-}
-
-func (x *TunnelStatus) GetUptimeSeconds() uint64 {
-	if x != nil {
-		return x.UptimeSeconds
-	}
-	return 0
-}
-
-func (x *TunnelStatus) GetBytesUp() uint64 {
-	if x != nil {
-		return x.BytesUp
-	}
-	return 0
-}
-
-func (x *TunnelStatus) GetBytesDown() uint64 {
-	if x != nil {
-		return x.BytesDown
-	}
-	return 0
-}
-
-func (x *TunnelStatus) GetListenPort() uint32 {
-	if x != nil {
-		return x.ListenPort
-	}
-	return 0
-}
-
-type TunnelLog struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	Level         string                 `protobuf:"bytes,2,opt,name=level,proto3" json:"level,omitempty"`
-	TsUnixMs      int64                  `protobuf:"varint,3,opt,name=ts_unix_ms,json=tsUnixMs,proto3" json:"ts_unix_ms,omitempty"`
-	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelLog) Reset() {
-	*x = TunnelLog{}
-	mi := &file_common_service_proto_msgTypes[38]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelLog) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelLog) ProtoMessage() {}
-
-func (x *TunnelLog) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[38]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelLog.ProtoReflect.Descriptor instead.
-func (*TunnelLog) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{38}
-}
-
-func (x *TunnelLog) GetTunnelId() string {
-	if x != nil {
-		return x.TunnelId
-	}
-	return ""
-}
-
-func (x *TunnelLog) GetLevel() string {
-	if x != nil {
-		return x.Level
-	}
-	return ""
-}
-
-func (x *TunnelLog) GetTsUnixMs() int64 {
-	if x != nil {
-		return x.TsUnixMs
-	}
-	return 0
-}
-
-func (x *TunnelLog) GetDetail() string {
-	if x != nil {
-		return x.Detail
-	}
-	return ""
-}
-
-type TunnelId struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TunnelId      string                 `protobuf:"bytes,1,opt,name=tunnel_id,json=tunnelId,proto3" json:"tunnel_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelId) Reset() {
-	*x = TunnelId{}
-	mi := &file_common_service_proto_msgTypes[39]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelId) ProtoMessage() {}
-
-func (x *TunnelId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[39]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelId.ProtoReflect.Descriptor instead.
-func (*TunnelId) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{39}
-}
-
-func (x *TunnelId) GetTunnelId() string {
-	if x != nil {
-		return x.TunnelId
-	}
-	return ""
-}
-
-type TunnelStatusList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tunnels       []*TunnelStatus        `protobuf:"bytes,1,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelStatusList) Reset() {
-	*x = TunnelStatusList{}
-	mi := &file_common_service_proto_msgTypes[40]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelStatusList) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelStatusList) ProtoMessage() {}
-
-func (x *TunnelStatusList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[40]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelStatusList.ProtoReflect.Descriptor instead.
-func (*TunnelStatusList) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{40}
-}
-
-func (x *TunnelStatusList) GetTunnels() []*TunnelStatus {
-	if x != nil {
-		return x.Tunnels
-	}
-	return nil
-}
-
-// One params key the adapter owns. `required_for` entries are "<mode>:<side>"
-// ("relay:a"); a key with no entry is optional wherever it applies. The panel
-// sends ONE params map to both sides, so a field is required in the dialog
-// when any entry for the selected mode exists.
-type TunnelParamField struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	RequiredFor   []string               `protobuf:"bytes,2,rep,name=required_for,json=requiredFor,proto3" json:"required_for,omitempty"`
-	Help          string                 `protobuf:"bytes,3,opt,name=help,proto3" json:"help,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelParamField) Reset() {
-	*x = TunnelParamField{}
-	mi := &file_common_service_proto_msgTypes[41]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelParamField) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelParamField) ProtoMessage() {}
-
-func (x *TunnelParamField) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[41]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelParamField.ProtoReflect.Descriptor instead.
-func (*TunnelParamField) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{41}
-}
-
-func (x *TunnelParamField) GetKey() string {
-	if x != nil {
-		return x.Key
-	}
-	return ""
-}
-
-func (x *TunnelParamField) GetRequiredFor() []string {
-	if x != nil {
-		return x.RequiredFor
-	}
-	return nil
-}
-
-func (x *TunnelParamField) GetHelp() string {
-	if x != nil {
-		return x.Help
-	}
-	return ""
-}
-
-type ToolSchema struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tool          string                 `protobuf:"bytes,1,opt,name=tool,proto3" json:"tool,omitempty"`
-	Params        []*TunnelParamField    `protobuf:"bytes,2,rep,name=params,proto3" json:"params,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ToolSchema) Reset() {
-	*x = ToolSchema{}
-	mi := &file_common_service_proto_msgTypes[42]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ToolSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ToolSchema) ProtoMessage() {}
-
-func (x *ToolSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[42]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ToolSchema.ProtoReflect.Descriptor instead.
-func (*ToolSchema) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{42}
-}
-
-func (x *ToolSchema) GetTool() string {
-	if x != nil {
-		return x.Tool
-	}
-	return ""
-}
-
-func (x *ToolSchema) GetParams() []*TunnelParamField {
-	if x != nil {
-		return x.Params
-	}
-	return nil
-}
-
-type TunnelSchemas struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tools         []*ToolSchema          `protobuf:"bytes,1,rep,name=tools,proto3" json:"tools,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TunnelSchemas) Reset() {
-	*x = TunnelSchemas{}
-	mi := &file_common_service_proto_msgTypes[43]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TunnelSchemas) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TunnelSchemas) ProtoMessage() {}
-
-func (x *TunnelSchemas) ProtoReflect() protoreflect.Message {
-	mi := &file_common_service_proto_msgTypes[43]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TunnelSchemas.ProtoReflect.Descriptor instead.
-func (*TunnelSchemas) Descriptor() ([]byte, []int) {
-	return file_common_service_proto_rawDescGZIP(), []int{43}
-}
-
-func (x *TunnelSchemas) GetTools() []*ToolSchema {
-	if x != nil {
-		return x.Tools
-	}
-	return nil
-}
-
 var File_common_service_proto protoreflect.FileDescriptor
 
 const file_common_service_proto_rawDesc = "" +
@@ -3151,52 +2580,7 @@ const file_common_service_proto_rawDesc = "" +
 	"\tremaining\x18\x03 \x01(\x03R\tremaining\x12\x17\n" +
 	"\acore_id\x18\x04 \x01(\x04R\x06coreId\"#\n" +
 	"\bStopCore\x12\x17\n" +
-	"\acore_id\x18\x01 \x01(\x04R\x06coreId\"\xb9\x02\n" +
-	"\n" +
-	"TunnelSpec\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x12\n" +
-	"\x04tool\x18\x02 \x01(\tR\x04tool\x12!\n" +
-	"\ftool_version\x18\x03 \x01(\tR\vtoolVersion\x12\x12\n" +
-	"\x04side\x18\x04 \x01(\tR\x04side\x127\n" +
-	"\x06params\x18\x05 \x03(\v2\x1f.service.TunnelSpec.ParamsEntryR\x06params\x12!\n" +
-	"\fsecret_names\x18\x06 \x03(\tR\vsecretNames\x12\x18\n" +
-	"\aenabled\x18\a \x01(\bR\aenabled\x12\x12\n" +
-	"\x04mode\x18\b \x01(\tR\x04mode\x1a9\n" +
-	"\vParamsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfc\x01\n" +
-	"\fTunnelStatus\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x14\n" +
-	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1d\n" +
-	"\n" +
-	"last_error\x18\x03 \x01(\tR\tlastError\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\x12%\n" +
-	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12\x19\n" +
-	"\bbytes_up\x18\x06 \x01(\x04R\abytesUp\x12\x1d\n" +
-	"\n" +
-	"bytes_down\x18\a \x01(\x04R\tbytesDown\x12\x1f\n" +
-	"\vlisten_port\x18\b \x01(\rR\n" +
-	"listenPort\"t\n" +
-	"\tTunnelLog\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\x12\x14\n" +
-	"\x05level\x18\x02 \x01(\tR\x05level\x12\x1c\n" +
-	"\n" +
-	"ts_unix_ms\x18\x03 \x01(\x03R\btsUnixMs\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail\"'\n" +
-	"\bTunnelId\x12\x1b\n" +
-	"\ttunnel_id\x18\x01 \x01(\tR\btunnelId\"C\n" +
-	"\x10TunnelStatusList\x12/\n" +
-	"\atunnels\x18\x01 \x03(\v2\x15.service.TunnelStatusR\atunnels\"[\n" +
-	"\x10TunnelParamField\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12!\n" +
-	"\frequired_for\x18\x02 \x03(\tR\vrequiredFor\x12\x12\n" +
-	"\x04help\x18\x03 \x01(\tR\x04help\"S\n" +
-	"\n" +
-	"ToolSchema\x12\x12\n" +
-	"\x04tool\x18\x01 \x01(\tR\x04tool\x121\n" +
-	"\x06params\x18\x02 \x03(\v2\x19.service.TunnelParamFieldR\x06params\":\n" +
-	"\rTunnelSchemas\x12)\n" +
-	"\x05tools\x18\x01 \x03(\v2\x13.service.ToolSchemaR\x05tools*B\n" +
+	"\acore_id\x18\x01 \x01(\x04R\x06coreId*B\n" +
 	"\vBackendType\x12\b\n" +
 	"\x04XRAY\x10\x00\x12\r\n" +
 	"\tWIREGUARD\x10\x01\x12\v\n" +
@@ -3211,21 +2595,13 @@ const file_common_service_proto_rawDesc = "" +
 	"\bUserStat\x10\x05*K\n" +
 	"\rNodeEventType\x12\x1a\n" +
 	"\x16NODE_EVENT_UNSPECIFIED\x10\x00\x12\x1e\n" +
-	"\x1aNODE_EVENT_QUOTA_EXHAUSTED\x10\x01*5\n" +
-	"\bNodeRole\x12\x13\n" +
-	"\x0fNODE_ROLE_PROXY\x10\x00\x12\x14\n" +
-	"\x10NODE_ROLE_TUNNEL\x10\x012\xeb\f\n" +
+	"\x1aNODE_EVENT_QUOTA_EXHAUSTED\x10\x012\xc8\n" +
+	"\n" +
 	"\vNodeService\x126\n" +
 	"\x05Start\x12\x10.service.Backend\x1a\x19.service.BaseInfoResponse\"\x00\x12(\n" +
 	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12/\n" +
 	"\bStopCore\x12\x11.service.StopCore\x1a\x0e.service.Empty\"\x00\x12:\n" +
-	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12;\n" +
-	"\vStartTunnel\x12\x13.service.TunnelSpec\x1a\x15.service.TunnelStatus\"\x00\x121\n" +
-	"\n" +
-	"StopTunnel\x12\x11.service.TunnelId\x1a\x0e.service.Empty\"\x00\x12:\n" +
-	"\vListTunnels\x12\x0e.service.Empty\x1a\x19.service.TunnelStatusList\"\x00\x127\n" +
-	"\rGetTunnelLogs\x12\x0e.service.Empty\x1a\x12.service.TunnelLog\"\x000\x01\x12<\n" +
-	"\x10GetTunnelSchemas\x12\x0e.service.Empty\x1a\x16.service.TunnelSchemas\"\x00\x12+\n" +
+	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12+\n" +
 	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x129\n" +
 	"\x0fSubscribeEvents\x12\x0e.service.Empty\x1a\x12.service.NodeEvent\"\x000\x01\x12@\n" +
 	"\x0eGetSystemStats\x12\x0e.service.Empty\x1a\x1c.service.SystemStatsResponse\"\x00\x12B\n" +
@@ -3256,143 +2632,119 @@ func file_common_service_proto_rawDescGZIP() []byte {
 	return file_common_service_proto_rawDescData
 }
 
-var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_common_service_proto_goTypes = []any{
 	(BackendType)(0),                      // 0: service.BackendType
 	(StatType)(0),                         // 1: service.StatType
 	(NodeEventType)(0),                    // 2: service.NodeEventType
-	(NodeRole)(0),                         // 3: service.NodeRole
-	(*Empty)(nil),                         // 4: service.Empty
-	(*CoreStatus)(nil),                    // 5: service.CoreStatus
-	(*BaseInfoResponse)(nil),              // 6: service.BaseInfoResponse
-	(*Backend)(nil),                       // 7: service.Backend
-	(*Log)(nil),                           // 8: service.Log
-	(*Stat)(nil),                          // 9: service.Stat
-	(*StatResponse)(nil),                  // 10: service.StatResponse
-	(*StatRequest)(nil),                   // 11: service.StatRequest
-	(*OnlineStatResponse)(nil),            // 12: service.OnlineStatResponse
-	(*StatsOnlineIpListResponse)(nil),     // 13: service.StatsOnlineIpListResponse
-	(*Latency)(nil),                       // 14: service.Latency
-	(*LatencyRequest)(nil),                // 15: service.LatencyRequest
-	(*LatencyResponse)(nil),               // 16: service.LatencyResponse
-	(*BackendStatsResponse)(nil),          // 17: service.BackendStatsResponse
-	(*SystemStatsResponse)(nil),           // 18: service.SystemStatsResponse
-	(*Vmess)(nil),                         // 19: service.Vmess
-	(*Vless)(nil),                         // 20: service.Vless
-	(*Trojan)(nil),                        // 21: service.Trojan
-	(*Shadowsocks)(nil),                   // 22: service.Shadowsocks
-	(*Wireguard)(nil),                     // 23: service.Wireguard
-	(*Hysteria)(nil),                      // 24: service.Hysteria
-	(*Proxy)(nil),                         // 25: service.Proxy
-	(*User)(nil),                          // 26: service.User
-	(*Users)(nil),                         // 27: service.Users
-	(*UsersChunk)(nil),                    // 28: service.UsersChunk
-	(*RoutingRule)(nil),                   // 29: service.RoutingRule
-	(*RoutingRulesResponse)(nil),          // 30: service.RoutingRulesResponse
-	(*BalancerInfoRequest)(nil),           // 31: service.BalancerInfoRequest
-	(*BalancerInfoResponse)(nil),          // 32: service.BalancerInfoResponse
-	(*TestRouteRequest)(nil),              // 33: service.TestRouteRequest
-	(*RouteResult)(nil),                   // 34: service.RouteResult
-	(*AddRoutingRuleRequest)(nil),         // 35: service.AddRoutingRuleRequest
-	(*RemoveRoutingRuleRequest)(nil),      // 36: service.RemoveRoutingRuleRequest
-	(*OverrideBalancerTargetRequest)(nil), // 37: service.OverrideBalancerTargetRequest
-	(*NodeEvent)(nil),                     // 38: service.NodeEvent
-	(*StopCore)(nil),                      // 39: service.StopCore
-	(*TunnelSpec)(nil),                    // 40: service.TunnelSpec
-	(*TunnelStatus)(nil),                  // 41: service.TunnelStatus
-	(*TunnelLog)(nil),                     // 42: service.TunnelLog
-	(*TunnelId)(nil),                      // 43: service.TunnelId
-	(*TunnelStatusList)(nil),              // 44: service.TunnelStatusList
-	(*TunnelParamField)(nil),              // 45: service.TunnelParamField
-	(*ToolSchema)(nil),                    // 46: service.ToolSchema
-	(*TunnelSchemas)(nil),                 // 47: service.TunnelSchemas
-	nil,                                   // 48: service.StatsOnlineIpListResponse.IpsEntry
-	nil,                                   // 49: service.TestRouteRequest.AttributesEntry
-	nil,                                   // 50: service.TunnelSpec.ParamsEntry
+	(*Empty)(nil),                         // 3: service.Empty
+	(*CoreStatus)(nil),                    // 4: service.CoreStatus
+	(*BaseInfoResponse)(nil),              // 5: service.BaseInfoResponse
+	(*Backend)(nil),                       // 6: service.Backend
+	(*Log)(nil),                           // 7: service.Log
+	(*Stat)(nil),                          // 8: service.Stat
+	(*StatResponse)(nil),                  // 9: service.StatResponse
+	(*StatRequest)(nil),                   // 10: service.StatRequest
+	(*OnlineStatResponse)(nil),            // 11: service.OnlineStatResponse
+	(*StatsOnlineIpListResponse)(nil),     // 12: service.StatsOnlineIpListResponse
+	(*Latency)(nil),                       // 13: service.Latency
+	(*LatencyRequest)(nil),                // 14: service.LatencyRequest
+	(*LatencyResponse)(nil),               // 15: service.LatencyResponse
+	(*BackendStatsResponse)(nil),          // 16: service.BackendStatsResponse
+	(*SystemStatsResponse)(nil),           // 17: service.SystemStatsResponse
+	(*Vmess)(nil),                         // 18: service.Vmess
+	(*Vless)(nil),                         // 19: service.Vless
+	(*Trojan)(nil),                        // 20: service.Trojan
+	(*Shadowsocks)(nil),                   // 21: service.Shadowsocks
+	(*Wireguard)(nil),                     // 22: service.Wireguard
+	(*Hysteria)(nil),                      // 23: service.Hysteria
+	(*Proxy)(nil),                         // 24: service.Proxy
+	(*User)(nil),                          // 25: service.User
+	(*Users)(nil),                         // 26: service.Users
+	(*UsersChunk)(nil),                    // 27: service.UsersChunk
+	(*RoutingRule)(nil),                   // 28: service.RoutingRule
+	(*RoutingRulesResponse)(nil),          // 29: service.RoutingRulesResponse
+	(*BalancerInfoRequest)(nil),           // 30: service.BalancerInfoRequest
+	(*BalancerInfoResponse)(nil),          // 31: service.BalancerInfoResponse
+	(*TestRouteRequest)(nil),              // 32: service.TestRouteRequest
+	(*RouteResult)(nil),                   // 33: service.RouteResult
+	(*AddRoutingRuleRequest)(nil),         // 34: service.AddRoutingRuleRequest
+	(*RemoveRoutingRuleRequest)(nil),      // 35: service.RemoveRoutingRuleRequest
+	(*OverrideBalancerTargetRequest)(nil), // 36: service.OverrideBalancerTargetRequest
+	(*NodeEvent)(nil),                     // 37: service.NodeEvent
+	(*StopCore)(nil),                      // 38: service.StopCore
+	nil,                                   // 39: service.StatsOnlineIpListResponse.IpsEntry
+	nil,                                   // 40: service.TestRouteRequest.AttributesEntry
 }
 var file_common_service_proto_depIdxs = []int32{
 	0,  // 0: service.CoreStatus.type:type_name -> service.BackendType
-	5,  // 1: service.BaseInfoResponse.cores:type_name -> service.CoreStatus
+	4,  // 1: service.BaseInfoResponse.cores:type_name -> service.CoreStatus
 	0,  // 2: service.Backend.type:type_name -> service.BackendType
-	26, // 3: service.Backend.users:type_name -> service.User
-	9,  // 4: service.StatResponse.stats:type_name -> service.Stat
+	25, // 3: service.Backend.users:type_name -> service.User
+	8,  // 4: service.StatResponse.stats:type_name -> service.Stat
 	1,  // 5: service.StatRequest.type:type_name -> service.StatType
-	48, // 6: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
-	14, // 7: service.LatencyResponse.latencies:type_name -> service.Latency
-	19, // 8: service.Proxy.vmess:type_name -> service.Vmess
-	20, // 9: service.Proxy.vless:type_name -> service.Vless
-	21, // 10: service.Proxy.trojan:type_name -> service.Trojan
-	22, // 11: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
-	23, // 12: service.Proxy.wireguard:type_name -> service.Wireguard
-	24, // 13: service.Proxy.hysteria:type_name -> service.Hysteria
-	25, // 14: service.User.proxies:type_name -> service.Proxy
-	26, // 15: service.Users.users:type_name -> service.User
-	26, // 16: service.UsersChunk.users:type_name -> service.User
-	29, // 17: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
-	49, // 18: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
+	39, // 6: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
+	13, // 7: service.LatencyResponse.latencies:type_name -> service.Latency
+	18, // 8: service.Proxy.vmess:type_name -> service.Vmess
+	19, // 9: service.Proxy.vless:type_name -> service.Vless
+	20, // 10: service.Proxy.trojan:type_name -> service.Trojan
+	21, // 11: service.Proxy.shadowsocks:type_name -> service.Shadowsocks
+	22, // 12: service.Proxy.wireguard:type_name -> service.Wireguard
+	23, // 13: service.Proxy.hysteria:type_name -> service.Hysteria
+	24, // 14: service.User.proxies:type_name -> service.Proxy
+	25, // 15: service.Users.users:type_name -> service.User
+	25, // 16: service.UsersChunk.users:type_name -> service.User
+	28, // 17: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
+	40, // 18: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
 	2,  // 19: service.NodeEvent.type:type_name -> service.NodeEventType
-	50, // 20: service.TunnelSpec.params:type_name -> service.TunnelSpec.ParamsEntry
-	41, // 21: service.TunnelStatusList.tunnels:type_name -> service.TunnelStatus
-	45, // 22: service.ToolSchema.params:type_name -> service.TunnelParamField
-	46, // 23: service.TunnelSchemas.tools:type_name -> service.ToolSchema
-	7,  // 24: service.NodeService.Start:input_type -> service.Backend
-	4,  // 25: service.NodeService.Stop:input_type -> service.Empty
-	39, // 26: service.NodeService.StopCore:input_type -> service.StopCore
-	4,  // 27: service.NodeService.GetBaseInfo:input_type -> service.Empty
-	40, // 28: service.NodeService.StartTunnel:input_type -> service.TunnelSpec
-	43, // 29: service.NodeService.StopTunnel:input_type -> service.TunnelId
-	4,  // 30: service.NodeService.ListTunnels:input_type -> service.Empty
-	4,  // 31: service.NodeService.GetTunnelLogs:input_type -> service.Empty
-	4,  // 32: service.NodeService.GetTunnelSchemas:input_type -> service.Empty
-	4,  // 33: service.NodeService.GetLogs:input_type -> service.Empty
-	4,  // 34: service.NodeService.SubscribeEvents:input_type -> service.Empty
-	4,  // 35: service.NodeService.GetSystemStats:input_type -> service.Empty
-	4,  // 36: service.NodeService.GetBackendStats:input_type -> service.Empty
-	11, // 37: service.NodeService.GetStats:input_type -> service.StatRequest
-	15, // 38: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
-	11, // 39: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
-	11, // 40: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
-	26, // 41: service.NodeService.SyncUser:input_type -> service.User
-	27, // 42: service.NodeService.SyncUsers:input_type -> service.Users
-	28, // 43: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
-	4,  // 44: service.NodeService.ListRoutingRules:input_type -> service.Empty
-	31, // 45: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
-	33, // 46: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
-	35, // 47: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
-	36, // 48: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
-	37, // 49: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
-	6,  // 50: service.NodeService.Start:output_type -> service.BaseInfoResponse
-	4,  // 51: service.NodeService.Stop:output_type -> service.Empty
-	4,  // 52: service.NodeService.StopCore:output_type -> service.Empty
-	6,  // 53: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
-	41, // 54: service.NodeService.StartTunnel:output_type -> service.TunnelStatus
-	4,  // 55: service.NodeService.StopTunnel:output_type -> service.Empty
-	44, // 56: service.NodeService.ListTunnels:output_type -> service.TunnelStatusList
-	42, // 57: service.NodeService.GetTunnelLogs:output_type -> service.TunnelLog
-	47, // 58: service.NodeService.GetTunnelSchemas:output_type -> service.TunnelSchemas
-	8,  // 59: service.NodeService.GetLogs:output_type -> service.Log
-	38, // 60: service.NodeService.SubscribeEvents:output_type -> service.NodeEvent
-	18, // 61: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
-	17, // 62: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
-	10, // 63: service.NodeService.GetStats:output_type -> service.StatResponse
-	16, // 64: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
-	12, // 65: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
-	13, // 66: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
-	4,  // 67: service.NodeService.SyncUser:output_type -> service.Empty
-	4,  // 68: service.NodeService.SyncUsers:output_type -> service.Empty
-	4,  // 69: service.NodeService.SyncUsersChunked:output_type -> service.Empty
-	30, // 70: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
-	32, // 71: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
-	34, // 72: service.NodeService.TestRoute:output_type -> service.RouteResult
-	4,  // 73: service.NodeService.AddRoutingRule:output_type -> service.Empty
-	4,  // 74: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
-	4,  // 75: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
-	50, // [50:76] is the sub-list for method output_type
-	24, // [24:50] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	6,  // 20: service.NodeService.Start:input_type -> service.Backend
+	3,  // 21: service.NodeService.Stop:input_type -> service.Empty
+	38, // 22: service.NodeService.StopCore:input_type -> service.StopCore
+	3,  // 23: service.NodeService.GetBaseInfo:input_type -> service.Empty
+	3,  // 24: service.NodeService.GetLogs:input_type -> service.Empty
+	3,  // 25: service.NodeService.SubscribeEvents:input_type -> service.Empty
+	3,  // 26: service.NodeService.GetSystemStats:input_type -> service.Empty
+	3,  // 27: service.NodeService.GetBackendStats:input_type -> service.Empty
+	10, // 28: service.NodeService.GetStats:input_type -> service.StatRequest
+	14, // 29: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
+	10, // 30: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
+	10, // 31: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
+	25, // 32: service.NodeService.SyncUser:input_type -> service.User
+	26, // 33: service.NodeService.SyncUsers:input_type -> service.Users
+	27, // 34: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
+	3,  // 35: service.NodeService.ListRoutingRules:input_type -> service.Empty
+	30, // 36: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
+	32, // 37: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
+	34, // 38: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
+	35, // 39: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
+	36, // 40: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
+	5,  // 41: service.NodeService.Start:output_type -> service.BaseInfoResponse
+	3,  // 42: service.NodeService.Stop:output_type -> service.Empty
+	3,  // 43: service.NodeService.StopCore:output_type -> service.Empty
+	5,  // 44: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
+	7,  // 45: service.NodeService.GetLogs:output_type -> service.Log
+	37, // 46: service.NodeService.SubscribeEvents:output_type -> service.NodeEvent
+	17, // 47: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
+	16, // 48: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
+	9,  // 49: service.NodeService.GetStats:output_type -> service.StatResponse
+	15, // 50: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
+	11, // 51: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
+	12, // 52: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
+	3,  // 53: service.NodeService.SyncUser:output_type -> service.Empty
+	3,  // 54: service.NodeService.SyncUsers:output_type -> service.Empty
+	3,  // 55: service.NodeService.SyncUsersChunked:output_type -> service.Empty
+	29, // 56: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
+	31, // 57: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
+	33, // 58: service.NodeService.TestRoute:output_type -> service.RouteResult
+	3,  // 59: service.NodeService.AddRoutingRule:output_type -> service.Empty
+	3,  // 60: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
+	3,  // 61: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
+	41, // [41:62] is the sub-list for method output_type
+	20, // [20:41] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_common_service_proto_init() }
@@ -3405,8 +2757,8 @@ func file_common_service_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_service_proto_rawDesc), len(file_common_service_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   47,
+			NumEnums:      3,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

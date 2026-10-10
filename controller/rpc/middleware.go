@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/pasarguard/node/backend/tunnel"
 	"github.com/pasarguard/node/common"
 )
 
@@ -296,60 +295,6 @@ var aggregateMethods = map[string]bool{
 	"/service.NodeService/GetStats": true,
 }
 
-// startMethod is Start, which is deliberately NOT in backendMethods: it was
-// never gated on a running core, because the very first Start would then fail.
-// A tunnel node still has to refuse it (CONTRACT §1.7), so the role gate below
-// names it explicitly.
-const startMethod = "/service.NodeService/Start"
-
-// RoleMiddleware refuses the core-facing RPCs on a tunnel node with the
-// reason, instead of the "backend not initialized" the core gate would answer
-// for a core that must never exist there (Phase 1 defect #2: every unary RPC
-// was gated on the default core, which a tunnel node does not have).
-//
-// It runs after the API-key check — an unauthenticated caller learns nothing
-// about the node's role — and before the core gate, so the message the panel
-// sees is the role, not a missing backend. Tunnel RPCs (StartTunnel,
-// StopTunnel, ListTunnels, GetTunnelLogs) are not in this set and pass.
-func RoleMiddleware(s *Service) grpc.UnaryServerInterceptor {
-	return func(
-		ctx context.Context,
-		req any,
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (any, error) {
-		if err := roleRefusal(s, info.FullMethod); err != nil {
-			return nil, err
-		}
-		return handler(ctx, req)
-	}
-}
-
-// RoleStreamMiddleware is the stream half of RoleMiddleware.
-func RoleStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
-	return func(
-		srv any,
-		ss grpc.ServerStream,
-		info *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
-	) error {
-		if err := roleRefusal(s, info.FullMethod); err != nil {
-			return err
-		}
-		return handler(srv, ss)
-	}
-}
-
-func roleRefusal(s *Service, fullMethod string) error {
-	if s.Role() != common.NodeRole_NODE_ROLE_TUNNEL {
-		return nil
-	}
-	if backendMethods[fullMethod] || fullMethod == startMethod {
-		return status.Errorf(codes.FailedPrecondition, "%s", tunnel.ErrRoleRefused)
-	}
-	return nil
-}
-
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -362,8 +307,6 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 		interceptors = append(interceptors, LoggingInterceptor(s))
 
 		interceptors = append(interceptors, validateApiKeyMiddleware(s))
-
-		interceptors = append(interceptors, RoleMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			if aggregateMethods[info.FullMethod] {
@@ -390,8 +333,6 @@ func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 		interceptors = append(interceptors, LoggingStreamInterceptor(s))
 
 		interceptors = append(interceptors, validateApiKeyStreamMiddleware(s))
-
-		interceptors = append(interceptors, RoleStreamMiddleware(s))
 
 		if backendMethods[info.FullMethod] {
 			interceptors = append(interceptors, CheckBackendStreamMiddleware(s))

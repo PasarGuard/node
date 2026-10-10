@@ -14,7 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
-	"github.com/pasarguard/node/backend/tunnel"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/netutil"
@@ -26,24 +25,6 @@ import (
 	_ "github.com/pasarguard/node/backend/singbox"
 	_ "github.com/pasarguard/node/backend/wireguard"
 	_ "github.com/pasarguard/node/backend/xray"
-
-	// The reference tunnel adapter registers itself the same way, so every
-	// binary built on this controller can start a plain tunnel (CONTRACT §2).
-	_ "github.com/pasarguard/node/backend/tunnel/plain"
-
-	// The six pinned-binary tunnel adapters, same seam. Without these the
-	// shipped node has only `plain` registered and every Start of a real tool
-	// fails ErrUnknownTool — each tool's own test imports its package, so the
-	// gap was invisible until the whole binary was asked for a gost tunnel.
-	_ "github.com/pasarguard/node/backend/tunnel/amnezia"
-	_ "github.com/pasarguard/node/backend/tunnel/backhaul"
-	_ "github.com/pasarguard/node/backend/tunnel/chisel"
-	_ "github.com/pasarguard/node/backend/tunnel/frp"
-	_ "github.com/pasarguard/node/backend/tunnel/gost"
-	_ "github.com/pasarguard/node/backend/tunnel/rathole"
-	_ "github.com/pasarguard/node/backend/tunnel/udp2raw"
-	_ "github.com/pasarguard/node/backend/tunnel/wireguard"
-	_ "github.com/pasarguard/node/backend/tunnel/wstunnel"
 )
 
 const NodeVersion = "0.5.4"
@@ -143,23 +124,6 @@ func (c *Controller) ApiKey() uuid.UUID {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.cfg.ApiKey
-}
-
-// Role is the node's role (CONTRACT §1.7). The RPC middleware gates on it so
-// a tunnel node answers with a reason instead of "backend not initialized".
-func (c *Controller) Role() common.NodeRole {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.cfg.Role
-}
-
-// Config exposes the node config the controller was built with, so the RPC
-// layer can point the tunnel manager at GeneratedConfigPath without a second
-// copy of the config living in two places.
-func (c *Controller) Config() *config.Config {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.cfg
 }
 
 // Connect starts the node-level stats collector and refreshes the node's own
@@ -378,14 +342,6 @@ func sameUserSet(active, incoming []*common.User) bool {
 //
 // Caller must hold LockControl(data.core_id).
 func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
-	// Root-cause guard for the tunnel role (CONTRACT §1.7): a tunnel node
-	// runs no proxy core and holds no users, so Start is refused here for
-	// every transport — the gRPC middleware answers with the same error and a
-	// FailedPrecondition code before it gets this far, and REST /start lands
-	// here directly. One refusal, not one per caller.
-	if c.cfg.IsTunnelRole() {
-		return tunnel.ErrRoleRefused
-	}
 	id := normalizeCoreID(data.GetCoreId())
 	co := c.ensureCore(id)
 
@@ -541,12 +497,6 @@ func (c *Controller) CoreIDOf(b backend.Backend) uint64 {
 // EachBackend calls fn on every running core. A user sync with no core_id
 // broadcasts: every core keeps the subset whose inbounds match.
 func (c *Controller) EachBackend(fn func(id uint64, b backend.Backend) error) error {
-	// Backstop for the tunnel role: a user sync on a tunnel node is refused
-	// with the reason, not with "backend not initialized" — no core will ever
-	// exist there to make that message true.
-	if c.cfg.IsTunnelRole() {
-		return tunnel.ErrRoleRefused
-	}
 	refs := c.StartedCores()
 	if len(refs) == 0 {
 		return errNoCoreRunning

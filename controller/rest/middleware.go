@@ -6,9 +6,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-
-	"github.com/pasarguard/node/backend/tunnel"
-	"github.com/pasarguard/node/common"
 )
 
 func (s *Service) validateApiKey(next http.Handler) http.Handler {
@@ -56,14 +53,6 @@ func (s *Service) validateApiKey(next http.Handler) http.Handler {
 // question — REST has no /events route either (CONTRACT §3.3).
 func (s *Service) checkBackendMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The tunnel role answers with its reason (CONTRACT §1.7) instead of
-		// "backend not initialized" — a message that would be true only if a
-		// core were supposed to exist here, which is exactly what a tunnel
-		// node must not have. Same gate the gRPC middleware applies.
-		if s.Role() == common.NodeRole_NODE_ROLE_TUNNEL {
-			http.Error(w, tunnel.ErrRoleRefused.Error(), http.StatusForbidden)
-			return
-		}
 		back := s.Backend()
 		if back == nil {
 			http.Error(w, "backend not initialized", http.StatusInternalServerError)
