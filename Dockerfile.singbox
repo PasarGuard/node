@@ -40,15 +40,29 @@ RUN test -f /src/patches/singbox/0001-pasarguard-user-quota.patch && \
     grep -q "quota-v1" experimental/v2rayapi/quota.go && \
     echo "quota patch applied at level ${QUOTA_PATCH_LEVEL}"
 
+# The version string carries the full source identity -- src.<rev> (the pin),
+# tree.<git write-tree of the index = pin + staged patch>) and patch.<sha256
+# of the stored patch file> -- so verify-on-server.sh can prove the bytes came
+# from exactly the reviewed tree (RELEASE.md section 1). -buildvcs=false:
+# without it the Revision line comes from whatever git repo the build can
+# walk up to.
 RUN cd /tmp/sing-box-src && \
+    git add -A && \
+    REV="$(git rev-parse HEAD)" && \
+    TREE="$(git write-tree)" && \
+    PATCH_SHA="$(sha256sum /src/patches/singbox/0001-pasarguard-user-quota.patch | cut -d' ' -f1)" && \
+    VERSION="${SINGBOX_VERSION}-${QUOTA_PATCH_LEVEL}+src.${REV}+tree.${TREE}+patch.${PATCH_SHA}" && \
+    echo "building version ${VERSION}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+      -buildvcs=false \
       -tags "with_v2ray_api,with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" \
-      -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${SINGBOX_VERSION}-${QUOTA_PATCH_LEVEL}' -s -w" \
+      -ldflags "-X 'github.com/sagernet/sing-box/constant.Version=${VERSION}' -s -w" \
       -o sing-box ./cmd/sing-box && \
     if [ "$(go env GOARCH)" = "${TARGETARCH}" ] && [ "$(go env GOOS)" = "${TARGETOS}" ]; then \
       ./sing-box version && \
       ./sing-box version | grep -F "with_v2ray_api" || { echo "built binary is missing with_v2ray_api"; exit 1; }; \
       ./sing-box version | grep -F "${QUOTA_PATCH_LEVEL}" || { echo "built binary is missing the quota patch"; exit 1; }; \
+      ./sing-box version | grep -F "tree." || { echo "built binary carries no tree identity"; exit 1; }; \
     else \
       echo "skipping binary smoke check (cross-build ${TARGETOS}/${TARGETARCH})"; \
     fi
