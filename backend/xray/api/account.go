@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/serial"
 	hysteria "github.com/xtls/xray-core/proxy/hysteria/account"
+	"github.com/xtls/xray-core/proxy/masque"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -198,6 +199,22 @@ func NewHysteriaAccount(user *common.User) *HysteriaAccount {
 	}
 }
 
+type MasqueAccount struct {
+	BaseAccount
+	Pass string `json:"pass"`
+}
+
+func (ma *MasqueAccount) Message() (*serial.TypedMessage, error) {
+	return ToTypedMessage(&masque.Account{Password: ma.Pass})
+}
+
+func NewMasqueAccount(user *common.User) *MasqueAccount {
+	return &MasqueAccount{
+		BaseAccount: BaseAccount{Email: user.GetEmail(), Level: 0},
+		Pass:        user.GetProxies().GetMasque().GetPass(),
+	}
+}
+
 type ProxySettings struct {
 	Vmess           *VmessAccount
 	Vless           *VlessAccount
@@ -205,4 +222,5 @@ type ProxySettings struct {
 	Shadowsocks     *ShadowsocksTcpAccount
 	Shadowsocks2022 *ShadowsocksAccount
 	Hysteria        *HysteriaAccount
+	Masque          *MasqueAccount
 }
