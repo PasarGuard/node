@@ -35,3 +35,6 @@ superpowers/
 certs/
 generated/
 pasarguard-node*
+
+# offline vendored module trees (see offline/README.md, make-offline-vendor.sh)
+offline/*.tar.gz

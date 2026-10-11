@@ -1,0 +1,40 @@
+# One node image carrying all three cores the multi-core runtime can start:
+# xray (already in the base), sing-box (the quota-patched build) and hysteria2
+# (the pinned release binary).
+#
+# Why this exists: Dockerfile ships xray only, Dockerfile.singbox and
+# Dockerfile.hysteria each ship node + exactly one other core — an operator who
+# wants the panel to assign any of the three to one node needs all three
+# present. Same supply chain as the images it composes: the sing-box binary
+# comes from the image Dockerfile.singbox produced (whose own pins are checked
+# at that build), and hysteria is downloaded and sha256-verified here against
+# the pin recorded in docs/multi/UPSTREAM.md.
+#
+# amd64 only: the hysteria pin below is the linux/amd64 asset. An unpinned
+# architecture is refused rather than downloaded unverified.
+#
+# Build order (same host, same docker daemon):
+#   docker buildx build -t pasarguard/node:test            -f Dockerfile .
+#   docker buildx build -t pasarguard-node-quota:test      -f Dockerfile.singbox .
+#   docker buildx build -t pasarguard/node-multi-core:test -f Dockerfile.multi-core .
+FROM pasarguard/node:test
+
+ARG HYSTERIA_VERSION=2.13.0
+# sha256 of hysteria-linux-amd64 for app/v2.13.0 (docs/multi/UPSTREAM.md:15)
+ARG HYSTERIA_SHA256=907ba8c9693edb104b20582681fb7dc15639d5b64a9cbb616a7b539190a86691
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl && \
+    curl -fsSL -o /usr/local/bin/hysteria \
+      "https://github.com/HyNetworks/hysteria/releases/download/app/v${HYSTERIA_VERSION}/hysteria-linux-amd64" && \
+    echo "${HYSTERIA_SHA256}  /usr/local/bin/hysteria" | sha256sum -c - && \
+    chmod +x /usr/local/bin/hysteria && \
+    apk del curl
+
+COPY --from=pasarguard-node-quota:test /usr/local/bin/sing-box /usr/local/bin/sing-box
+
+# Fail here, not at container start, if either binary is missing or unpinned.
+RUN /usr/local/bin/sing-box version | grep -F "with_v2ray_api" && \
+    /usr/local/bin/sing-box version | grep -F "quota-v1" && \
+    /usr/local/bin/hysteria version | grep -F "v${HYSTERIA_VERSION}" && \
+    echo "all three cores present: xray + sing-box(quota-v1) + hysteria v${HYSTERIA_VERSION}"

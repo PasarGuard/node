@@ -30,7 +30,9 @@ ARG TARGETARCH
 # go's module proxy, overridable: some networks get 403s from
 # proxy.golang.org (a plain curl to it may still look fine), and go treats a
 # 403 as fatal rather than falling back to `direct` the way it falls back on
-# 404. `--build-arg GOPROXY=direct` fetches from the upstream VCS instead.
+# 404. `--build-arg GOPROXY=direct` fetches from the upstream VCS instead, and
+# `--build-arg GOPROXY=off` disables the proxy entirely — only usable together
+# with the offline/ vendor trees (make-offline-vendor.sh).
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 ARG SINGBOX_VERSION=1.14.2
@@ -55,10 +57,23 @@ RUN apk add --no-cache make git
 WORKDIR /src
 
 COPY go* .
-RUN go mod download
+# Optional offline path: `make-offline-vendor.sh` drops node-vendor.tar.gz
+# here (a `go mod vendor` tree of THIS module). Present, the modules come from
+# the tarball and the proxy is never contacted; absent, `go mod download` runs
+# exactly as it always has.
+COPY offline/ /offline/
+RUN if [ -f /offline/node-vendor.tar.gz ]; then \
+      echo "offline: node modules from /offline/node-vendor.tar.gz" && \
+      tar -xzf /offline/node-vendor.tar.gz -C /src && \
+      test -f /src/vendor/modules.txt; \
+    else \
+      go mod download; \
+    fi
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
+# -mod=vendor makes the go tool read /src/vendor and ignore GOPROXY entirely.
+RUN export GOFLAGS="$([ -d /src/vendor ] && echo -mod=vendor)"; \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 
 # DL3003 ignored on purpose: WORKDIR cannot express "clone into /tmp, then
 # build from there while /src stays the module root" — the cd's are the point.
@@ -89,6 +104,11 @@ RUN test -f /src/patches/singbox/0001-pasarguard-user-quota.patch && \
 # from exactly the reviewed tree (RELEASE.md section 1). -buildvcs=false:
 # without it the Revision line comes from whatever git repo the build can
 # walk up to.
+#
+# The optional offline/ vendor tree is extracted AFTER `git add -A` /
+# `git write-tree`, on purpose: a vendored tree in the index would change
+# tree.<hash>, and so would change the stamped identity of an otherwise
+# identical binary.
 # DL3003 ignored as above; SC2015 ignored on purpose: in `grep … || { echo;
 # exit 1; }` the short-circuit shape IS the failure path — a failed grep must
 # abort, which is what the braces do.
@@ -100,6 +120,12 @@ RUN cd /tmp/sing-box-src && \
     PATCH_SHA="$(sha256sum /src/patches/singbox/0001-pasarguard-user-quota.patch | cut -d' ' -f1)" && \
     VERSION="${SINGBOX_VERSION}-${QUOTA_PATCH_LEVEL}+src.${REV}+tree.${TREE}+patch.${PATCH_SHA}" && \
     echo "building version ${VERSION}" && \
+    if [ -f /src/offline/singbox-vendor.tar.gz ]; then \
+      echo "offline: sing-box modules from /src/offline/singbox-vendor.tar.gz" && \
+      tar -xzf /src/offline/singbox-vendor.tar.gz -C /tmp/sing-box-src && \
+      test -f /tmp/sing-box-src/vendor/modules.txt && \
+      export GOFLAGS=-mod=vendor; \
+    fi && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
       -buildvcs=false \
       -tags "with_v2ray_api,with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_tailscale" \
