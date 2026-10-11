@@ -235,20 +235,49 @@ func TestUpdateUsersRetriesWireguardRemovalBeforeReplacement(t *testing.T) {
 }
 
 func TestSyncUserRejectsInvalidWireguardSettingsWithoutRemovingPeer(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		invalid *common.User
+	}{
+		{"invalid key", wireguardUser("1.alice", "invalid-key", "")},
+		{"malformed peer IP", wireguardUser("1.alice", wireguardKey(0x11), "", "not-a-cidr")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x, service := newWireguardXray(t)
+			ctx := syncContext(t)
+			user := wireguardUser("1.alice", wireguardKey(0x11), "")
+			if err := x.SyncUser(ctx, user); err != nil {
+				t.Fatal(err)
+			}
+			service.takeOrdered()
+
+			if err := x.SyncUser(ctx, tc.invalid); err == nil {
+				t.Fatal("expected invalid WireGuard account error")
+			}
+			assertOrdered(t, service.takeOrdered())
+			if got := x.config.InboundConfigs[0].clients[user.Email].(*api.WireguardAccount).PublicKey; got != strings.Repeat("11", 32) {
+				t.Fatalf("cached key after invalid update = %s", got)
+			}
+		})
+	}
+}
+
+func TestSyncUserRemovesWireguardPeerWithValidIPOutsideInbound(t *testing.T) {
 	x, service := newWireguardXray(t)
+	x.config.InboundConfigs[0].Settings["address"] = []any{"10.0.0.1/24"}
 	ctx := syncContext(t)
-	user := wireguardUser("1.alice", wireguardKey(0x11), "")
+	user := wireguardUser("1.alice", wireguardKey(0x11), "", "10.0.0.2/32")
 	if err := x.SyncUser(ctx, user); err != nil {
 		t.Fatal(err)
 	}
 	service.takeOrdered()
 
-	invalid := wireguardUser(user.Email, "invalid-key", "")
-	if err := x.SyncUser(ctx, invalid); err == nil {
-		t.Fatal("expected invalid WireGuard account error")
+	outside := wireguardUser(user.Email, wireguardKey(0x11), "", "10.1.0.2/32")
+	if err := x.SyncUser(ctx, outside); err != nil {
+		t.Fatal(err)
 	}
-	assertOrdered(t, service.takeOrdered())
-	if got := x.config.InboundConfigs[0].clients[user.Email].(*api.WireguardAccount).PublicKey; got != strings.Repeat("11", 32) {
-		t.Fatalf("cached key after invalid update = %s", got)
+	assertOrdered(t, service.takeOrdered(), "wg:remove")
+	if _, ok := x.config.InboundConfigs[0].clients[user.Email]; ok {
+		t.Fatal("peer remained cached after leaving the inbound subnet")
 	}
 }

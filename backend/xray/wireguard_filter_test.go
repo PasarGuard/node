@@ -103,3 +103,37 @@ func TestWireguardInboundWithoutAddressKeepsPeerIPs(t *testing.T) {
 		t.Fatalf("filtered account = %#v, accepted = %t", filtered, ok)
 	}
 }
+
+func TestWireguardInboundAddressFormats(t *testing.T) {
+	account := &api.WireguardAccount{AllowedIPs: []string{
+		"10.10.0.1/32", "10.10.0.2/32", "fd10::1/128", "fd10::2/128",
+	}}
+	for _, tc := range []struct {
+		name    string
+		address any
+		want    []string
+	}{
+		{"JSON IPv4 host", []any{"10.10.0.1"}, []string{"10.10.0.1/32"}},
+		{"JSON IPv6 host", []any{"fd10::1"}, []string{"fd10::1/128"}},
+		{"string IPv4 host", []string{"10.10.0.1"}, []string{"10.10.0.1/32"}},
+		{"string IPv6 host", []string{"fd10::1"}, []string{"fd10::1/128"}},
+		{"JSON CIDR", []any{"10.10.0.1/24"}, []string{"10.10.0.1/32", "10.10.0.2/32"}},
+		{"string CIDR", []string{"fd10::1/64"}, []string{"fd10::1/128", "fd10::2/128"}},
+		{"empty address", []string{}, nil},
+		{"invalid address", []any{"invalid"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inbound := &Inbound{Protocol: Wireguard, Settings: map[string]any{"address": tc.address}}
+			filtered, ok := inbound.wireguardAccountForInbound(account)
+			if len(tc.want) == 0 {
+				if ok || filtered != nil {
+					t.Fatalf("filtered account = %#v, accepted = %t", filtered, ok)
+				}
+				return
+			}
+			if !ok || !slices.Equal(filtered.AllowedIPs, tc.want) {
+				t.Fatalf("filtered account = %#v, accepted = %t; want %v", filtered, ok, tc.want)
+			}
+		})
+	}
+}

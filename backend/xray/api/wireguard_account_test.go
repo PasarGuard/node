@@ -67,3 +67,20 @@ func TestNewWireguardAccountNormalizesPSKAndMessage(t *testing.T) {
 		t.Fatalf("peer message = %#v, want PSK %q", peer, account.PreSharedKey)
 	}
 }
+
+func TestNewWireguardAccountRejectsMalformedPeerIPs(t *testing.T) {
+	publicKey := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("P", 32)))
+	for _, peerIPs := range [][]string{
+		{"not-a-cidr"},
+		{"10.0.0.2"},
+		{"10.0.0.2/32", "bad"},
+	} {
+		user := &common.User{Proxies: &common.Proxy{Wireguard: &common.Wireguard{
+			PublicKey: publicKey,
+			PeerIps:   peerIPs,
+		}}}
+		if account, err := NewWireguardAccount(user); err == nil || account != nil {
+			t.Fatalf("NewWireguardAccount(%v) = %#v, %v; want an error", peerIPs, account, err)
+		}
+	}
+}

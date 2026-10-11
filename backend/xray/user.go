@@ -76,21 +76,36 @@ func accountForAPI(inbound *Inbound, account api.Account) api.Account {
 	return &copy
 }
 
+func wireguardInboundNetwork(address string) *net.IPNet {
+	address = strings.TrimSpace(address)
+	if _, network, err := net.ParseCIDR(address); err == nil {
+		return network
+	}
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return nil
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return &net.IPNet{IP: ipv4, Mask: net.CIDRMask(32, 32)}
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}
+}
+
 func (i *Inbound) wireguardAccountForInbound(account *api.WireguardAccount) (*api.WireguardAccount, bool) {
+	addresses, hasAddress := i.Settings["address"]
 	var interfaceNets []*net.IPNet
-	if addresses, ok := i.Settings["address"].([]any); ok {
-		for _, address := range addresses {
-			if cidr, ok := address.(string); ok {
-				_, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
-				if err == nil {
+	switch values := addresses.(type) {
+	case []any:
+		for _, address := range values {
+			if value, ok := address.(string); ok {
+				if network := wireguardInboundNetwork(value); network != nil {
 					interfaceNets = append(interfaceNets, network)
 				}
 			}
 		}
-	} else if addresses, ok := i.Settings["address"].([]string); ok {
-		for _, address := range addresses {
-			_, network, err := net.ParseCIDR(strings.TrimSpace(address))
-			if err == nil {
+	case []string:
+		for _, address := range values {
+			if network := wireguardInboundNetwork(address); network != nil {
 				interfaceNets = append(interfaceNets, network)
 			}
 		}
@@ -103,7 +118,7 @@ func (i *Inbound) wireguardAccountForInbound(account *api.WireguardAccount) (*ap
 			log.Printf("skipping wireguard user %s with invalid peer IP %s: %v", account.GetEmail(), cidr, err)
 			return nil, false
 		}
-		if len(interfaceNets) == 0 {
+		if !hasAddress {
 			allowed = append(allowed, cidr)
 			continue
 		}

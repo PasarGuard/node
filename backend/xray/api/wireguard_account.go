@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/proxy/wireguard"
@@ -47,6 +48,11 @@ func NewWireguardAccount(user *common.User) (*WireguardAccount, error) {
 	allowed := wg.GetPeerIps()
 	if len(allowed) == 0 {
 		return nil, fmt.Errorf("wireguard peer_ips is required")
+	}
+	for _, peerIP := range allowed {
+		if _, _, err := net.ParseCIDR(peerIP); err != nil {
+			return nil, fmt.Errorf("wireguard peer_ips %q: %w", peerIP, err)
+		}
 	}
 
 	return &WireguardAccount{
