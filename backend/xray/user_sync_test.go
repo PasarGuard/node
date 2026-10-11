@@ -30,9 +30,10 @@ var recordingTags = []string{"vless", "vmess", "trojan", "ss", "ss2022", "hyster
 
 type recordingInboundService struct {
 	command.UnimplementedHandlerServiceServer
-	mu         sync.Mutex
-	operations []string
-	failAdds   int
+	mu          sync.Mutex
+	operations  []string
+	failAdds    int
+	failRemoves int
 }
 
 func (s *recordingInboundService) AlterInbound(_ context.Context, request *command.AlterInboundRequest) (*command.AlterInboundResponse, error) {
@@ -52,6 +53,10 @@ func (s *recordingInboundService) AlterInbound(_ context.Context, request *comma
 		s.failAdds--
 		return nil, errors.New("add rejected")
 	}
+	if operation == "remove" && s.failRemoves > 0 {
+		s.failRemoves--
+		return nil, errors.New("remove rejected")
+	}
 	return &command.AlterInboundResponse{}, nil
 }
 
@@ -69,6 +74,12 @@ func (s *recordingInboundService) rejectNextAdd() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failAdds++
+}
+
+func (s *recordingInboundService) rejectNextRemove() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failRemoves++
 }
 
 func newRecordingXray(t *testing.T) (*Xray, *recordingInboundService) {

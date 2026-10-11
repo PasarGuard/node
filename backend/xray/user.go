@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -40,6 +41,14 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 		settings.Hysteria = api.NewHysteriaAccount(user)
 	}
 
+	if user.GetProxies().GetWireguard() != nil {
+		wgAccount, err := api.NewWireguardAccount(user)
+		if err != nil {
+			return settings, err
+		}
+		settings.Wireguard = wgAccount
+	}
+
 	return settings, nil
 }
 
@@ -65,6 +74,69 @@ func accountForAPI(inbound *Inbound, account api.Account) api.Account {
 	copy := *vlessAccount
 	copy.Flow = overrideFlow
 	return &copy
+}
+
+func wireguardInboundNetwork(address string) *net.IPNet {
+	address = strings.TrimSpace(address)
+	if _, network, err := net.ParseCIDR(address); err == nil {
+		return network
+	}
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return nil
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return &net.IPNet{IP: ipv4, Mask: net.CIDRMask(32, 32)}
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}
+}
+
+func (i *Inbound) wireguardAccountForInbound(account *api.WireguardAccount) (*api.WireguardAccount, bool) {
+	addresses, hasAddress := i.Settings["address"]
+	var interfaceNets []*net.IPNet
+	switch values := addresses.(type) {
+	case []any:
+		for _, address := range values {
+			if value, ok := address.(string); ok {
+				if network := wireguardInboundNetwork(value); network != nil {
+					interfaceNets = append(interfaceNets, network)
+				}
+			}
+		}
+	case []string:
+		for _, address := range values {
+			if network := wireguardInboundNetwork(address); network != nil {
+				interfaceNets = append(interfaceNets, network)
+			}
+		}
+	}
+
+	allowed := make([]string, 0, len(account.AllowedIPs))
+	for _, cidr := range account.AllowedIPs {
+		_, peerNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("skipping wireguard user %s with invalid peer IP %s: %v", account.GetEmail(), cidr, err)
+			return nil, false
+		}
+		if !hasAddress {
+			allowed = append(allowed, cidr)
+			continue
+		}
+		for _, pool := range interfaceNets {
+			peerBits, _ := peerNet.Mask.Size()
+			poolBits, _ := pool.Mask.Size()
+			if len(peerNet.IP) == len(pool.IP) && pool.Contains(peerNet.IP) && peerBits >= poolBits {
+				allowed = append(allowed, cidr)
+				break
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, false
+	}
+	filtered := *account
+	filtered.AllowedIPs = allowed
+	return &filtered, true
 }
 
 func checkShadowsocks2022(method string, account api.ShadowsocksAccount) api.ShadowsocksAccount {
@@ -114,9 +186,38 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Hysteria, true
+
+		case Wireguard:
+			if settings.Wireguard == nil {
+				return nil, false
+			}
+			account, ok := inbound.wireguardAccountForInbound(settings.Wireguard)
+			if !ok {
+				return nil, false
+			}
+			return account, true
 		}
 	}
 	return nil, false
+}
+
+func wireguardPeerReplaced(current, next *api.WireguardAccount) bool {
+	return current.PublicKey != next.PublicKey || (current.PreSharedKey != "" && next.PreSharedKey == "")
+}
+
+func (i *Inbound) removeBeforeAdd(account api.Account) bool {
+	next, ok := account.(*api.WireguardAccount)
+	if !ok {
+		return true
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	// AddUser в Xray обновляет пир по публичному ключу: старый ключ остаётся авторизованным,
+	// а пустой PSK не затирает прежний, поэтому в этих случаях пир нужно удалить явно
+	current, ok := i.clients[next.GetEmail()].(*api.WireguardAccount)
+	return ok && wireguardPeerReplaced(current, next)
 }
 
 func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
@@ -145,8 +246,13 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
 		if isActive {
+			removeFirst := inbound.removeBeforeAdd(account)
+			if removeFirst {
+				if err := handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					return fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", user.GetEmail(), inbound.Tag, err)
+				}
+			}
 			inbound.updateUser(account)
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
@@ -155,6 +261,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
+			_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
 			inbound.removeUser(user.GetEmail())
 		}
 	}
@@ -235,18 +342,31 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		inbound := inboundByTag[tag]
 		accounts := inbound.changedAccounts(update.accounts)
-		inbound.updateUsers(accounts, removeEmails)
+		removeFirst := make([]bool, len(accounts))
+		for n, account := range accounts {
+			removeFirst[n] = inbound.removeBeforeAdd(account)
+		}
+		inbound.updateUsers(nil, removeEmails)
 
 		for _, email := range removeEmails {
 			handler.RemoveInboundUser(ctx, tag, email)
 		}
 
-		for _, account := range accounts {
-			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+		for n, account := range accounts {
+			if removeFirst[n] {
+				if err := handler.RemoveInboundUser(ctx, tag, account.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					removeErr := fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", account.GetEmail(), tag, err)
+					log.Println(removeErr)
+					errMessage.WriteString("\n" + removeErr.Error())
+					continue
+				}
+			}
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				inbound.removeUser(account.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
+			} else {
+				inbound.updateUser(account)
 			}
 		}
 	}
