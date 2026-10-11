@@ -183,3 +183,72 @@ func TestSyncUserTracksTheRotatedWireguardKey(t *testing.T) {
 	}
 	assertOrdered(t, service.takeOrdered(), "wg:add", "wg:remove", "wg:add")
 }
+
+func TestSyncUserRetriesWireguardRemovalBeforeReplacement(t *testing.T) {
+	x, service := newWireguardXray(t)
+	ctx := syncContext(t)
+	oldUser := wireguardUser("1.alice", wireguardKey(0x11), "")
+	newUser := wireguardUser("1.alice", wireguardKey(0x22), "")
+
+	if err := x.SyncUser(ctx, oldUser); err != nil {
+		t.Fatal(err)
+	}
+	service.takeOrdered()
+	service.rejectNextRemove()
+	if err := x.SyncUser(ctx, newUser); err == nil {
+		t.Fatal("expected removal failure")
+	}
+	assertOrdered(t, service.takeOrdered(), "wg:remove")
+	if got := x.config.InboundConfigs[0].clients[oldUser.Email].(*api.WireguardAccount).PublicKey; got != strings.Repeat("11", 32) {
+		t.Fatalf("cached key after failed removal = %s", got)
+	}
+
+	if err := x.SyncUser(ctx, newUser); err != nil {
+		t.Fatal(err)
+	}
+	assertOrdered(t, service.takeOrdered(), "wg:remove", "wg:add")
+}
+
+func TestUpdateUsersRetriesWireguardRemovalBeforeReplacement(t *testing.T) {
+	x, service := newWireguardXray(t)
+	ctx := syncContext(t)
+	oldUser := wireguardUser("1.alice", wireguardKey(0x11), "")
+	newUser := wireguardUser("1.alice", wireguardKey(0x22), "")
+
+	if err := x.UpdateUsers(ctx, []*common.User{oldUser}); err != nil {
+		t.Fatal(err)
+	}
+	service.takeOrdered()
+	service.rejectNextRemove()
+	if err := x.UpdateUsers(ctx, []*common.User{newUser}); err == nil {
+		t.Fatal("expected removal failure")
+	}
+	assertOrdered(t, service.takeOrdered(), "wg:remove")
+	if got := x.config.InboundConfigs[0].clients[oldUser.Email].(*api.WireguardAccount).PublicKey; got != strings.Repeat("11", 32) {
+		t.Fatalf("cached key after failed removal = %s", got)
+	}
+
+	if err := x.UpdateUsers(ctx, []*common.User{newUser}); err != nil {
+		t.Fatal(err)
+	}
+	assertOrdered(t, service.takeOrdered(), "wg:remove", "wg:add")
+}
+
+func TestSyncUserRejectsInvalidWireguardSettingsWithoutRemovingPeer(t *testing.T) {
+	x, service := newWireguardXray(t)
+	ctx := syncContext(t)
+	user := wireguardUser("1.alice", wireguardKey(0x11), "")
+	if err := x.SyncUser(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	service.takeOrdered()
+
+	invalid := wireguardUser(user.Email, "invalid-key", "")
+	if err := x.SyncUser(ctx, invalid); err == nil {
+		t.Fatal("expected invalid WireGuard account error")
+	}
+	assertOrdered(t, service.takeOrdered())
+	if got := x.config.InboundConfigs[0].clients[user.Email].(*api.WireguardAccount).PublicKey; got != strings.Repeat("11", 32) {
+		t.Fatalf("cached key after invalid update = %s", got)
+	}
+}

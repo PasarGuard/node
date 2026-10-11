@@ -126,13 +126,17 @@ endif
 
 install_xray: update_os
 ifeq ($(UNAME_S),Linux)
-	# Debian/Ubuntu, CentOS, Fedora, Arch → Use sudo
+	@set -e; \
+	installer=$$(mktemp); \
+	trap 'rm -f "$$installer"' EXIT; \
+	curl -fsSL "$(XRAY_INSTALLER_URL)" -o "$$installer"; \
+	$(XRAY_RESOLVE_TAG) \
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ] || \
 	   [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ] || [ "$(DISTRO)" = "fedora" ] || \
 	   [ "$(DISTRO)" = "arch" ]; then \
-		$(XRAY_RESOLVE_TAG) curl -L $(XRAY_INSTALLER_URL) | sudo bash -s -- --tag $$tag $(XRAY_INSTALL_ARGS); \
+		sudo bash "$$installer" --tag "$$tag" $(XRAY_INSTALL_ARGS); \
 	else \
-		$(XRAY_RESOLVE_TAG) curl -L $(XRAY_INSTALLER_URL) | bash -s -- --tag $$tag $(XRAY_INSTALL_ARGS); \
+		bash "$$installer" --tag "$$tag" $(XRAY_INSTALL_ARGS); \
 	fi
 
 else

@@ -42,9 +42,11 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	}
 
 	if user.GetProxies().GetWireguard() != nil {
-		if wgAccount, err := api.NewWireguardAccount(user); err == nil {
-			settings.Wireguard = wgAccount
+		wgAccount, err := api.NewWireguardAccount(user)
+		if err != nil {
+			return settings, err
 		}
+		settings.Wireguard = wgAccount
 	}
 
 	return settings, nil
@@ -231,10 +233,12 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 
 		if isActive {
 			removeFirst := inbound.removeBeforeAdd(account)
-			inbound.updateUser(account)
 			if removeFirst {
-				_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
+				if err := handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					return fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", user.GetEmail(), inbound.Tag, err)
+				}
 			}
+			inbound.updateUser(account)
 			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				inbound.removeUser(user.GetEmail())
@@ -327,7 +331,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		for n, account := range accounts {
 			removeFirst[n] = inbound.removeBeforeAdd(account)
 		}
-		inbound.updateUsers(accounts, removeEmails)
+		inbound.updateUsers(nil, removeEmails)
 
 		for _, email := range removeEmails {
 			handler.RemoveInboundUser(ctx, tag, email)
@@ -335,12 +339,19 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		for n, account := range accounts {
 			if removeFirst[n] {
-				_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+				if err := handler.RemoveInboundUser(ctx, tag, account.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					removeErr := fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", account.GetEmail(), tag, err)
+					log.Println(removeErr)
+					errMessage.WriteString("\n" + removeErr.Error())
+					continue
+				}
 			}
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				inbound.removeUser(account.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
+			} else {
+				inbound.updateUser(account)
 			}
 		}
 	}
