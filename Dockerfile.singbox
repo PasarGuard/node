@@ -1,17 +1,56 @@
 # sing-box flavour: node + a stats-capable sing-box binary (built from source
 # with -tags with_v2ray_api; official releases omit it).
-# Supply chain: source is pinned to a tag AND a full commit SHA; the stats
-# tag is forced by `go build -tags`, and the produced binary is smoke-checked
-# whenever it is executable on the build host (same-arch builds).
-FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
+# Supply chain: source is pinned to a tag AND a full commit SHA, both base
+# images are pinned to a version AND a digest, the stats tag is forced by
+# `go build -tags`, and the produced binary is smoke-checked whenever it is
+# executable on the build host (same-arch builds).
+#
+# Needs BuildKit (docker >= 23 default; otherwise DOCKER_BUILDKIT=1 or
+# `docker buildx build`). Deliberately NO `--platform=$BUILDPLATFORM` on the
+# FROM: the legacy builder leaves that auto-arg empty and dies on a cryptic
+# platform parse error BEFORE any RUN can explain itself. Without the flag the
+# legacy builder gets as far as the guard below, which names the fix. Cost:
+# a BuildKit cross-build (docker buildx build --platform <other>) compiles in
+# the target-arch container (emulated, slow) instead of cross-compiling on the
+# host arch; same-arch builds — the documented path — are unaffected.
+#
+# Updating a pin: `docker pull <image>:<tag>` then
+# `docker inspect --format='{{json .RepoDigests}}' <image>:<tag>` and copy the
+# sha256:... value. DEPLOY.md §1 records the same procedure.
+FROM golang:1.26.3-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d AS builder
+
+# DL4006: without pipefail a failed `sha256sum` inside a command substitution
+# would be swallowed and the build would stamp a version from a missing file.
+# /bin/ash is busybox on alpine and supports -o pipefail (hadolint only
+# accepts the explicit /bin/ash form, verified working in 3.24.2).
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 ARG TARGETOS
 ARG TARGETARCH
+# go's module proxy, overridable: some networks get 403s from
+# proxy.golang.org (a plain curl to it may still look fine), and go treats a
+# 403 as fatal rather than falling back to `direct` the way it falls back on
+# 404. `--build-arg GOPROXY=direct` fetches from the upstream VCS instead.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 ARG SINGBOX_VERSION=1.14.2
 # commit of the v${SINGBOX_VERSION} tag (git rev-parse on the release)
 ARG SINGBOX_SHA=af6e64c3b69e6132ebaee0e1a3d24e93903f6709
 
-RUN apk update && apk add --no-cache make git
+# BuildKit sets TARGETOS/TARGETARCH; the legacy builder leaves them empty and
+# GOOS/GOARCH would then silently default to the builder's own platform. Fail
+# with the fix instead of shipping a host-arch binary.
+RUN if test -z "$TARGETOS" || test -z "$TARGETARCH"; then \
+      echo "ERROR: TARGETOS/TARGETARCH are unset — this Dockerfile needs BuildKit." >&2; \
+      echo "Use 'docker buildx build' or 'DOCKER_BUILDKIT=1 docker build' (docker >= 23: default)." >&2; \
+      exit 1; \
+    fi
+
+# DL3018 ignored on purpose: pinning apk package versions breaks the build
+# whenever the alpine mirror drops one, and neither package reaches the final
+# image (make/git exist only in this builder stage).
+# hadolint ignore=DL3018
+RUN apk add --no-cache make git
 
 WORKDIR /src
 
@@ -21,11 +60,14 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 
+# DL3003 ignored on purpose: WORKDIR cannot express "clone into /tmp, then
+# build from there while /src stays the module root" — the cd's are the point.
+# hadolint ignore=DL3003
 RUN git clone --depth 1 --branch v${SINGBOX_VERSION} https://github.com/SagerNet/sing-box /tmp/sing-box-src && \
     cd /tmp/sing-box-src && \
     actual="$(git rev-parse HEAD)" && \
     if [ "$actual" != "$SINGBOX_SHA" ]; then \
-      echo "sing-box tag v${SINGBOX_SHA} != pinned SHA $SINGBOX_SHA (got $actual)"; exit 1; \
+      echo "sing-box tag v${SINGBOX_VERSION} != pinned SHA ${SINGBOX_SHA} (got $actual)"; exit 1; \
     fi
 
 # Mode B quota enforcement. The patch is pinned to the commit checked above,
@@ -33,6 +75,7 @@ RUN git clone --depth 1 --branch v${SINGBOX_VERSION} https://github.com/SagerNet
 # shipping a binary that accepts quota pushes and ignores them. Fail loudly:
 # "looks patched" and "is patched" must not be the same outcome.
 ARG QUOTA_PATCH_LEVEL=quota-v1
+# hadolint ignore=DL3003
 RUN test -f /src/patches/singbox/0001-pasarguard-user-quota.patch && \
     cd /tmp/sing-box-src && \
     git apply --whitespace=error-all /src/patches/singbox/0001-pasarguard-user-quota.patch && \
@@ -46,6 +89,10 @@ RUN test -f /src/patches/singbox/0001-pasarguard-user-quota.patch && \
 # from exactly the reviewed tree (RELEASE.md section 1). -buildvcs=false:
 # without it the Revision line comes from whatever git repo the build can
 # walk up to.
+# DL3003 ignored as above; SC2015 ignored on purpose: in `grep … || { echo;
+# exit 1; }` the short-circuit shape IS the failure path — a failed grep must
+# abort, which is what the braces do.
+# hadolint ignore=DL3003,SC2015
 RUN cd /tmp/sing-box-src && \
     git add -A && \
     REV="$(git rev-parse HEAD)" && \
@@ -67,7 +114,11 @@ RUN cd /tmp/sing-box-src && \
       echo "skipping binary smoke check (cross-build ${TARGETOS}/${TARGETARCH})"; \
     fi
 
-FROM alpine:latest
+# alpine pinned by version + digest (was alpine:latest, DL3007). 3.24.2 is
+# what `latest` resolved to on 2026-10-11; the digest is the binding half.
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 
 LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
 
