@@ -62,6 +62,37 @@ func TestParseNFTForwardBaseChains(t *testing.T) {
 	}
 }
 
+func TestParseNFTForwardBaseChainsSkipsMangleChains(t *testing.T) {
+	const ruleset = `{
+		"nftables": [
+			{"chain": {"family": "ip", "table": "mangle", "name": "FORWARD", "type": "filter", "hook": "forward", "prio": -150, "policy": "accept"}},
+			{"chain": {"family": "inet", "table": "fw4", "name": "mangle_forward", "type": "filter", "hook": "forward", "prio": -150, "policy": "accept"}},
+			{"chain": {"family": "inet", "table": "fw4", "name": "forward", "type": "filter", "hook": "forward", "prio": 0, "policy": "drop"}},
+			{"chain": {"family": "ip", "table": "filter", "name": "FORWARD", "type": "filter", "hook": "forward", "prio": 0, "policy": "drop"}},
+			{"chain": {"family": "ip", "table": "custom", "name": "fwd", "type": "filter", "hook": "forward", "prio": "unexpected", "policy": "accept"}}
+		]
+	}`
+
+	chains, err := parseNFTForwardBaseChains([]byte(ruleset))
+	if err != nil {
+		t.Fatalf("parseNFTForwardBaseChains returned error: %v", err)
+	}
+
+	want := []nftBaseChain{
+		{family: "inet", table: "fw4", name: "forward"},
+		{family: "ip", table: "filter", name: "FORWARD"},
+		{family: "ip", table: "custom", name: "fwd"},
+	}
+	if len(chains) != len(want) {
+		t.Fatalf("expected %d chains without the mangle ones, got %#v", len(want), chains)
+	}
+	for i := range want {
+		if chains[i] != want[i] {
+			t.Fatalf("chain %d: expected %#v, got %#v", i, want[i], chains[i])
+		}
+	}
+}
+
 func TestNFTString(t *testing.T) {
 	if got := nftString("pg_node_wg_forward wg0 eth0 outbound"); got != `"pg_node_wg_forward wg0 eth0 outbound"` {
 		t.Fatalf("unexpected quoted nft string: %s", got)
