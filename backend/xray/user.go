@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -73,6 +74,54 @@ func accountForAPI(inbound *Inbound, account api.Account) api.Account {
 	return &copy
 }
 
+func (i *Inbound) wireguardAccountForInbound(account *api.WireguardAccount) (*api.WireguardAccount, bool) {
+	var interfaceNets []*net.IPNet
+	if addresses, ok := i.Settings["address"].([]any); ok {
+		for _, address := range addresses {
+			if cidr, ok := address.(string); ok {
+				_, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
+				if err == nil {
+					interfaceNets = append(interfaceNets, network)
+				}
+			}
+		}
+	} else if addresses, ok := i.Settings["address"].([]string); ok {
+		for _, address := range addresses {
+			_, network, err := net.ParseCIDR(strings.TrimSpace(address))
+			if err == nil {
+				interfaceNets = append(interfaceNets, network)
+			}
+		}
+	}
+
+	allowed := make([]string, 0, len(account.AllowedIPs))
+	for _, cidr := range account.AllowedIPs {
+		_, peerNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("skipping wireguard user %s with invalid peer IP %s: %v", account.GetEmail(), cidr, err)
+			return nil, false
+		}
+		if len(interfaceNets) == 0 {
+			allowed = append(allowed, cidr)
+			continue
+		}
+		for _, pool := range interfaceNets {
+			peerBits, _ := peerNet.Mask.Size()
+			poolBits, _ := pool.Mask.Size()
+			if len(peerNet.IP) == len(pool.IP) && pool.Contains(peerNet.IP) && peerBits >= poolBits {
+				allowed = append(allowed, cidr)
+				break
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, false
+	}
+	filtered := *account
+	filtered.AllowedIPs = allowed
+	return &filtered, true
+}
+
 func checkShadowsocks2022(method string, account api.ShadowsocksAccount) api.ShadowsocksAccount {
 	account.Password = common.EnsureBase64Password(account.Password, method)
 
@@ -125,7 +174,11 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			if settings.Wireguard == nil {
 				return nil, false
 			}
-			return settings.Wireguard, true
+			account, ok := inbound.wireguardAccountForInbound(settings.Wireguard)
+			if !ok {
+				return nil, false
+			}
+			return account, true
 		}
 	}
 	return nil, false

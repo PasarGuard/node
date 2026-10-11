@@ -213,7 +213,9 @@ func (i *Inbound) syncUsers(users []*common.User) {
 					log.Println("error for user", user.GetEmail(), ":", err)
 					continue
 				}
-				i.clients[account.GetEmail()] = account
+				if filtered, ok := i.wireguardAccountForInbound(account); ok {
+					i.clients[filtered.GetEmail()] = filtered
+				}
 			}
 		}
 	}
