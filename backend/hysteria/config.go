@@ -54,7 +54,13 @@ func (c *Config) Clone() *Config {
 }
 
 func (c *Config) ToBytes() ([]byte, error) {
-	return json.MarshalIndent(c.raw, "", "  ")
+	// `pasarguard` is the panel's own block (origin cert paste -> client pin,
+	// panel/app/core/hysteria.py). It is not part of hysteria's schema and a
+	// future upstream decode with KnownFields would refuse the config, so it
+	// is stripped on the way to the file the binary reads.
+	raw := maps.Clone(c.raw)
+	delete(raw, "pasarguard")
+	return json.MarshalIndent(raw, "", "  ")
 }
 
 // AuthType reports the configured auth.type, lowercased. "" when unset, which
