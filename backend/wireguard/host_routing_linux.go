@@ -24,6 +24,7 @@ const (
 	nftPostroutingChain   = "postrouting"
 	nftForwardChain       = "forward"
 	nftRuleCommentPrefix  = "pg_node_wg "
+	nftManglePriority     = -150
 )
 
 // applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
@@ -263,10 +264,11 @@ type nftListRuleset struct {
 }
 
 type nftListChain struct {
-	Family string `json:"family"`
-	Table  string `json:"table"`
-	Name   string `json:"name"`
-	Hook   string `json:"hook"`
+	Family string          `json:"family"`
+	Table  string          `json:"table"`
+	Name   string          `json:"name"`
+	Hook   string          `json:"hook"`
+	Prio   json.RawMessage `json:"prio"`
 }
 
 func nftForwardBaseChains() ([]nftBaseChain, error) {
@@ -294,7 +296,7 @@ func parseNFTForwardBaseChains(data []byte) ([]nftBaseChain, error) {
 		if err := json.Unmarshal(raw, &chain); err != nil {
 			return nil, fmt.Errorf("parse nft chain: %w", err)
 		}
-		if chain.Hook != nftForwardChain || !nftForwardFamilySupported(chain.Family) {
+		if chain.Hook != nftForwardChain || !nftForwardFamilySupported(chain.Family) || nftMangleChain(chain) {
 			continue
 		}
 		chains = append(chains, nftBaseChain{
@@ -308,6 +310,18 @@ func parseNFTForwardBaseChains(data []byte) ([]nftBaseChain, error) {
 
 func nftForwardFamilySupported(family string) bool {
 	return family == "ip" || family == "inet"
+}
+
+// nftMangleChain reports forward chains that alter packets rather than filter them, such as
+// iptables-nft's mangle FORWARD or fw4's mangle_forward, which hold TCP MSS clamping. An accept
+// inserted at their top ends the chain before those rules run, and they do not drop traffic,
+// so the forward rules are not inserted there.
+func nftMangleChain(chain nftListChain) bool {
+	if chain.Table == "mangle" {
+		return true
+	}
+	var prio int
+	return json.Unmarshal(chain.Prio, &prio) == nil && prio == nftManglePriority
 }
 
 func removeNFTRulesWithCommentPrefix(chain nftBaseChain, commentPrefix string) error {
