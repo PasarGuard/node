@@ -385,13 +385,17 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 		snap.Settings[k] = v
 	}
 
+	// Excluded inbounds are managed by hand: serialize their settings unchanged.
 	if inbound.exclude {
-		snap.Settings["clients"] = []any{}
 		return snap
 	}
 
 	if len(inbound.clients) == 0 {
-		snap.Settings["clients"] = []any{}
+		if inbound.Protocol == Wireguard {
+			snap.Settings["peers"] = []any{}
+		} else {
+			snap.Settings["clients"] = []any{}
+		}
 		return snap
 	}
 
@@ -451,6 +455,15 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 			}
 		}
 		snap.Settings["clients"] = clients
+
+	case Wireguard:
+		peers := make([]*api.WireguardAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.WireguardAccount); ok {
+				peers = append(peers, a)
+			}
+		}
+		snap.Settings["peers"] = peers
 	}
 
 	return snap
@@ -462,20 +475,8 @@ func (c *Config) ToBytes() ([]byte, error) {
 		snapInbounds[idx] = snapshotInboundForSerialization(inbound)
 	}
 
-	snapConfig := Config{
-		RouterConfig:     c.RouterConfig,
-		DNSConfig:        c.DNSConfig,
-		InboundConfigs:   snapInbounds,
-		OutboundConfigs:  c.OutboundConfigs,
-		Policy:           c.Policy,
-		API:              c.API,
-		Metrics:          c.Metrics,
-		Stats:            c.Stats,
-		Reverse:          c.Reverse,
-		FakeDNS:          c.FakeDNS,
-		Observatory:      c.Observatory,
-		BurstObservatory: c.BurstObservatory,
-	}
+	snapConfig := *c
+	snapConfig.InboundConfigs = snapInbounds
 
 	if c.LogConfig != nil {
 		snapLog := *c.LogConfig
