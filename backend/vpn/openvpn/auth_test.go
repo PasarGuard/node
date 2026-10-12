@@ -22,6 +22,13 @@ var (
 func mustAuthExe(t *testing.T) string {
 	t.Helper()
 	authExeOnce.Do(func() {
+		// An operator — or this test running against a prebuilt binary inside a
+		// container — may point at the executable directly instead of asking for
+		// a Go toolchain at test time.
+		if prebuilt := os.Getenv(authExecutableEnv); prebuilt != "" {
+			authExePath = prebuilt
+			return
+		}
 		dir, err := os.MkdirTemp("", "pg-ovpn-auth-build-")
 		if err != nil {
 			authExeErr = err

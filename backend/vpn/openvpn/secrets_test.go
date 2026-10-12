@@ -66,7 +66,7 @@ func TestSecretHygiene(t *testing.T) {
 	userSecret := "user-" + randomHex(t)
 	t.Setenv(mgmtPasswordEnv, mgmtSecret)
 
-	if err := ensurePKI(dir); err != nil {
+	if err := ensurePKI(dir, &Config{}); err != nil {
 		t.Fatal(err)
 	}
 	mgmtPassword, err := managementPassword(dir)
@@ -77,7 +77,7 @@ func TestSecretHygiene(t *testing.T) {
 		t.Fatalf("managementPassword = %q, want the pinned %q", mgmtPassword, mgmtSecret)
 	}
 
-	cfg, err := NewConfig(`{"dns":["1.1.1.1"],"redirect_gateway":true}`, nil)
+	cfg, err := NewConfig(`{"port":1194,"dns":["1.1.1.1"]}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestSecretHygiene(t *testing.T) {
 		t.Fatal(err)
 	}
 	pairs := []credentialPair{{Username: "1001", Password: userSecret}}
-	if err := syncRoster(dir, pairs, map[string]string{"1001": "10.8.0.2"}, cfg.Netmask); err != nil {
+	if err := syncRoster(dir, pairs, map[string]string{"1001": "10.8.0.2"}, cfg.Netmask()); err != nil {
 		t.Fatal(err)
 	}
 

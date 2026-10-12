@@ -3,7 +3,9 @@ package openvpn
 import (
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -38,10 +40,8 @@ func TestRenderServerConfigGolden(t *testing.T) {
 	got := renderForTest(t, `{
 		"port": 1194,
 		"protocol": "udp",
-		"network": "10.8.0.0",
-		"netmask": "255.255.255.0",
-		"dns": ["1.1.1.1", "1.0.0.1"],
-		"redirect_gateway": true
+		"server": "10.8.0.0/24",
+		"dns": ["1.1.1.1", "1.0.0.1"]
 	}`)
 
 	golden := filepath.Join("testdata", "server.conf")
@@ -65,7 +65,7 @@ func TestRenderServerConfigGolden(t *testing.T) {
 // The golden file catches an unintended change; these catch a change that is
 // wrong on purpose — a refreshed golden must not be able to drop them.
 func TestRenderCarriesTheSecurityPosture(t *testing.T) {
-	text := renderForTest(t, `{"redirect_gateway": true, "dns": ["1.1.1.1"]}`)
+	text := renderForTest(t, `{"port": 1194, "dns": ["1.1.1.1"]}`)
 	for _, want := range []string{
 		"tls-version-min 1.2",
 		"data-ciphers AES-256-GCM:CHACHA20-POLY1305",
@@ -83,7 +83,6 @@ func TestRenderCarriesTheSecurityPosture(t *testing.T) {
 		"port 1194",
 		"proto udp",
 		"push \"dhcp-option DNS 1.1.1.1\"",
-		"push \"redirect-gateway def1 bypass-dhcp\"",
 		"dh none",
 	} {
 		if !strings.Contains(text, want) {
@@ -105,6 +104,11 @@ func TestRenderCarriesTheSecurityPosture(t *testing.T) {
 	if strings.Contains(text, "\nuser ") || strings.Contains(text, "\ngroup ") {
 		t.Error("rendered config drops privileges: the node writes CCD files as its own user at runtime")
 	}
+	// The agreed panel schema has no redirect-gateway key, so the core must not
+	// silently decide to route a client's whole traffic.
+	if strings.Contains(text, "redirect-gateway") {
+		t.Error("rendered config pushes redirect-gateway without a panel key to ask for it")
+	}
 }
 
 func TestRenderTCPDropsExitNotify(t *testing.T) {
@@ -117,28 +121,43 @@ func TestRenderTCPDropsExitNotify(t *testing.T) {
 	}
 }
 
+// The panel's schema is the contract: what it must reject, and what it must
+// default when a key is simply absent.
 func TestConfigValidation(t *testing.T) {
 	bad := map[string]string{
-		"host bits set":     `{"network": "10.8.0.5", "netmask": "255.255.255.0"}`,
-		"bad protocol":      `{"protocol": "sctp"}`,
-		"port out of range": `{"port": 70000}`,
-		"bad dns":           `{"dns": ["not-an-ip"]}`,
-		"pool too small":    `{"network": "10.8.0.0", "netmask": "255.255.255.254"}`,
-		"not json at all":   `{port}`,
-		"ipv6 pool refused": `{"network": "fd00::", "netmask": "ffff::"}`,
+		"port is required":    `{}`,
+		"port out of range":   `{"port": 70000}`,
+		"port zero":           `{"port": -1}`,
+		"bad protocol":        `{"port": 1194, "protocol": "sctp"}`,
+		"host bits set":       `{"port": 1194, "server": "10.8.0.5/24"}`,
+		"not a CIDR":          `{"port": 1194, "server": "10.8.0.0"}`,
+		"ipv6 pool refused":   `{"port": 1194, "server": "fd00::/64"}`,
+		"pool too small":      `{"port": 1194, "server": "10.8.0.0/31"}`,
+		"bad dns":             `{"port": 1194, "dns": ["not-an-ip"]}`,
+		"partial PKI":         `{"port": 1194, "ca": "-----BEGIN CERTIFICATE-----\n...\n"}`,
+		"tls_crypt not a key": `{"port": 1194, "tls_crypt": "somerandomstring"}`,
+		"not json at all":     `{port}`,
 	}
 	for name, cfg := range bad {
 		if _, err := NewConfig(cfg, nil); err == nil {
 			t.Errorf("%s: NewConfig(%s) succeeded, want an error", name, cfg)
 		}
 	}
-	// An absent config is the documented default, not a failure.
-	c, err := NewConfig("", nil)
+
+	// Defaults: protocol udp, the documented pool, DNS optional.
+	c, err := NewConfig(`{"port": 21194}`, nil)
 	if err != nil {
-		t.Fatalf("empty config: %v", err)
+		t.Fatalf("minimal config: %v", err)
 	}
-	if c.Port != defaultPort || c.Protocol != defaultProtocol || c.Network != defaultNetwork {
-		t.Errorf("defaults not applied: %+v", c)
+	if c.Protocol != defaultProtocol || c.Server != defaultServerCIDR {
+		t.Errorf("defaults not applied: protocol=%q server=%q", c.Protocol, c.Server)
+	}
+	if c.Network() != "10.8.0.0" || c.Netmask() != "255.255.255.0" {
+		t.Errorf("pool split wrong: %s/%s", c.Network(), c.Netmask())
+	}
+	// An empty config is not a silent default: port is the one required key.
+	if _, err := NewConfig("", nil); err == nil || !strings.Contains(err.Error(), "port is required") {
+		t.Errorf("empty config: err = %v, want port is required", err)
 	}
 }
 
@@ -147,7 +166,7 @@ func TestConfigValidation(t *testing.T) {
 // client that then dies with a TLS error nobody can read.
 func TestPKIIsGeneratedOnceAndVerifies(t *testing.T) {
 	dir := t.TempDir()
-	if err := ensurePKI(dir); err != nil {
+	if err := ensurePKI(dir, &Config{}); err != nil {
 		t.Fatalf("ensurePKI: %v", err)
 	}
 	first := map[string][]byte{}
@@ -167,7 +186,7 @@ func TestPKIIsGeneratedOnceAndVerifies(t *testing.T) {
 			}
 		}
 	}
-	if err := ensurePKI(dir); err != nil {
+	if err := ensurePKI(dir, &Config{}); err != nil {
 		t.Fatalf("second ensurePKI: %v", err)
 	}
 	for name, want := range first {
@@ -179,11 +198,148 @@ func TestPKIIsGeneratedOnceAndVerifies(t *testing.T) {
 			t.Errorf("%s was rewritten on a second ensurePKI — a restart would hand clients a CA the server no longer trusts", name)
 		}
 	}
-
 	if _, err := verifyChain(dir); err != nil {
 		t.Errorf("server certificate does not verify against the CA: %v", err)
 	}
 }
+
+// An operator-pasted set is authoritative: it lands on disk, it is not
+// regenerated, and no ca.key is invented beside it.
+func TestSuppliedPKIIsWrittenAndNeverRegenerated(t *testing.T) {
+	src := t.TempDir()
+	if err := ensurePKI(src, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	caPEM, err := os.ReadFile(filepath.Join(src, caCertFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM, err := os.ReadFile(filepath.Join(src, serverCert))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM, err := os.ReadFile(filepath.Join(src, serverKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := staticKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := NewConfig(fmtConfig(1194, string(caPEM), string(certPEM), string(keyPEM), string(key)), nil)
+	if err != nil {
+		t.Fatalf("config with pasted PKI: %v", err)
+	}
+	dst := t.TempDir()
+	if err := ensurePKI(dst, cfg); err != nil {
+		t.Fatalf("ensurePKI with supplied PKI: %v", err)
+	}
+	for name, want := range map[string][]byte{
+		caCertFile: caPEM, serverCert: certPEM, serverKey: keyPEM, tlsCryptFile: key,
+	} {
+		got, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if strings.TrimRight(string(got), "\n") != strings.TrimRight(string(want), "\n") {
+			t.Errorf("%s was not written verbatim from the config", name)
+		}
+	}
+	// No signing key is invented: the paste did not carry one, so there is none.
+	if _, err := os.Stat(filepath.Join(dst, caKeyFile)); !os.IsNotExist(err) {
+		t.Errorf("a ca.key appeared beside an operator-pasted set: %v", err)
+	}
+}
+
+// A server certificate signed by some other CA is refused at start rather than
+// at a client's first handshake.
+func TestSuppliedPKIMismatchIsRefused(t *testing.T) {
+	a := t.TempDir()
+	if err := ensurePKI(a, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	b := t.TempDir()
+	if err := ensurePKI(b, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	read := func(dir, name string) string {
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	// b's certificate with a's CA: different issuers.
+	_, err := NewConfig(fmtConfig(1194, read(a, caCertFile), read(b, serverCert), read(b, serverKey), ""), nil)
+	if err != nil {
+		t.Fatalf("config parsed: %v", err)
+	}
+	err = ensurePKI(t.TempDir(), mustParse(t, fmtConfig(1194, read(a, caCertFile), read(b, serverCert), read(b, serverKey), "")))
+	if err == nil || !strings.Contains(err.Error(), "not signed by") {
+		t.Errorf("mismatched paste accepted: %v", err)
+	}
+}
+
+// fmtConfig builds the JSON the panel sends when an operator pasted a
+// certificate set. json.Marshal because the PEM bodies are multi-line.
+func fmtConfig(port int, ca, cert, key, tlsCrypt string) string {
+	m := map[string]any{"port": port}
+	if ca != "" {
+		m["ca"], m["cert"], m["key"] = ca, cert, key
+	}
+	if tlsCrypt != "" {
+		m["tls_crypt"] = tlsCrypt
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		panic(err) // map[string]any of strings cannot fail to marshal
+	}
+	return string(b)
+}
+
+func mustParse(t *testing.T, cfg string) *Config {
+	t.Helper()
+	c, err := NewConfig(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	return c
+}
+
+// verifyChain proves the leaf the server will present is signed by the CA the
+// clients will be handed.
+func verifyChain(dir string) (string, error) {
+	caPEM, err := os.ReadFile(filepath.Join(dir, caCertFile))
+	if err != nil {
+		return "", err
+	}
+	leafPEM, err := os.ReadFile(filepath.Join(dir, serverCert))
+	if err != nil {
+		return "", err
+	}
+	caBlock, _ := pem.Decode(caPEM)
+	leafBlock, _ := pem.Decode(leafPEM)
+	if caBlock == nil || leafBlock == nil {
+		return "", errEmptyPEM
+	}
+	ca, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		return "", err
+	}
+	leaf, err := x509.ParseCertificate(leafBlock.Bytes)
+	if err != nil {
+		return "", err
+	}
+	if err := leaf.CheckSignatureFrom(ca); err != nil {
+		return "", err
+	}
+	return leaf.Subject.CommonName, nil
+}
+
+var errEmptyPEM = errors.New("empty PEM block")
+
+func decodeHex(s string) ([]byte, error) { return hex.DecodeString(s) }
 
 // The tls-crypt key must be exactly what `openvpn --genkey secret` writes, or
 // the server refuses it and every client handshake fails.
@@ -215,35 +371,3 @@ func TestStaticKeyMatchesTheOpenVPNFormat(t *testing.T) {
 		}
 	}
 }
-
-// verifyChain proves the leaf the server will present is signed by the CA the
-// clients will be handed.
-func verifyChain(dir string) (string, error) {
-	caPEM, err := os.ReadFile(filepath.Join(dir, caCertFile))
-	if err != nil {
-		return "", err
-	}
-	leafPEM, err := os.ReadFile(filepath.Join(dir, serverCert))
-	if err != nil {
-		return "", err
-	}
-	caBlock, _ := pem.Decode(caPEM)
-	leafBlock, _ := pem.Decode(leafPEM)
-	if caBlock == nil || leafBlock == nil {
-		return "", err
-	}
-	ca, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
-		return "", err
-	}
-	leaf, err := x509.ParseCertificate(leafBlock.Bytes)
-	if err != nil {
-		return "", err
-	}
-	if err := leaf.CheckSignatureFrom(ca); err != nil {
-		return "", err
-	}
-	return leaf.Subject.CommonName, nil
-}
-
-func decodeHex(s string) ([]byte, error) { return hex.DecodeString(s) }

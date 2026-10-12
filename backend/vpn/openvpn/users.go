@@ -2,7 +2,6 @@ package openvpn
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -24,13 +23,27 @@ const ccdDir = "ccd"
 // move a user's counters without moving their traffic.
 const ipamFile = "ipam.json"
 
-// ccdFileName turns a username into a CCD file name that is guaranteed safe on
-// every filesystem: plain hex of the bytes.
+// ccdFileName is the file openvpn will look up for a common name: the username
+// verbatim. That mapping is openvpn's own — "a file having the same name as the
+// client's X509 common name" — so any encoding of it breaks ccd-exclusive
+// silently. Measured against 2.6.19: with a hex-named file sitting unread
+// beside it the server logs
+// "--client-config-dir authentication failed for common name '4242'
+// file='ccd/4242'" and the client is disconnected after AUTH_FAILED.
 //
-// The alternative (the username itself) is a path traversal surface on a value
-// that arrives from the wire. hex is injective, so it has no collisions either.
-func ccdFileName(username string) string {
-	return hex.EncodeToString([]byte(username))
+// The safety half: a common name arrives from the wire, so a name that could
+// address a file outside the directory is refused rather than written. That
+// session would be refused by ccd-exclusive anyway; refusing here names the
+// user instead of failing at a login nobody can diagnose.
+func ccdFileName(username string) (string, error) {
+	switch username {
+	case "", ".", "..":
+		return "", fmt.Errorf("openvpn: username %q cannot name a client-config-dir file", username)
+	}
+	if strings.ContainsAny(username, "/\\") || strings.ContainsAny(username, "\x00") {
+		return "", fmt.Errorf("openvpn: username %q contains a path separator; it cannot be used as a client-config-dir file", username)
+	}
+	return username, nil
 }
 
 // credentialFor maps a panel user onto the OpenVPN login pair.
@@ -113,6 +126,12 @@ func (o *OpenVPN) assignIPs(names []string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// bindPool must run before ensure: without the pool an allocator walks
+	// an address range it has never been told about (the live test caught
+	// exactly this — a makeslice panic, not a wrong address).
+	if err := a.bindPool(o.cfg.Network(), o.cfg.Netmask()); err != nil {
+		return nil, err
+	}
 	if err := a.ensure(names); err != nil {
 		return nil, err
 	}
@@ -156,7 +175,7 @@ func (a *ipam) bindPool(network, netmask string) error {
 		return fmt.Errorf("openvpn: cannot allocate from %s/%s", network, netmask)
 	}
 	ones, bits := mask.Size()
-	if bits != 32 || ones > 30 {
+	if bits != 32 || ones < 1 || ones > 30 {
 		return fmt.Errorf("openvpn: pool %s/%s has no client addresses", network, netmask)
 	}
 	a.base = binaryIP(ip)
@@ -256,9 +275,13 @@ func syncRoster(dir string, pairs []credentialPair, ips map[string]string, netma
 		if !ok {
 			return fmt.Errorf("openvpn: no tunnel IP assigned for user %q", p.Username)
 		}
-		live[ccdFileName(p.Username)] = true
+		name, err := ccdFileName(p.Username)
+		if err != nil {
+			return err
+		}
+		live[name] = true
 		body := "# PasarGuard: static tunnel IP for this session owner\nifconfig-push " + ip + " " + netmask + "\n"
-		path := filepath.Join(ccdPath, ccdFileName(p.Username))
+		path := filepath.Join(ccdPath, name)
 		if err := writeSecret(path, []byte(body)); err != nil {
 			return fmt.Errorf("openvpn: writing CCD for %q: %w", p.Username, err)
 		}
@@ -318,15 +341,19 @@ func (o *OpenVPN) applyUsers(ctx context.Context, users []*common.User, replace 
 		return err
 	}
 
-	// Removed users: kill their sessions FIRST, before anything else could
-	// drop the rules that bound them. LEGACY-VPN.md 4d -- removing rules while
-	// a tunnel is live leaves that tunnel unrestricted; killing first leaves a
-	// dead session on a still-blocked address, which is the safe direction.
+	// Removed users: kill the session and drop the rules in that order, which
+	// is the sequence accounting-quota asked for and the correction to
+	// LEGACY-VPN.md 4d. Rules-first opens a free-traffic window; dying after
+	// the kill leaves a blocked-but-unusable address, which is the safe
+	// failure. o.ips still holds the outgoing roster here, so the engine's
+	// TunnelIP still answers for the user being removed.
 	if removed := removedNames(credentialNames(previous), pairs); len(removed) > 0 {
-		o.killSessions(ctx, removed)
+		if !o.quotaDisable(removed) {
+			o.killSessions(ctx, removed)
+		}
 	}
 
-	if err := syncRoster(o.dir, pairs, ips, o.cfg.Netmask); err != nil {
+	if err := syncRoster(o.dir, pairs, ips, o.cfg.Netmask()); err != nil {
 		o.users = previous
 		return err
 	}
@@ -343,11 +370,17 @@ func (o *OpenVPN) applyUsers(ctx context.Context, users []*common.User, replace 
 			o.setIdle(true)
 			log.Printf("openvpn core idle: no eligible users remain")
 		}
+		o.quotaSync(ctx)
 		return nil
 	}
 	if o.isIdle() {
-		return o.startFromIdle(ctx)
+		if err := o.startFromIdle(ctx); err != nil {
+			return err
+		}
+		o.quotaSync(ctx)
+		return nil
 	}
+	o.quotaSync(ctx)
 	log.Printf("openvpn: applied user change (%d users)", len(pairs))
 	return nil
 }

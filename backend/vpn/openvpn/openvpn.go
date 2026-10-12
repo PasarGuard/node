@@ -33,14 +33,9 @@ const (
 	mgmtStartupPollInterval = 200 * time.Millisecond
 )
 
-// StatsProvider is accounting-quota's implementation of GetStats: the nftables
-// counter read, the one number the panel bills from (LEGACY-VPN.md 4b).
-//
-// It is a hook rather than a method this package defines because stats.go,
-// quota.go and nft.go belong to that agent (batch 5a-1 file ownership). Until
-// it is installed, GetStats returns an empty response and says so once — an
-// error would mark the whole node BROKEN on the panel's health check.
-type StatsProvider func(ctx context.Context, req *common.StatRequest) (*common.StatResponse, error)
+// The accounting seam (nft counter for GetStats, budgets for the quota rules)
+// lives in seam.go: accounting-quota installs it from its own init(), so this
+// package compiles and its tests run before that file lands.
 
 // OpenVPN implements backend.Backend for the OpenVPN core.
 //
@@ -76,7 +71,7 @@ type OpenVPN struct {
 	restarting bool
 	idle       bool
 
-	stats       StatsProvider
+	quota       QuotaEngine
 	statsWarned bool
 }
 
@@ -92,11 +87,16 @@ func New(ctx context.Context, cfg *Config, users []*common.User, ports backend.P
 	// guarantee and deliberately unused: openvpn has no API or metrics listener.
 	_ = ports
 
+	// Kernel-feature check first: without nft there is no accounting, and 4c is
+	// fail-closed. A no-op until accounting-quota registers the engine (seam.go).
+	if err := preflight(); err != nil {
+		return nil, err
+	}
 	dir, err := filepath.Abs(nodeCfg.GeneratedConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := ensurePKI(dir); err != nil {
+	if err := ensurePKI(dir, cfg); err != nil {
 		return nil, err
 	}
 
@@ -147,12 +147,18 @@ func New(ctx context.Context, cfg *Config, users []*common.User, ports backend.P
 	if err != nil {
 		return nil, err
 	}
-	if err := syncRoster(dir, pairs, ips, cfg.Netmask); err != nil {
+	if err := syncRoster(dir, pairs, ips, cfg.Netmask()); err != nil {
 		return nil, err
 	}
 	o.users = users
 	o.ips = ips
 
+	// Quota before anything can connect: FailClosed arms budget 0 for every
+	// name this core authenticates, and the child has not started yet
+	// (LEGACY-VPN.md 4c).
+	if err := o.installQuota(); err != nil {
+		return nil, err
+	}
 	// Idle-when-no-users: the same reason hysteria does not spawn the child
 	// (backend/hysteria/hysteria.go:137) — there is nothing to authenticate,
 	// and Started() answers true with uptime 0 so the panel health check stays
@@ -166,10 +172,12 @@ func New(ctx context.Context, cfg *Config, users []*common.User, ports backend.P
 	// Prove the auth path before serving: a roster the executable cannot read
 	// is otherwise discovered at a user's first login, in production.
 	if err := o.selfCheckAuth(ctx, pairs[0]); err != nil {
+		o.closeQuota()
 		return nil, err
 	}
 
 	if err := core.Start(); err != nil {
+		o.closeQuota()
 		return nil, err
 	}
 	if err := o.checkStatus(ctx); err != nil {
@@ -237,7 +245,7 @@ func (o *OpenVPN) checkStatus(ctx context.Context) error {
 		if !o.core.Started() {
 			return fmt.Errorf("openvpn exited during startup: %s", o.startupFailureText())
 		}
-		if _, err := o.mgmt.Exec(ctx, "echo ok"); err == nil {
+		if _, err := o.mgmt.Exec(ctx, "status 2"); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -283,6 +291,12 @@ func (o *OpenVPN) startFromIdle(ctx context.Context) error {
 		return nil
 	}
 	if err := o.selfCheckAuth(ctx, pairs[0]); err != nil {
+		return err
+	}
+	// Re-arm budget 0 for the roster this core is about to serve: the engine
+	// may have been installed with no users at all, and a client must never
+	// hold a budget the node has not written (LEGACY-VPN.md 4c).
+	if err := o.quotaFailClosed(); err != nil {
 		return err
 	}
 	if err := o.core.Restart(); err != nil {
@@ -336,15 +350,6 @@ func (o *OpenVPN) AssignedIPs() map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// SetStatsProvider installs accounting-quota's nft-backed GetStats. Called by
-// that package's init or constructor; a second call replaces the first, which
-// is what a test needs.
-func (o *OpenVPN) SetStatsProvider(p StatsProvider) {
-	o.mu.Lock()
-	o.stats = p
-	o.mu.Unlock()
 }
 
 // --- backend.Backend --------------------------------------------------------
@@ -415,6 +420,7 @@ func (o *OpenVPN) Restart() error {
 }
 
 func (o *OpenVPN) Shutdown() {
+	o.closeQuota()
 	if o.mgmt != nil {
 		o.mgmt.Close()
 	}
@@ -458,28 +464,26 @@ func (o *OpenVPN) GetSysStats(_ context.Context) (*common.BackendStatsResponse, 
 	return &common.BackendStatsResponse{Uptime: uint32(uptime.Seconds())}, nil
 }
 
-// GetStats delegates to accounting-quota's counter reader when it is wired.
+// GetStats delegates to accounting-quota's counter reader — the nftables
+// counter, the one number the panel bills from (LEGACY-VPN.md 4b).
 //
-// Until then: an empty response, not an error. record_usages treats an error
-// from one core as a node health failure, and returning `status 2` byte counts
-// instead would bill per-session numbers that reset at every reconnect —
-// explicitly rejected by LEGACY-VPN.md 4b.
+// Until that engine is installed: an empty response, not an error.
+// record_usages treats an error from one core as a node health failure, and
+// `status 2` byte counts would bill per-session numbers that reset at every
+// reconnect, which 4b explicitly rejects.
 func (o *OpenVPN) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
-	o.mu.RLock()
-	provider := o.stats
-	warned := o.statsWarned
-	if !warned {
+	q := o.Quota()
+	if q == nil {
+		o.mu.Lock()
+		warn := !o.statsWarned
 		o.statsWarned = true
+		o.mu.Unlock()
+		if warn {
+			logf("openvpn: no quota engine installed — traffic counters read as zero until accounting-quota calls RegisterQuotaEngine (seam.go)")
+		}
+		return &common.StatResponse{}, nil
 	}
-	o.mu.RUnlock()
-
-	if provider != nil {
-		return provider(ctx, request)
-	}
-	if !warned {
-		logf("openvpn: no StatsProvider installed — traffic counters are reported as zero until accounting-quota wires nft.go")
-	}
-	return &common.StatResponse{}, nil
+	return q.GetStats(ctx, request)
 }
 
 // GetOutboundsLatency: latency probing is an xray observatory feature.

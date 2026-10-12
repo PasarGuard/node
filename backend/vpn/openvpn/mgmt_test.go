@@ -55,8 +55,11 @@ func serveFakeManagement(conn net.Conn) {
 		conn.Write([]byte("\nERROR: bad password\n"))
 		return
 	}
-	conn.Write([]byte("\nSUCCESS: user authenticated\n" +
-		">INFO:OpenVPN Management Interface Version 5 -- type 'help' for more info\n>\n"))
+	// Exactly what OpenVPN 2.6.19 sends, byte for byte: the success line, the
+	// version banner, and then silence — there is no ">" prompt anywhere in
+	// this build (measured, see mgmt.go readReply).
+	conn.Write([]byte("\nSUCCESS: password is correct\n" +
+		">INFO:OpenVPN Management Interface Version 5 -- type 'help' for more info\n"))
 
 	for {
 		cmd, err := r.ReadString('\n')
@@ -65,18 +68,16 @@ func serveFakeManagement(conn net.Conn) {
 		}
 		cmd = strings.TrimRight(cmd, "\r\n")
 		switch {
-		case strings.HasPrefix(cmd, "echo "):
-			conn.Write([]byte(strings.TrimPrefix(cmd, "echo ") + "\n>\n"))
 		case strings.HasPrefix(cmd, "kill "):
 			name := strings.TrimPrefix(cmd, "kill ")
 			if name == "ghost" {
-				conn.Write([]byte("ERROR: common name 'ghost' not found\n>\n"))
+				conn.Write([]byte("ERROR: common name 'ghost' not found\n"))
 				continue
 			}
 			// An async notification in the middle of a reply: it must be
 			// filtered out, not reported as part of the answer.
 			conn.Write([]byte(">CLIENT:CONNECT,1,1\n"))
-			conn.Write([]byte("SUCCESS: common name '" + name + "' found, 100/200 bytes r/w, 1/2 clients\n>\n"))
+			conn.Write([]byte("SUCCESS: common name '" + name + "' found, 100/200 bytes r/w, 1/2 clients\n"))
 		case cmd == "status 2":
 			conn.Write([]byte(
 				"TITLE,OpenVPN 2.6.19\n" +
@@ -84,9 +85,10 @@ func serveFakeManagement(conn net.Conn) {
 					"CLIENT_LIST,1001,203.0.113.9:54000,10.8.0.2,,4096,8192,Fri Oct 12 00:00:00 2026,1760000000,1001,1,0\n" +
 					"CLIENT_LIST,1002,203.0.113.10:54001,10.8.0.3,,100,200,Fri Oct 12 00:00:00 2026,1760000000,1002,2,0\n" +
 					"GLOBAL_STATS,Max bcast/mcast queue length,0\n" +
-					"END\n>\n"))
+					"GLOBAL_STATS,dco_enabled,0\n" +
+					"END\n"))
 		default:
-			conn.Write([]byte("ERROR: unknown command, see 'help' for more information\n>\n"))
+			conn.Write([]byte("ERROR: unknown command, see 'help' for more information\n"))
 		}
 	}
 }
@@ -105,16 +107,16 @@ func TestManagementHandshakeSurvivesTheNewlinelessPrompt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	reply, err := m.Exec(ctx, "echo ok")
+	reply, err := m.Exec(ctx, "status 2")
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
-	if reply != "ok" {
-		t.Errorf("reply = %q, want %q", reply, "ok")
+	if !strings.Contains(reply, "TITLE,OpenVPN 2.6.19") {
+		t.Errorf("reply = %q, want the status table", reply)
 	}
 
 	// The connection is reused for the next command rather than redialled.
-	if _, err := m.Exec(ctx, "echo again"); err != nil {
+	if _, err := m.Exec(ctx, "kill 1001"); err != nil {
 		t.Fatalf("second Exec: %v", err)
 	}
 }
@@ -127,7 +129,7 @@ func TestManagementRejectsTheWrongPassword(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := m.Exec(ctx, "echo ok"); err == nil {
+	if _, err := m.Exec(ctx, "status 2"); err == nil {
 		t.Fatal("wrong password was accepted")
 	}
 	if m.conn != nil {

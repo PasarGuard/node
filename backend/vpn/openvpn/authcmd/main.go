@@ -20,16 +20,26 @@ import (
 )
 
 const credentialsEnv = "PG_OVPN_CREDENTIALS"
+const credentialsFile = "users.cred"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Getenv(credentialsEnv)))
 }
 
+// run is the whole program, split out so a test can drive it without a
+// subprocess.
 func run(args []string, credentialsPath string) int {
-	// openvpn passes exactly one argument: the temp file it wrote. Fail closed
-	// on anything else rather than guessing which line is the username.
-	if len(args) != 1 || credentialsPath == "" {
+	// via-file passes the temp file as the first argument. Only the first is
+	// used: if a build ever passes more, they are not credentials.
+	if len(args) < 1 {
 		return 1
+	}
+	if credentialsPath == "" {
+		// The node puts the path in the environment, but a script's
+		// environment is whatever openvpn chooses to hand it, and that is not
+		// a contract worth a silent auth outage. openvpn is started with
+		// `--cd <core dir>`, so the roster is in the working directory too.
+		credentialsPath = credentialsFile
 	}
 	attempt, ok := readPair(args[0])
 	if !ok {

@@ -93,6 +93,7 @@ func (m *Management) dialLocked(ctx context.Context) error {
 	// one the quiet-period peek took out of the stream — is processed without
 	// blocking for a next byte that may never come.
 	var buf []byte
+	var seen []string
 	sent := false
 	for {
 		if !sent && bytes.Contains(buf, []byte("ENTER PASSWORD:")) {
@@ -120,10 +121,30 @@ func (m *Management) dialLocked(ctx context.Context) error {
 			if bytes.Equal(line, []byte(">")) {
 				return nil
 			}
+			seen = append(seen, string(line))
+			if len(seen) > 8 {
+				seen = seen[len(seen)-8:]
+			}
 		}
 		// The prompt may arrive with no trailing newline. Only then does the
 		// buffer hold a bare ">" and does the quiet period get to arbitrate.
 		if bytes.Equal(buf, []byte(">")) {
+			peek, err := peekQuiet(m.reader, conn)
+			if err != nil {
+				m.closeLocked()
+				return fmt.Errorf("openvpn: management handshake: %w", err)
+			}
+			if len(peek) == 0 {
+				return nil
+			}
+			buf = append(buf, peek...)
+			continue
+		}
+		// 2.6.19 answers the banner and then sends *no* prompt at all until a
+		// command arrives (measured: "SUCCESS: password is correct", the
+		// ">INFO:" line, then silence). Once at least one post-auth line has
+		// been consumed, a quiet window is the end of the banner.
+		if sent && len(seen) > 0 {
 			peek, err := peekQuiet(m.reader, conn)
 			if err != nil {
 				m.closeLocked()
@@ -145,7 +166,7 @@ func (m *Management) dialLocked(ctx context.Context) error {
 		b, err := readByte(m.reader)
 		if err != nil {
 			m.closeLocked()
-			return fmt.Errorf("openvpn: management handshake: %w (sent=%v buf=%q)", err, sent, buf)
+			return fmt.Errorf("openvpn: management handshake: %w (sent=%v buf=%q seen=%q)", err, sent, buf, seen)
 		}
 		buf = append(buf, b)
 	}
@@ -229,10 +250,11 @@ func (m *Management) Exec(ctx context.Context, cmd string) (string, error) {
 // only be the end of the answer.
 func (m *Management) readReply(ctx context.Context, cmd string) (string, error) {
 	var out []string
-	seenOutput := false
+	var raw []string
+	readAny := false
 	for {
 		dl := deadlineFrom(ctx, mgmtTimeout)
-		if seenOutput {
+		if readAny {
 			if q := time.Now().Add(mgmtQuiet); q.Before(dl) {
 				dl = q
 			}
@@ -242,27 +264,39 @@ func (m *Management) readReply(ctx context.Context, cmd string) (string, error) 
 			return "", err
 		}
 		line, err := m.reader.ReadString('\n')
+		trimmed := strings.TrimRight(line, "\r\n")
 		if err != nil {
-			trimmed := strings.TrimRight(line, "\r\n")
-			if trimmed == ">" && isTimeoutErr(err) {
+			if isTimeoutErr(err) && (trimmed == ">" || readAny) {
 				return strings.Join(out, "\n"), nil
 			}
+			if trimmed != "" {
+				raw = append(raw, trimmed)
+			}
 			m.closeLocked()
-			return "", fmt.Errorf("openvpn: management read after %q: %w", cmd, err)
+			return "", fmt.Errorf("openvpn: management read after %q: %w (raw=%q)", cmd, err, raw)
 		}
-		trimmed := strings.TrimRight(line, "\r\n")
-		switch {
-		case trimmed == ">":
-			return strings.Join(out, "\n"), nil
-		case trimmed == "":
-			// The newline the handshake left behind, or a blank in the reply.
-			continue
-		case strings.HasPrefix(trimmed, ">"):
+		if trimmed == "" {
+			continue // the newline the handshake may have left behind
+		}
+		if trimmed == ">" {
+			if readAny {
+				return strings.Join(out, "\n"), nil
+			}
+			continue // a banner prompt left over from the handshake, not the reply
+		}
+		readAny = true
+		raw = append(raw, trimmed)
+		if strings.HasPrefix(trimmed, ">") {
 			// Async notification (">CLIENT:…", ">HOLD:…"), not the reply.
 			continue
 		}
-		seenOutput = true
 		out = append(out, trimmed)
+		switch {
+		case trimmed == "END":
+			return strings.Join(out, "\n"), nil
+		case strings.HasPrefix(trimmed, "SUCCESS:"), strings.HasPrefix(trimmed, "ERROR:"):
+			return strings.Join(out, "\n"), nil
+		}
 	}
 }
 

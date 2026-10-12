@@ -1,6 +1,7 @@
 package openvpn
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,10 +9,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -33,25 +36,60 @@ const (
 	tlsCryptFile = "tls-crypt.key"
 )
 
-// ensurePKI creates whatever of the five files is missing and forces 0600 on
-// all of them. Files are never rewritten while they exist: a restart must not
-// hand a client a CA the server no longer trusts.
-func ensurePKI(dir string) error {
+// ensurePKI materialises the files server.conf points at and forces 0600 on
+// every one that exists.
+//
+// Two sources, in this order:
+//
+//   - The panel's core config, when the operator pasted a certificate set in.
+//     Those bytes are authoritative and are written on every start: a
+//     panel-side change has to reach the node, and there is no RPC to read
+//     node-generated PKI back (CONTRACT 6.4), so a generated file could never
+//     be shown to anyone and must not win over a paste.
+//   - Node-generated, only when a file is absent. A restart must never hand a
+//     client a CA the server no longer trusts.
+//
+// A partial set is refused in Config.validatePKI, so this never guesses.
+func ensurePKI(dir string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("openvpn: creating config directory: %w", err)
 	}
+	if cfg == nil {
+		cfg = &Config{}
+	}
 
-	if !bothExist(dir, caCertFile, caKeyFile) {
-		if err := writeCA(dir); err != nil {
+	if cfg.SuppliedPKI() {
+		for _, f := range []struct{ name, body string }{
+			{caCertFile, cfg.CA},
+			{serverCert, cfg.Cert},
+			{serverKey, cfg.Key},
+		} {
+			if err := writePEM(filepath.Join(dir, f.name), f.body); err != nil {
+				return fmt.Errorf("openvpn: writing supplied %s: %w", f.name, err)
+			}
+		}
+		if err := checkSuppliedPKI(dir); err != nil {
 			return err
 		}
-	}
-	if !bothExist(dir, serverCert, serverKey) {
-		if err := writeServerCert(dir); err != nil {
-			return err
+	} else {
+		if !bothExist(dir, caCertFile, caKeyFile) {
+			if err := writeCA(dir); err != nil {
+				return err
+			}
+		}
+		if !bothExist(dir, serverCert, serverKey) {
+			if err := writeServerCert(dir); err != nil {
+				return err
+			}
 		}
 	}
-	if !exists(filepath.Join(dir, tlsCryptFile)) {
+
+	switch {
+	case cfg.TLSCrypt != "":
+		if err := writePEM(filepath.Join(dir, tlsCryptFile), cfg.TLSCrypt); err != nil {
+			return fmt.Errorf("openvpn: writing supplied tls_crypt: %w", err)
+		}
+	case !exists(filepath.Join(dir, tlsCryptFile)):
 		key, err := staticKey()
 		if err != nil {
 			return err
@@ -60,10 +98,67 @@ func ensurePKI(dir string) error {
 			return err
 		}
 	}
+
 	for _, name := range []string{caCertFile, caKeyFile, serverCert, serverKey, tlsCryptFile} {
-		if err := os.Chmod(filepath.Join(dir, name), 0o600); err != nil {
+		path := filepath.Join(dir, name)
+		if !exists(path) {
+			continue // an operator-pasted set carries no ca.key; nothing to tighten
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
 			return fmt.Errorf("openvpn: tightening %s to 0600: %w", name, err)
 		}
+	}
+	return nil
+}
+
+// writePEM writes a pasted PEM/key body verbatim (normalised to one trailing
+// newline) at 0600.
+func writePEM(path, body string) error {
+	return os.WriteFile(path, []byte(strings.TrimRight(body, "\r\n")+"\n"), 0o600)
+}
+
+// checkSuppliedPKI parses what the operator pasted and proves the three pieces
+// belong together. A mismatch here is a core that starts and then fails every
+// handshake with a TLS error the panel cannot explain — refused at start
+// instead, naming the file.
+func checkSuppliedPKI(dir string) error {
+	ca, err := readCACert(dir)
+	if err != nil {
+		return err
+	}
+	leafPEM, err := os.ReadFile(filepath.Join(dir, serverCert))
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(leafPEM)
+	if block == nil {
+		return fmt.Errorf("openvpn: %s is not PEM", serverCert)
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("openvpn: parsing %s: %w", serverCert, err)
+	}
+	if err := leaf.CheckSignatureFrom(ca); err != nil {
+		return fmt.Errorf("openvpn: the supplied %s is not signed by the supplied %s: %w", serverCert, caCertFile, err)
+	}
+	keyPEM, err := os.ReadFile(filepath.Join(dir, serverKey))
+	if err != nil {
+		return err
+	}
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		return fmt.Errorf("openvpn: %s is not PEM", serverKey)
+	}
+	parsed, err := parseAnyKey(keyBlock.Bytes)
+	if err != nil {
+		return fmt.Errorf("openvpn: parsing %s: %w", serverKey, err)
+	}
+	pub, err := publicKeyOf(parsed)
+	if err != nil {
+		return err
+	}
+	if !publicKeysEqual(pub, leaf.PublicKey) {
+		return fmt.Errorf("openvpn: the supplied %s does not match the public key in %s", serverKey, serverCert)
 	}
 	return nil
 }
@@ -219,4 +314,53 @@ func staticKey() ([]byte, error) {
 	}
 	out = append(out, []byte("-----END OpenVPN Static key V1-----\n")...)
 	return out, nil
+}
+
+// readCACert parses only the CA certificate — an operator-pasted set carries no
+// ca.key, so readCA (which needs the key to sign) does not apply.
+func readCACert(dir string) (*x509.Certificate, error) {
+	body, err := os.ReadFile(filepath.Join(dir, caCertFile))
+	if err != nil {
+		return nil, fmt.Errorf("openvpn: reading %s: %w", caCertFile, err)
+	}
+	block, _ := pem.Decode(body)
+	if block == nil {
+		return nil, fmt.Errorf("openvpn: %s is not PEM", caCertFile)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("openvpn: parsing %s: %w", caCertFile, err)
+	}
+	return cert, nil
+}
+
+// parseAnyKey accepts the three private-key encodings a paste can reasonably
+// carry: PKCS#8 (what this package writes), PKCS#1 RSA, and SEC1 EC.
+func parseAnyKey(der []byte) (any, error) {
+	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(der); err == nil {
+		return key, nil
+	}
+	return nil, errors.New("not a PKCS#8, PKCS#1 or SEC1 private key")
+}
+
+func publicKeyOf(key any) (crypto.PublicKey, error) {
+	type publicer interface{ Public() crypto.PublicKey }
+	if k, ok := key.(publicer); ok {
+		return k.Public(), nil
+	}
+	return nil, fmt.Errorf("unsupported private key type %T", key)
+}
+
+func publicKeysEqual(a, b crypto.PublicKey) bool {
+	type equaler interface{ Equal(crypto.PublicKey) bool }
+	if e, ok := a.(equaler); ok {
+		return e.Equal(b)
+	}
+	return false
 }

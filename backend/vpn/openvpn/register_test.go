@@ -48,7 +48,7 @@ func TestFactoryIsRegisteredAndNamesItsFirstMissingPrerequisite(t *testing.T) {
 	if !ok {
 		t.Fatal("no Factory registered for BackendType_OPENVPN — the blank import in controller.go is missing")
 	}
-	_, err := f(context.Background(), &common.Backend{}, backend.Ports{}, &config.Config{})
+	_, err := f(context.Background(), &common.Backend{Config: `{"port":1194}`}, backend.Ports{}, &config.Config{})
 	if err == nil {
 		t.Fatal("Factory with an empty node config succeeded; want an error naming what is missing")
 	}
