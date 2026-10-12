@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pasarguard/node/backend/logstream"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/pkg/logstream"
 	"github.com/pasarguard/node/pkg/stats"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )

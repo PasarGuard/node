@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pasarguard/node/backend/logstream"
 	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/pkg/logstream"
 )
 
 type Core struct {

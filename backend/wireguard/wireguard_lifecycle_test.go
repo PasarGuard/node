@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/pasarguard/node/backend"
-	"github.com/pasarguard/node/backend/logstream"
 	"github.com/pasarguard/node/common"
 	nodeconfig "github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/pkg/logstream"
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
