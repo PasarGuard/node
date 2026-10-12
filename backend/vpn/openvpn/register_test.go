@@ -2,7 +2,7 @@ package openvpn
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pasarguard/node/backend"
@@ -39,13 +39,32 @@ func TestBackendTypeEnumIsAdditive(t *testing.T) {
 
 // The blank import in controller.go must reach this init(), or the enum has no
 // Factory and Start answers "unknown backend type 4" (the Phase 1.2a bug).
-func TestStubFactoryIsRegisteredAndSaysSo(t *testing.T) {
+//
+// The Factory must also fail on a *named* prerequisite rather than on anything
+// generic: with an empty node config there is nowhere to render the PKI, and a
+// message that says so is what an operator needs to see.
+func TestFactoryIsRegisteredAndNamesItsFirstMissingPrerequisite(t *testing.T) {
 	f, ok := backend.For(common.BackendType_OPENVPN)
 	if !ok {
 		t.Fatal("no Factory registered for BackendType_OPENVPN — the blank import in controller.go is missing")
 	}
 	_, err := f(context.Background(), &common.Backend{}, backend.Ports{}, &config.Config{})
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("Factory error = %v, want ErrNotImplemented", err)
+	if err == nil {
+		t.Fatal("Factory with an empty node config succeeded; want an error naming what is missing")
+	}
+	if !strings.Contains(err.Error(), "generated config path") {
+		t.Fatalf("Factory error = %v, want it to name the missing generated config path", err)
+	}
+}
+
+// An unparseable panel config must be refused before anything touches disk.
+func TestFactoryRejectsBadConfigJSON(t *testing.T) {
+	f, ok := backend.For(common.BackendType_OPENVPN)
+	if !ok {
+		t.Fatal("no Factory registered for BackendType_OPENVPN")
+	}
+	_, err := f(context.Background(), &common.Backend{Config: "{not json"}, backend.Ports{}, &config.Config{})
+	if err == nil || !strings.Contains(err.Error(), "invalid openvpn config JSON") {
+		t.Fatalf("error = %v, want invalid openvpn config JSON", err)
 	}
 }
