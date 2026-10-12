@@ -54,16 +54,19 @@ func (b *Buffer) Subscribe(ctx context.Context) <-chan string {
 		ctx = context.Background()
 	}
 
-	ch := make(chan string, b.capacity())
-
 	b.mu.Lock()
 	if b.closed {
-		close(ch)
 		b.mu.Unlock()
+		ch := make(chan string)
+		close(ch)
 		return ch
 	}
 
-	for _, line := range b.snapshotLocked() {
+	// Leave room for a full ring of live lines after the replayed tail, so lines
+	// published before the reader drains the replay are not dropped.
+	snapshot := b.snapshotLocked()
+	ch := make(chan string, len(snapshot)+len(b.lines))
+	for _, line := range snapshot {
 		ch <- line
 	}
 	b.subscribers[ch] = struct{}{}
@@ -95,13 +98,6 @@ func (b *Buffer) Close() {
 		close(subscriber)
 		delete(b.subscribers, subscriber)
 	}
-}
-
-func (b *Buffer) capacity() int {
-	if b == nil || len(b.lines) == 0 {
-		return 1
-	}
-	return len(b.lines)
 }
 
 func (b *Buffer) snapshotLocked() []string {

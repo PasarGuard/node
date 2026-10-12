@@ -51,6 +51,26 @@ func TestBufferReplaysTailAndFansOut(t *testing.T) {
 	}
 }
 
+func TestBufferKeepsLiveLinesPublishedBeforeTheReplayIsRead(t *testing.T) {
+	buffer := NewBuffer(3)
+	buffer.Publish("one")
+	buffer.Publish("two")
+	buffer.Publish("three")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub := buffer.Subscribe(ctx)
+
+	// The ring is full, so the replay alone fills a channel sized to the ring.
+	buffer.Publish("live")
+
+	for _, want := range []string{"one", "two", "three", "live"} {
+		if got := receiveLog(t, sub); got != want {
+			t.Fatalf("expected log %q, got %q", want, got)
+		}
+	}
+}
+
 func TestBufferDoesNotBlockOnSlowSubscribers(t *testing.T) {
 	buffer := NewBuffer(1)
 
