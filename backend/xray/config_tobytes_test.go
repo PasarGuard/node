@@ -257,3 +257,29 @@ func TestSnapshotInboundCopiesEveryExportedField(t *testing.T) {
 		}
 	}
 }
+
+// Run with -race: a user sync clones the live config while a health-check
+// restart serializes it, so ToBytes must not write what Clone reads.
+func TestToBytesWhileCloning(t *testing.T) {
+	cfg := newToBytesConfig(t)
+	cfg.syncUsers(toBytesUsers())
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 50 {
+			if _, err := cfg.ToBytes(); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		for range 50 {
+			if _, err := cfg.Clone(); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	})
+	wg.Wait()
+}
