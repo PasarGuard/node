@@ -17,6 +17,7 @@ type Config struct {
 	PrivateKey    string         `json:"private_key"`
 	PreSharedKey  string         `json:"pre_shared_key,omitempty"`
 	ListenPort    int            `json:"listen_port"`
+	MTU           *int           `json:"mtu,omitempty"`
 	Address       []string       `json:"address"`
 	Latency       *LatencyConfig `json:"latency,omitempty"`
 
@@ -61,6 +62,9 @@ func NewConfig(config string) (*Config, error) {
 	}
 
 	// Validate configuration
+	if err := validateMTU(wgConfig.MTU); err != nil {
+		return nil, err
+	}
 	if wgConfig.InterfaceName == "" {
 		wgConfig.InterfaceName = "wg0"
 	}
@@ -79,6 +83,13 @@ func NewConfig(config string) (*Config, error) {
 	}
 
 	return &wgConfig, nil
+}
+
+func validateMTU(mtu *int) error {
+	if mtu != nil && (*mtu < 576 || *mtu > 9000) {
+		return errors.New("mtu must be an integer between 576 and 9000")
+	}
+	return nil
 }
 
 // InterfaceNetworks returns CIDR prefixes parsed from the node's core `address` list.

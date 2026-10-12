@@ -37,7 +37,7 @@ func startupErrorWithTail(core *Core, tailSize int, reason string) error {
 		return errors.New(reason)
 	}
 
-	return fmt.Errorf("%s; recent xray logs:\n%s", reason, strings.Join(tail, "\n"))
+	return fmt.Errorf("%s; no fatal xray startup log was detected. Recent xray logs:\n%s", reason, strings.Join(tail, "\n"))
 }
 
 func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
@@ -72,7 +72,11 @@ func (x *Xray) checkXrayStatus(baseCtx context.Context) error {
 
 			// No error in logs, check API
 			if !x.core.Started() {
-				return startupErrorWithTail(x.core, x.startupLogTailSize(), "xray process stopped before API became ready")
+				reason := "xray process stopped before API became ready"
+				if x.core.Stopping() {
+					reason = "xray startup was interrupted by a stop/restart request before API became ready"
+				}
+				return startupErrorWithTail(x.core, x.startupLogTailSize(), reason)
 			}
 		}
 	}

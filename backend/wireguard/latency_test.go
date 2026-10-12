@@ -1,11 +1,14 @@
 package wireguard
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/pasarguard/node/config"
+)
 
 func TestLatencyProbeInterfaceFallsBackToConfiguredInterface(t *testing.T) {
-	t.Setenv(wireGuardNATOutputInterfaceEnv, "")
-
 	wg := &WireGuard{
+		cfg:    &config.Config{WGNATOutputInterface: ""},
 		config: &Config{InterfaceName: "wg-test"},
 	}
 
@@ -14,10 +17,9 @@ func TestLatencyProbeInterfaceFallsBackToConfiguredInterface(t *testing.T) {
 	}
 }
 
-func TestLatencyProbeInterfacePrefersNATEgressEnv(t *testing.T) {
-	t.Setenv(wireGuardNATOutputInterfaceEnv, "eth9")
-
+func TestLatencyProbeInterfacePrefersNATEgressConfig(t *testing.T) {
 	wg := &WireGuard{
+		cfg:    &config.Config{WGNATOutputInterface: "eth9"},
 		config: &Config{InterfaceName: "wg-test"},
 	}
 

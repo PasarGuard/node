@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"runtime"
 	"time"
 
@@ -143,9 +144,7 @@ func (wg *WireGuard) GetUserOnlineIpListStats(ctx context.Context, email string)
 	}
 
 	endpointActivity := wg.statsTracker.EndpointActivity(keys)
-	for endpointIP, ts := range endpointActivity {
-		response.Ips[endpointIP] = ts
-	}
+	maps.Copy(response.Ips, endpointActivity)
 
 	return response, nil
 }

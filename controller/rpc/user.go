@@ -15,6 +15,11 @@ import (
 )
 
 func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common.Empty]) error {
+	backend, err := s.backend()
+	if err != nil {
+		return err
+	}
+
 	for {
 		user, err := stream.Recv()
 		if err != nil {
@@ -27,7 +32,7 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 
 		log.Printf("Got user: %v", user.GetEmail())
 
-		if err = s.Backend().SyncUser(stream.Context(), user); err != nil {
+		if err = backend.SyncUser(stream.Context(), user); err != nil {
 			log.Printf("Error syncing user: %v", err)
 			return status.Errorf(codes.Internal, "failed to update user: %v", err)
 		}
@@ -35,7 +40,12 @@ func (s *Service) SyncUser(stream grpc.ClientStreamingServer[common.User, common
 }
 
 func (s *Service) SyncUsers(ctx context.Context, users *common.Users) (*common.Empty, error) {
-	if err := s.Backend().SyncUsers(ctx, users.GetUsers()); err != nil {
+	backend, err := s.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := backend.SyncUsers(ctx, users.GetUsers()); err != nil {
 		return nil, err
 	}
 
@@ -72,16 +82,13 @@ func (s *Service) SyncUsersChunked(stream grpc.ClientStreamingServer[common.User
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Large chunk: update in-memory then restart (no API calls).
-	if len(users) > 100 {
-		if err := s.Backend().UpdateUsersAndRestart(stream.Context(), users); err != nil {
-			return status.Errorf(codes.Internal, "failed to update users: %v", err)
-		}
-	} else {
-		// Small chunk: update via API without restart.
-		if err := s.Backend().UpdateUsers(stream.Context(), users); err != nil {
-			return status.Errorf(codes.Internal, "failed to update users: %v", err)
-		}
+	backend, err := s.backend()
+	if err != nil {
+		return err
+	}
+
+	if err := controller.ApplyChunkedUserUpdate(stream.Context(), backend, users); err != nil {
+		return status.Errorf(codes.Internal, "failed to update users: %v", err)
 	}
 
 	return stream.SendAndClose(&common.Empty{})

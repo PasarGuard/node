@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
@@ -25,6 +27,14 @@ type Config struct {
 	StartupLogTailSize          int
 	StatsUpdateIntervalSeconds  int
 	StatsCleanupIntervalSeconds int
+
+	// WireGuard host routing (Linux). See .env.example for semantics.
+	WGHostRouting        bool
+	WGNATOutputInterface string
+	WGNATEgressOnly      bool
+	WGNATDisable         bool
+	WGRouteTable         string
+	WGRouteOutInterface  string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +56,13 @@ func Load() (*Config, error) {
 		StartupLogTailSize:          GetEnvAsInt("STARTUP_LOG_TAIL_SIZE", 200),
 		StatsUpdateIntervalSeconds:  GetEnvAsInt("STATS_UPDATE_INTERVAL_SECONDS", 10),
 		StatsCleanupIntervalSeconds: GetEnvAsInt("STATS_CLEANUP_INTERVAL_SECONDS", 300),
+
+		WGHostRouting:        GetEnvAsBool("PG_NODE_WG_HOST_ROUTING", true),
+		WGNATOutputInterface: GetEnv("PG_NODE_WG_NAT_OUTPUT_INTERFACE", ""),
+		WGNATEgressOnly:      GetEnvAsBool("PG_NODE_WG_NAT_EGRESS_ONLY", true),
+		WGNATDisable:         GetEnvAsBool("PG_NODE_WG_NAT_DISABLE", false),
+		WGRouteTable:         GetEnv("PG_NODE_WG_ROUTE_TABLE", ""),
+		WGRouteOutInterface:  GetEnv("PG_NODE_WG_ROUTE_OUT_INTERFACE", ""),
 	}
 
 	if cfg.LogBufferSize <= 0 {
@@ -53,9 +70,20 @@ func Load() (*Config, error) {
 		cfg.LogBufferSize = 1
 	}
 
-	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")
-	if err != nil {
-		log.Printf("[Error] Failed to load API Key, error: %v", err)
+	// The API key is the node's only authentication. A missing, malformed or all-zero key
+	// would leave the node accepting the all-zero UUID, so Load reports it as an error
+	// (main exits). cfg is still returned complete for NewTestConfig, which sets its own key.
+	var apiKeyErr error
+	if GetEnv("API_KEY", "") == "" {
+		apiKeyErr = errors.New("API_KEY is not set")
+	} else {
+		cfg.ApiKey, apiKeyErr = GetEnvAsUUID("API_KEY")
+	}
+	if apiKeyErr == nil && cfg.ApiKey == uuid.Nil {
+		apiKeyErr = errors.New("must not be the all-zero UUID")
+	}
+	if apiKeyErr != nil {
+		apiKeyErr = fmt.Errorf("invalid API_KEY: %w", apiKeyErr)
 	}
 
 	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
@@ -69,7 +97,7 @@ func Load() (*Config, error) {
 		cfg.NodeHost = "127.0.0.1"
 	}
 
-	return cfg, nil
+	return cfg, apiKeyErr
 }
 
 // NewTestConfig creates a config for testing

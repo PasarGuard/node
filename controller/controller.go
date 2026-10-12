@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/wireguard"
@@ -18,7 +19,11 @@ import (
 	"github.com/pasarguard/node/pkg/sysstats"
 )
 
-const NodeVersion = "0.5.2"
+const NodeVersion = "0.5.4"
+
+// keepAliveGrace is added to the configured keep-alive so a panel whose
+// health interval equals keep_alive does not trip the watchdog on jitter.
+const keepAliveGrace = 5 * time.Second
 
 type Service interface {
 	Disconnect()
@@ -26,21 +31,24 @@ type Service interface {
 
 type Controller struct {
 	backend     backend.Backend
+	activeData  *common.Backend // descriptor used to start the current backend
 	cfg         *config.Config
 	apiPort     int
 	metricPort  int
-	clientIP    string
 	lastRequest time.Time
 	stats       *common.SystemStatsResponse
 	cancelFunc  context.CancelFunc
 	mu          sync.RWMutex
+	controlMu   sync.Mutex
 }
 
 func New(cfg *config.Config) *Controller {
+	_, cancel := context.WithCancel(context.Background())
 	return &Controller{
 		cfg:        cfg,
 		apiPort:    netutil.FindFreePort(),
 		metricPort: netutil.FindFreePort(),
+		cancelFunc: cancel,
 	}
 }
 
@@ -50,12 +58,14 @@ func (c *Controller) ApiKey() uuid.UUID {
 	return c.cfg.ApiKey
 }
 
-func (c *Controller) Connect(ip string, keepAlive uint64) {
+func (c *Controller) Connect(keepAlive uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastRequest = time.Now()
-	c.clientIP = ip
 
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancelFunc = cancel
 	go c.recordSystemStats(ctx)
@@ -66,16 +76,13 @@ func (c *Controller) Connect(ip string, keepAlive uint64) {
 
 func (c *Controller) Disconnect() {
 	c.mu.Lock()
-	cancel := c.cancelFunc
-	c.cancelFunc = nil
-	c.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
+	if c.cancelFunc != nil {
+		c.cancelFunc()
+		c.cancelFunc = nil
 	}
-
-	c.mu.Lock()
 	backend := c.backend
+	c.backend = nil
+	c.activeData = nil
 	c.mu.Unlock()
 
 	// Shutdown backend outside of lock to avoid deadlock
@@ -87,22 +94,79 @@ func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.backend = nil
 	c.apiPort = netutil.FindFreePort()
 	c.metricPort = netutil.FindFreePort()
-	c.clientIP = ""
 }
 
-func (c *Controller) Ip() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.clientIP
+func (c *Controller) LockControl() {
+	c.controlMu.Lock()
+}
+
+func (c *Controller) UnlockControl() {
+	c.controlMu.Unlock()
 }
 
 func (c *Controller) NewRequest() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastRequest = time.Now()
+}
+
+// sameBackendConfig reports whether two Backend descriptors describe the same
+// running configuration. Users are intentionally excluded — they are managed
+// through their own sync RPCs, so a Start that only differs in the user list
+// is still a heartbeat and must not cause a restart.
+func sameBackendConfig(active, incoming *common.Backend) bool {
+	if active == nil || incoming == nil {
+		return false
+	}
+	if active.GetType() != incoming.GetType() {
+		return false
+	}
+	if active.GetConfig() != incoming.GetConfig() {
+		return false
+	}
+	// Compare exclude_inbounds as an ordered proto repeated field.
+	tmp1 := &common.Backend{ExcludeInbounds: active.GetExcludeInbounds()}
+	tmp2 := &common.Backend{ExcludeInbounds: incoming.GetExcludeInbounds()}
+	return proto.Equal(tmp1, tmp2)
+}
+
+// StartOrAttach starts the core, or refreshes keep-alive if the same core is
+// already running (heartbeat case). It only restarts when:
+//   - No backend is running, or
+//   - The running backend has stopped, or
+//   - The incoming config differs from what started the current backend.
+//
+// Caller must hold LockControl.
+func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
+	back := c.Backend()
+	if back != nil && back.Started() {
+		c.mu.RLock()
+		active := c.activeData
+		c.mu.RUnlock()
+
+		if sameBackendConfig(active, data) {
+			// Same config, backend healthy: this is a heartbeat. Just refresh.
+			log.Println("StartOrAttach: backend already running with same config, refreshing keep-alive.")
+			c.Connect(data.GetKeepAlive())
+			return nil
+		}
+		// Config changed while core is running: panel is sending a new config.
+		log.Println("StartOrAttach: config changed, restarting backend.")
+	} else if back != nil {
+		// Backend object exists but has stopped.
+		log.Println("StartOrAttach: replacing a backend that is no longer running.")
+	}
+
+	if back != nil {
+		c.Disconnect()
+	}
+	if err := c.StartBackend(ctx, data); err != nil {
+		return err
+	}
+	c.Connect(data.GetKeepAlive())
+	return nil
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) error {
@@ -143,6 +207,7 @@ func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) 
 		return errors.New("invalid backend type")
 	}
 
+	c.activeData = backend
 	return nil
 }
 
@@ -152,22 +217,37 @@ func (c *Controller) Backend() backend.Backend {
 	return c.backend
 }
 
+func keepAliveStale(lastRequest time.Time, keepAlive time.Duration) bool {
+	now := time.Now()
+	return now.Sub(lastRequest) >= keepAlive+keepAliveGrace
+}
+
 func (c *Controller) keepAliveTracker(ctx context.Context, keepAlive time.Duration) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			c.mu.RLock()
-			lastRequest := c.lastRequest
+			stale := keepAliveStale(c.lastRequest, keepAlive)
 			c.mu.RUnlock()
-			if time.Since(lastRequest) >= keepAlive {
+			if !stale {
+				continue
+			}
+
+			// Serialize with Start/Stop so a late watchdog cannot kill a core
+			// that StartBackend just created.
+			c.LockControl()
+			c.mu.RLock()
+			stale = keepAliveStale(c.lastRequest, keepAlive)
+			c.mu.RUnlock()
+			if stale {
 				log.Println("disconnect automatically due to keep alive timeout")
 				c.Disconnect()
 			}
+			c.UnlockControl()
 		}
 	}
 }
@@ -179,8 +259,11 @@ func (c *Controller) recordSystemStats(ctx context.Context) {
 	defer ticker.Stop()
 
 	collect := func() {
-		stats, err := sysstats.GetSystemStats()
+		stats, err := sysstats.GetSystemStats(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			log.Printf("Failed to get system stats: %v", err)
 			return
 		}

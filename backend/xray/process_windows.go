@@ -101,11 +101,11 @@ func getProcessPath(pid int) (string, error) {
 		return "", err
 	}
 
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(output), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ExecutablePath=") {
-			path := strings.TrimPrefix(line, "ExecutablePath=")
+		if after, ok := strings.CutPrefix(line, "ExecutablePath="); ok {
+			path := after
 			return strings.TrimSpace(path), nil
 		}
 	}
@@ -196,8 +196,8 @@ func isProcessZombie(pid int) bool {
 	var ppidStr string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ParentProcessId=") {
-			ppidStr = strings.TrimPrefix(line, "ParentProcessId=")
+		if after, ok := strings.CutPrefix(line, "ParentProcessId="); ok {
+			ppidStr = after
 			ppidStr = strings.TrimSpace(ppidStr)
 			break
 		}

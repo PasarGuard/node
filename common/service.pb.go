@@ -1205,6 +1205,7 @@ type Wireguard struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicKey     string                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	PeerIps       []string               `protobuf:"bytes,2,rep,name=peer_ips,json=peerIps,proto3" json:"peer_ips,omitempty"`
+	PreSharedKey  string                 `protobuf:"bytes,3,opt,name=pre_shared_key,json=preSharedKey,proto3" json:"pre_shared_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1251,6 +1252,13 @@ func (x *Wireguard) GetPeerIps() []string {
 		return x.PeerIps
 	}
 	return nil
+}
+
+func (x *Wireguard) GetPreSharedKey() string {
+	if x != nil {
+		return x.PreSharedKey
+	}
+	return ""
 }
 
 type Hysteria struct {
@@ -1545,136 +1553,707 @@ func (x *UsersChunk) GetLast() bool {
 	return false
 }
 
+// Routing (mirrors xray app/router/command, node-friendly shapes)
+type RoutingRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OutboundTag   string                 `protobuf:"bytes,1,opt,name=outbound_tag,json=outboundTag,proto3" json:"outbound_tag,omitempty"`
+	RuleTag       string                 `protobuf:"bytes,2,opt,name=rule_tag,json=ruleTag,proto3" json:"rule_tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoutingRule) Reset() {
+	*x = RoutingRule{}
+	mi := &file_common_service_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingRule) ProtoMessage() {}
+
+func (x *RoutingRule) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingRule.ProtoReflect.Descriptor instead.
+func (*RoutingRule) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *RoutingRule) GetOutboundTag() string {
+	if x != nil {
+		return x.OutboundTag
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetRuleTag() string {
+	if x != nil {
+		return x.RuleTag
+	}
+	return ""
+}
+
+type RoutingRulesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rules         []*RoutingRule         `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoutingRulesResponse) Reset() {
+	*x = RoutingRulesResponse{}
+	mi := &file_common_service_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingRulesResponse) ProtoMessage() {}
+
+func (x *RoutingRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingRulesResponse.ProtoReflect.Descriptor instead.
+func (*RoutingRulesResponse) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *RoutingRulesResponse) GetRules() []*RoutingRule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+type BalancerInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tag           string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BalancerInfoRequest) Reset() {
+	*x = BalancerInfoRequest{}
+	mi := &file_common_service_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BalancerInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BalancerInfoRequest) ProtoMessage() {}
+
+func (x *BalancerInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BalancerInfoRequest.ProtoReflect.Descriptor instead.
+func (*BalancerInfoRequest) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *BalancerInfoRequest) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+type BalancerInfoResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OverrideTarget  string                 `protobuf:"bytes,1,opt,name=override_target,json=overrideTarget,proto3" json:"override_target,omitempty"`
+	PrincipleTarget []string               `protobuf:"bytes,2,rep,name=principle_target,json=principleTarget,proto3" json:"principle_target,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BalancerInfoResponse) Reset() {
+	*x = BalancerInfoResponse{}
+	mi := &file_common_service_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BalancerInfoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BalancerInfoResponse) ProtoMessage() {}
+
+func (x *BalancerInfoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BalancerInfoResponse.ProtoReflect.Descriptor instead.
+func (*BalancerInfoResponse) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *BalancerInfoResponse) GetOverrideTarget() string {
+	if x != nil {
+		return x.OverrideTarget
+	}
+	return ""
+}
+
+func (x *BalancerInfoResponse) GetPrincipleTarget() []string {
+	if x != nil {
+		return x.PrincipleTarget
+	}
+	return nil
+}
+
+type TestRouteRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	InboundTag     string                 `protobuf:"bytes,1,opt,name=inbound_tag,json=inboundTag,proto3" json:"inbound_tag,omitempty"`
+	Network        string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"` // "tcp" | "udp"
+	TargetIp       string                 `protobuf:"bytes,3,opt,name=target_ip,json=targetIp,proto3" json:"target_ip,omitempty"`
+	TargetDomain   string                 `protobuf:"bytes,4,opt,name=target_domain,json=targetDomain,proto3" json:"target_domain,omitempty"`
+	TargetPort     uint32                 `protobuf:"varint,5,opt,name=target_port,json=targetPort,proto3" json:"target_port,omitempty"`
+	Protocol       string                 `protobuf:"bytes,6,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	User           string                 `protobuf:"bytes,7,opt,name=user,proto3" json:"user,omitempty"`
+	Attributes     map[string]string      `protobuf:"bytes,8,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	FieldSelectors []string               `protobuf:"bytes,9,rep,name=field_selectors,json=fieldSelectors,proto3" json:"field_selectors,omitempty"`
+	PublishResult  bool                   `protobuf:"varint,10,opt,name=publish_result,json=publishResult,proto3" json:"publish_result,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TestRouteRequest) Reset() {
+	*x = TestRouteRequest{}
+	mi := &file_common_service_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestRouteRequest) ProtoMessage() {}
+
+func (x *TestRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestRouteRequest.ProtoReflect.Descriptor instead.
+func (*TestRouteRequest) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *TestRouteRequest) GetInboundTag() string {
+	if x != nil {
+		return x.InboundTag
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetNetwork() string {
+	if x != nil {
+		return x.Network
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetTargetIp() string {
+	if x != nil {
+		return x.TargetIp
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetTargetDomain() string {
+	if x != nil {
+		return x.TargetDomain
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetTargetPort() uint32 {
+	if x != nil {
+		return x.TargetPort
+	}
+	return 0
+}
+
+func (x *TestRouteRequest) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
+func (x *TestRouteRequest) GetAttributes() map[string]string {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+func (x *TestRouteRequest) GetFieldSelectors() []string {
+	if x != nil {
+		return x.FieldSelectors
+	}
+	return nil
+}
+
+func (x *TestRouteRequest) GetPublishResult() bool {
+	if x != nil {
+		return x.PublishResult
+	}
+	return false
+}
+
+type RouteResult struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	OutboundTag       string                 `protobuf:"bytes,1,opt,name=outbound_tag,json=outboundTag,proto3" json:"outbound_tag,omitempty"`
+	OutboundGroupTags []string               `protobuf:"bytes,2,rep,name=outbound_group_tags,json=outboundGroupTags,proto3" json:"outbound_group_tags,omitempty"`
+	InboundTag        string                 `protobuf:"bytes,3,opt,name=inbound_tag,json=inboundTag,proto3" json:"inbound_tag,omitempty"`
+	Network           string                 `protobuf:"bytes,4,opt,name=network,proto3" json:"network,omitempty"`
+	TargetDomain      string                 `protobuf:"bytes,5,opt,name=target_domain,json=targetDomain,proto3" json:"target_domain,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RouteResult) Reset() {
+	*x = RouteResult{}
+	mi := &file_common_service_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteResult) ProtoMessage() {}
+
+func (x *RouteResult) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteResult.ProtoReflect.Descriptor instead.
+func (*RouteResult) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *RouteResult) GetOutboundTag() string {
+	if x != nil {
+		return x.OutboundTag
+	}
+	return ""
+}
+
+func (x *RouteResult) GetOutboundGroupTags() []string {
+	if x != nil {
+		return x.OutboundGroupTags
+	}
+	return nil
+}
+
+func (x *RouteResult) GetInboundTag() string {
+	if x != nil {
+		return x.InboundTag
+	}
+	return ""
+}
+
+func (x *RouteResult) GetNetwork() string {
+	if x != nil {
+		return x.Network
+	}
+	return ""
+}
+
+func (x *RouteResult) GetTargetDomain() string {
+	if x != nil {
+		return x.TargetDomain
+	}
+	return ""
+}
+
+type AddRoutingRuleRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Rule  string                 `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"` // JSON for one xray routing rule (same shape as routing.rules[])
+	// false (default) appends the rule, keeping existing rules; true resets the
+	// router (clears all rules + balancers) before adding. Default is the safe,
+	// non-destructive behavior.
+	ShouldReset   bool `protobuf:"varint,2,opt,name=should_reset,json=shouldReset,proto3" json:"should_reset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddRoutingRuleRequest) Reset() {
+	*x = AddRoutingRuleRequest{}
+	mi := &file_common_service_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddRoutingRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddRoutingRuleRequest) ProtoMessage() {}
+
+func (x *AddRoutingRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddRoutingRuleRequest.ProtoReflect.Descriptor instead.
+func (*AddRoutingRuleRequest) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *AddRoutingRuleRequest) GetRule() string {
+	if x != nil {
+		return x.Rule
+	}
+	return ""
+}
+
+func (x *AddRoutingRuleRequest) GetShouldReset() bool {
+	if x != nil {
+		return x.ShouldReset
+	}
+	return false
+}
+
+type RemoveRoutingRuleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuleTag       string                 `protobuf:"bytes,1,opt,name=rule_tag,json=ruleTag,proto3" json:"rule_tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveRoutingRuleRequest) Reset() {
+	*x = RemoveRoutingRuleRequest{}
+	mi := &file_common_service_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveRoutingRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveRoutingRuleRequest) ProtoMessage() {}
+
+func (x *RemoveRoutingRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveRoutingRuleRequest.ProtoReflect.Descriptor instead.
+func (*RemoveRoutingRuleRequest) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *RemoveRoutingRuleRequest) GetRuleTag() string {
+	if x != nil {
+		return x.RuleTag
+	}
+	return ""
+}
+
+type OverrideBalancerTargetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BalancerTag   string                 `protobuf:"bytes,1,opt,name=balancer_tag,json=balancerTag,proto3" json:"balancer_tag,omitempty"`
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OverrideBalancerTargetRequest) Reset() {
+	*x = OverrideBalancerTargetRequest{}
+	mi := &file_common_service_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OverrideBalancerTargetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OverrideBalancerTargetRequest) ProtoMessage() {}
+
+func (x *OverrideBalancerTargetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_service_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OverrideBalancerTargetRequest.ProtoReflect.Descriptor instead.
+func (*OverrideBalancerTargetRequest) Descriptor() ([]byte, []int) {
+	return file_common_service_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *OverrideBalancerTargetRequest) GetBalancerTag() string {
+	if x != nil {
+		return x.BalancerTag
+	}
+	return ""
+}
+
+func (x *OverrideBalancerTargetRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
 var File_common_service_proto protoreflect.FileDescriptor
 
 const file_common_service_proto_rawDesc = "" +
-	"\n" +
-	"\x14common/service.proto\x12\aservice\"\a\n" +
-	"\x05Empty\"r\n" +
-	"\x10BaseInfoResponse\x12\x18\n" +
-	"\astarted\x18\x01 \x01(\bR\astarted\x12!\n" +
-	"\fcore_version\x18\x02 \x01(\tR\vcoreVersion\x12!\n" +
-	"\fnode_version\x18\x03 \x01(\tR\vnodeVersion\"\xba\x01\n" +
-	"\aBackend\x12(\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x14.service.BackendTypeR\x04type\x12\x16\n" +
-	"\x06config\x18\x02 \x01(\tR\x06config\x12#\n" +
-	"\x05users\x18\x03 \x03(\v2\r.service.UserR\x05users\x12\x1d\n" +
-	"\n" +
-	"keep_alive\x18\x04 \x01(\x04R\tkeepAlive\x12)\n" +
-	"\x10exclude_inbounds\x18\x05 \x03(\tR\x0fexcludeInbounds\"\x1d\n" +
-	"\x03Log\x12\x16\n" +
-	"\x06detail\x18\x01 \x01(\tR\x06detail\"X\n" +
-	"\x04Stat\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
-	"\x04link\x18\x03 \x01(\tR\x04link\x12\x14\n" +
-	"\x05value\x18\x04 \x01(\x03R\x05value\"3\n" +
-	"\fStatResponse\x12#\n" +
-	"\x05stats\x18\x01 \x03(\v2\r.service.StatR\x05stats\"^\n" +
-	"\vStatRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05reset\x18\x02 \x01(\bR\x05reset\x12%\n" +
-	"\x04type\x18\x03 \x01(\x0e2\x11.service.StatTypeR\x04type\">\n" +
-	"\x12OnlineStatResponse\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value\"\xa6\x01\n" +
-	"\x19StatsOnlineIpListResponse\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12=\n" +
-	"\x03ips\x18\x02 \x03(\v2+.service.StatsOnlineIpListResponse.IpsEntryR\x03ips\x1a6\n" +
-	"\bIpsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xbf\x01\n" +
-	"\aLatency\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05alive\x18\x02 \x01(\bR\x05alive\x12\x14\n" +
-	"\x05delay\x18\x03 \x01(\x03R\x05delay\x12\x12\n" +
-	"\x04link\x18\x04 \x01(\tR\x04link\x12$\n" +
-	"\x0elast_seen_time\x18\x05 \x01(\x03R\flastSeenTime\x12\"\n" +
-	"\rlast_try_time\x18\x06 \x01(\x03R\vlastTryTime\x12\x16\n" +
-	"\x06source\x18\a \x01(\tR\x06source\"$\n" +
-	"\x0eLatencyRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"A\n" +
-	"\x0fLatencyResponse\x12.\n" +
-	"\tlatencies\x18\x01 \x03(\v2\x10.service.LatencyR\tlatencies\"\xac\x02\n" +
-	"\x14BackendStatsResponse\x12#\n" +
-	"\rnum_goroutine\x18\x01 \x01(\rR\fnumGoroutine\x12\x15\n" +
-	"\x06num_gc\x18\x02 \x01(\rR\x05numGc\x12\x14\n" +
-	"\x05alloc\x18\x03 \x01(\x04R\x05alloc\x12\x1f\n" +
-	"\vtotal_alloc\x18\x04 \x01(\x04R\n" +
-	"totalAlloc\x12\x10\n" +
-	"\x03sys\x18\x05 \x01(\x04R\x03sys\x12\x18\n" +
-	"\amallocs\x18\x06 \x01(\x04R\amallocs\x12\x14\n" +
-	"\x05frees\x18\a \x01(\x04R\x05frees\x12!\n" +
-	"\flive_objects\x18\b \x01(\x04R\vliveObjects\x12$\n" +
-	"\x0epause_total_ns\x18\t \x01(\x04R\fpauseTotalNs\x12\x16\n" +
-	"\x06uptime\x18\n" +
-	" \x01(\rR\x06uptime\"\x93\x02\n" +
-	"\x13SystemStatsResponse\x12\x1b\n" +
-	"\tmem_total\x18\x01 \x01(\x04R\bmemTotal\x12\x19\n" +
-	"\bmem_used\x18\x02 \x01(\x04R\amemUsed\x12\x1b\n" +
-	"\tcpu_cores\x18\x03 \x01(\x04R\bcpuCores\x12\x1b\n" +
-	"\tcpu_usage\x18\x04 \x01(\x01R\bcpuUsage\x128\n" +
-	"\x18incoming_bandwidth_speed\x18\x05 \x01(\x04R\x16incomingBandwidthSpeed\x128\n" +
-	"\x18outgoing_bandwidth_speed\x18\x06 \x01(\x04R\x16outgoingBandwidthSpeed\x12\x16\n" +
-	"\x06uptime\x18\a \x01(\x04R\x06uptime\"\x17\n" +
-	"\x05Vmess\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"+\n" +
-	"\x05Vless\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04flow\x18\x02 \x01(\tR\x04flow\"$\n" +
-	"\x06Trojan\x12\x1a\n" +
-	"\bpassword\x18\x01 \x01(\tR\bpassword\"A\n" +
-	"\vShadowsocks\x12\x1a\n" +
-	"\bpassword\x18\x01 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06method\x18\x02 \x01(\tR\x06method\"E\n" +
-	"\tWireguard\x12\x1d\n" +
-	"\n" +
-	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x19\n" +
-	"\bpeer_ips\x18\x02 \x03(\tR\apeerIps\"\x1e\n" +
-	"\bHysteria\x12\x12\n" +
-	"\x04auth\x18\x01 \x01(\tR\x04auth\"\x95\x02\n" +
-	"\x05Proxy\x12$\n" +
-	"\x05vmess\x18\x01 \x01(\v2\x0e.service.VmessR\x05vmess\x12$\n" +
-	"\x05vless\x18\x02 \x01(\v2\x0e.service.VlessR\x05vless\x12'\n" +
-	"\x06trojan\x18\x03 \x01(\v2\x0f.service.TrojanR\x06trojan\x126\n" +
-	"\vshadowsocks\x18\x04 \x01(\v2\x14.service.ShadowsocksR\vshadowsocks\x120\n" +
-	"\twireguard\x18\x05 \x01(\v2\x12.service.WireguardR\twireguard\x12-\n" +
-	"\bhysteria\x18\x06 \x01(\v2\x11.service.HysteriaR\bhysteria\"b\n" +
-	"\x04User\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\x12(\n" +
-	"\aproxies\x18\x02 \x01(\v2\x0e.service.ProxyR\aproxies\x12\x1a\n" +
-	"\binbounds\x18\x03 \x03(\tR\binbounds\",\n" +
-	"\x05Users\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\"[\n" +
-	"\n" +
-	"UsersChunk\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.service.UserR\x05users\x12\x14\n" +
-	"\x05index\x18\x02 \x01(\x04R\x05index\x12\x12\n" +
-	"\x04last\x18\x03 \x01(\bR\x04last*&\n" +
-	"\vBackendType\x12\b\n" +
-	"\x04XRAY\x10\x00\x12\r\n" +
-	"\tWIREGUARD\x10\x01*_\n" +
-	"\bStatType\x12\r\n" +
-	"\tOutbounds\x10\x00\x12\f\n" +
-	"\bOutbound\x10\x01\x12\f\n" +
-	"\bInbounds\x10\x02\x12\v\n" +
-	"\aInbound\x10\x03\x12\r\n" +
-	"\tUsersStat\x10\x04\x12\f\n" +
-	"\bUserStat\x10\x052\xa3\x06\n" +
-	"\vNodeService\x126\n" +
-	"\x05Start\x12\x10.service.Backend\x1a\x19.service.BaseInfoResponse\"\x00\x12(\n" +
-	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service.Empty\"\x00\x12:\n" +
-	"\vGetBaseInfo\x12\x0e.service.Empty\x1a\x19.service.BaseInfoResponse\"\x00\x12+\n" +
-	"\aGetLogs\x12\x0e.service.Empty\x1a\f.service.Log\"\x000\x01\x12@\n" +
-	"\x0eGetSystemStats\x12\x0e.service.Empty\x1a\x1c.service.SystemStatsResponse\"\x00\x12B\n" +
-	"\x0fGetBackendStats\x12\x0e.service.Empty\x1a\x1d.service.BackendStatsResponse\"\x00\x129\n" +
-	"\bGetStats\x12\x14.service.StatRequest\x1a\x15.service.StatResponse\"\x00\x12J\n" +
-	"\x13GetOutboundsLatency\x12\x17.service.LatencyRequest\x1a\x18.service.LatencyResponse\"\x00\x12I\n" +
-	"\x12GetUserOnlineStats\x12\x14.service.StatRequest\x1a\x1b.service.OnlineStatResponse\"\x00\x12V\n" +
-	"\x18GetUserOnlineIpListStats\x12\x14.service.StatRequest\x1a\".service.StatsOnlineIpListResponse\"\x00\x12-\n" +
-	"\bSyncUser\x12\r.service.User\x1a\x0e.service.Empty\"\x00(\x01\x12-\n" +
-	"\tSyncUsers\x12\x0e.service.Users\x1a\x0e.service.Empty\"\x00\x12;\n" +
-	"\x10SyncUsersChunked\x12\x13.service.UsersChunk\x1a\x0e.service.Empty\"\x00(\x01B#Z!github.com/pasarguard/node/commonb\x06proto3"
+	"\x0a\x14common/service.proto\x12\x07service\"" +
+	"\x07\x0a\x05Empty\"r\x0a\x10BaseInfoResponse\x12\x18\x0a\x07" +
+	"started\x18\x01 \x01(\x08R\x07started\x12!\x0a\x0ccore_v" +
+	"ersion\x18\x02 \x01(\x09R\x0bcoreVersion\x12!\x0a\x0cnod" +
+	"e_version\x18\x03 \x01(\x09R\x0bnodeVersion\"\xba\x01\x0a" +
+	"\x07Backend\x12(\x0a\x04type\x18\x01 \x01(\x0e2\x14.service" +
+	".BackendTypeR\x04type\x12\x16\x0a\x06config\x18\x02 \x01" +
+	"(\x09R\x06config\x12#\x0a\x05users\x18\x03 \x03(\x0b2\x0d.serv" +
+	"ice.UserR\x05users\x12\x1d\x0a\x0akeep_alive\x18\x04 " +
+	"\x01(\x04R\x09keepAlive\x12)\x0a\x10exclude_inboun" +
+	"ds\x18\x05 \x03(\x09R\x0fexcludeInbounds\"\x1d\x0a\x03Log" +
+	"\x12\x16\x0a\x06detail\x18\x01 \x01(\x09R\x06detail\"X\x0a\x04Stat" +
+	"\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\x12\x12\x0a\x04type\x18\x02 \x01" +
+	"(\x09R\x04type\x12\x12\x0a\x04link\x18\x03 \x01(\x09R\x04link\x12\x14\x0a\x05" +
+	"value\x18\x04 \x01(\x03R\x05value\"3\x0a\x0cStatRespon" +
+	"se\x12#\x0a\x05stats\x18\x01 \x03(\x0b2\x0d.service.Stat" +
+	"R\x05stats\"^\x0a\x0bStatRequest\x12\x12\x0a\x04name\x18\x01" +
+	" \x01(\x09R\x04name\x12\x14\x0a\x05reset\x18\x02 \x01(\x08R\x05reset" +
+	"\x12%\x0a\x04type\x18\x03 \x01(\x0e2\x11.service.StatTyp" +
+	"eR\x04type\">\x0a\x12OnlineStatResponse\x12\x12\x0a" +
+	"\x04name\x18\x01 \x01(\x09R\x04name\x12\x14\x0a\x05value\x18\x02 \x01(\x03" +
+	"R\x05value\"\xa6\x01\x0a\x19StatsOnlineIpListRes" +
+	"ponse\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\x12=\x0a\x03ips" +
+	"\x18\x02 \x03(\x0b2+.service.StatsOnlineIpLi" +
+	"stResponse.IpsEntryR\x03ips\x1a6\x0a\x08IpsE" +
+	"ntry\x12\x10\x0a\x03key\x18\x01 \x01(\x09R\x03key\x12\x14\x0a\x05value\x18" +
+	"\x02 \x01(\x03R\x05value:\x028\x01\"\xbf\x01\x0a\x07Latency\x12\x12\x0a\x04" +
+	"name\x18\x01 \x01(\x09R\x04name\x12\x14\x0a\x05alive\x18\x02 \x01(\x08R" +
+	"\x05alive\x12\x14\x0a\x05delay\x18\x03 \x01(\x03R\x05delay\x12\x12\x0a\x04" +
+	"link\x18\x04 \x01(\x09R\x04link\x12$\x0a\x0elast_seen_ti" +
+	"me\x18\x05 \x01(\x03R\x0clastSeenTime\x12\"\x0a\x0dlast_t" +
+	"ry_time\x18\x06 \x01(\x03R\x0blastTryTime\x12\x16\x0a\x06so" +
+	"urce\x18\x07 \x01(\x09R\x06source\"$\x0a\x0eLatencyReq" +
+	"uest\x12\x12\x0a\x04name\x18\x01 \x01(\x09R\x04name\"A\x0a\x0fLate" +
+	"ncyResponse\x12.\x0a\x09latencies\x18\x01 \x03(\x0b2\x10" +
+	".service.LatencyR\x09latencies\"\xac\x02\x0a\x14" +
+	"BackendStatsResponse\x12#\x0a\x0dnum_goro" +
+	"utine\x18\x01 \x01(\x0dR\x0cnumGoroutine\x12\x15\x0a\x06num" +
+	"_gc\x18\x02 \x01(\x0dR\x05numGc\x12\x14\x0a\x05alloc\x18\x03 \x01(\x04R" +
+	"\x05alloc\x12\x1f\x0a\x0btotal_alloc\x18\x04 \x01(\x04R\x0atot" +
+	"alAlloc\x12\x10\x0a\x03sys\x18\x05 \x01(\x04R\x03sys\x12\x18\x0a\x07mal" +
+	"locs\x18\x06 \x01(\x04R\x07mallocs\x12\x14\x0a\x05frees\x18\x07 \x01" +
+	"(\x04R\x05frees\x12!\x0a\x0clive_objects\x18\x08 \x01(\x04R" +
+	"\x0bliveObjects\x12$\x0a\x0epause_total_ns\x18\x09" +
+	" \x01(\x04R\x0cpauseTotalNs\x12\x16\x0a\x06uptime\x18\x0a \x01" +
+	"(\x0dR\x06uptime\"\x93\x02\x0a\x13SystemStatsRespon" +
+	"se\x12\x1b\x0a\x09mem_total\x18\x01 \x01(\x04R\x08memTotal\x12" +
+	"\x19\x0a\x08mem_used\x18\x02 \x01(\x04R\x07memUsed\x12\x1b\x0a\x09cp" +
+	"u_cores\x18\x03 \x01(\x04R\x08cpuCores\x12\x1b\x0a\x09cpu_u" +
+	"sage\x18\x04 \x01(\x01R\x08cpuUsage\x128\x0a\x18incoming" +
+	"_bandwidth_speed\x18\x05 \x01(\x04R\x16incoming" +
+	"BandwidthSpeed\x128\x0a\x18outgoing_bandw" +
+	"idth_speed\x18\x06 \x01(\x04R\x16outgoingBandwi" +
+	"dthSpeed\x12\x16\x0a\x06uptime\x18\x07 \x01(\x04R\x06uptime" +
+	"\"\x17\x0a\x05Vmess\x12\x0e\x0a\x02id\x18\x01 \x01(\x09R\x02id\"+\x0a\x05Vle" +
+	"ss\x12\x0e\x0a\x02id\x18\x01 \x01(\x09R\x02id\x12\x12\x0a\x04flow\x18\x02 \x01(\x09" +
+	"R\x04flow\"$\x0a\x06Trojan\x12\x1a\x0a\x08password\x18\x01 \x01" +
+	"(\x09R\x08password\"A\x0a\x0bShadowsocks\x12\x1a\x0a\x08p" +
+	"assword\x18\x01 \x01(\x09R\x08password\x12\x16\x0a\x06metho" +
+	"d\x18\x02 \x01(\x09R\x06method\"k\x0a\x09Wireguard\x12\x1d\x0a\x0a" +
+	"public_key\x18\x01 \x01(\x09R\x09publicKey\x12\x19\x0a\x08p" +
+	"eer_ips\x18\x02 \x03(\x09R\x07peerIps\x12$\x0a\x0epre_sh" +
+	"ared_key\x18\x03 \x01(\x09R\x0cpreSharedKey\"\x1e\x0a\x08" +
+	"Hysteria\x12\x12\x0a\x04auth\x18\x01 \x01(\x09R\x04auth\"\x95\x02\x0a" +
+	"\x05Proxy\x12$\x0a\x05vmess\x18\x01 \x01(\x0b2\x0e.service." +
+	"VmessR\x05vmess\x12$\x0a\x05vless\x18\x02 \x01(\x0b2\x0e.se" +
+	"rvice.VlessR\x05vless\x12'\x0a\x06trojan\x18\x03 \x01" +
+	"(\x0b2\x0f.service.TrojanR\x06trojan\x126\x0a\x0bs" +
+	"hadowsocks\x18\x04 \x01(\x0b2\x14.service.Shado" +
+	"wsocksR\x0bshadowsocks\x120\x0a\x09wireguard" +
+	"\x18\x05 \x01(\x0b2\x12.service.WireguardR\x09wire" +
+	"guard\x12-\x0a\x08hysteria\x18\x06 \x01(\x0b2\x11.servic" +
+	"e.HysteriaR\x08hysteria\"b\x0a\x04User\x12\x14\x0a\x05" +
+	"email\x18\x01 \x01(\x09R\x05email\x12(\x0a\x07proxies\x18\x02 " +
+	"\x01(\x0b2\x0e.service.ProxyR\x07proxies\x12\x1a\x0a\x08" +
+	"inbounds\x18\x03 \x03(\x09R\x08inbounds\",\x0a\x05User" +
+	"s\x12#\x0a\x05users\x18\x01 \x03(\x0b2\x0d.service.UserR" +
+	"\x05users\"[\x0a\x0aUsersChunk\x12#\x0a\x05users\x18\x01 " +
+	"\x03(\x0b2\x0d.service.UserR\x05users\x12\x14\x0a\x05ind" +
+	"ex\x18\x02 \x01(\x04R\x05index\x12\x12\x0a\x04last\x18\x03 \x01(\x08R\x04l" +
+	"ast\"K\x0a\x0bRoutingRule\x12!\x0a\x0coutbound_t" +
+	"ag\x18\x01 \x01(\x09R\x0boutboundTag\x12\x19\x0a\x08rule_ta" +
+	"g\x18\x02 \x01(\x09R\x07ruleTag\"B\x0a\x14RoutingRules" +
+	"Response\x12*\x0a\x05rules\x18\x01 \x03(\x0b2\x14.servic" +
+	"e.RoutingRuleR\x05rules\"'\x0a\x13Balancer" +
+	"InfoRequest\x12\x10\x0a\x03tag\x18\x01 \x01(\x09R\x03tag\"j\x0a" +
+	"\x14BalancerInfoResponse\x12'\x0a\x0foverrid" +
+	"e_target\x18\x01 \x01(\x09R\x0eoverrideTarget\x12)" +
+	"\x0a\x10principle_target\x18\x02 \x03(\x09R\x0fprinci" +
+	"pleTarget\"\xba\x03\x0a\x10TestRouteRequest\x12\x1f" +
+	"\x0a\x0binbound_tag\x18\x01 \x01(\x09R\x0ainboundTag\x12" +
+	"\x18\x0a\x07network\x18\x02 \x01(\x09R\x07network\x12\x1b\x0a\x09tar" +
+	"get_ip\x18\x03 \x01(\x09R\x08targetIp\x12#\x0a\x0dtarget" +
+	"_domain\x18\x04 \x01(\x09R\x0ctargetDomain\x12\x1f\x0a\x0bt" +
+	"arget_port\x18\x05 \x01(\x0dR\x0atargetPort\x12\x1a\x0a\x08" +
+	"protocol\x18\x06 \x01(\x09R\x08protocol\x12\x12\x0a\x04user" +
+	"\x18\x07 \x01(\x09R\x04user\x12I\x0a\x0aattributes\x18\x08 \x03(\x0b" +
+	"2).service.TestRouteRequest.Attr" +
+	"ibutesEntryR\x0aattributes\x12'\x0a\x0ffield" +
+	"_selectors\x18\x09 \x03(\x09R\x0efieldSelectors" +
+	"\x12%\x0a\x0epublish_result\x18\x0a \x01(\x08R\x0dpublis" +
+	"hResult\x1a=\x0a\x0fAttributesEntry\x12\x10\x0a\x03ke" +
+	"y\x18\x01 \x01(\x09R\x03key\x12\x14\x0a\x05value\x18\x02 \x01(\x09R\x05val" +
+	"ue:\x028\x01\"\xc0\x01\x0a\x0bRouteResult\x12!\x0a\x0coutbou" +
+	"nd_tag\x18\x01 \x01(\x09R\x0boutboundTag\x12.\x0a\x13out" +
+	"bound_group_tags\x18\x02 \x03(\x09R\x11outbound" +
+	"GroupTags\x12\x1f\x0a\x0binbound_tag\x18\x03 \x01(\x09R\x0a" +
+	"inboundTag\x12\x18\x0a\x07network\x18\x04 \x01(\x09R\x07net" +
+	"work\x12#\x0a\x0dtarget_domain\x18\x05 \x01(\x09R\x0ctar" +
+	"getDomain\"N\x0a\x15AddRoutingRuleReque" +
+	"st\x12\x12\x0a\x04rule\x18\x01 \x01(\x09R\x04rule\x12!\x0a\x0cshould" +
+	"_reset\x18\x02 \x01(\x08R\x0bshouldReset\"5\x0a\x18Rem" +
+	"oveRoutingRuleRequest\x12\x19\x0a\x08rule_ta" +
+	"g\x18\x01 \x01(\x09R\x07ruleTag\"Z\x0a\x1dOverrideBala" +
+	"ncerTargetRequest\x12!\x0a\x0cbalancer_ta" +
+	"g\x18\x01 \x01(\x09R\x0bbalancerTag\x12\x16\x0a\x06target\x18\x02" +
+	" \x01(\x09R\x06target*&\x0a\x0bBackendType\x12\x08\x0a\x04X" +
+	"RAY\x10\x00\x12\x0d\x0a\x09WIREGUARD\x10\x01*_\x0a\x08StatType" +
+	"\x12\x0d\x0a\x09Outbounds\x10\x00\x12\x0c\x0a\x08Outbound\x10\x01\x12\x0c\x0a" +
+	"\x08Inbounds\x10\x02\x12\x0b\x0a\x07Inbound\x10\x03\x12\x0d\x0a\x09User" +
+	"sStat\x10\x04\x12\x0c\x0a\x08UserStat\x10\x052\xdc\x09\x0a\x0bNodeSe" +
+	"rvice\x126\x0a\x05Start\x12\x10.service.Backend" +
+	"\x1a\x19.service.BaseInfoResponse\"\x00\x12(\x0a" +
+	"\x04Stop\x12\x0e.service.Empty\x1a\x0e.service." +
+	"Empty\"\x00\x12:\x0a\x0bGetBaseInfo\x12\x0e.service" +
+	".Empty\x1a\x19.service.BaseInfoRespons" +
+	"e\"\x00\x12+\x0a\x07GetLogs\x12\x0e.service.Empty\x1a\x0c" +
+	".service.Log\"\x000\x01\x12@\x0a\x0eGetSystemSta" +
+	"ts\x12\x0e.service.Empty\x1a\x1c.service.Sys" +
+	"temStatsResponse\"\x00\x12B\x0a\x0fGetBackend" +
+	"Stats\x12\x0e.service.Empty\x1a\x1d.service." +
+	"BackendStatsResponse\"\x00\x129\x0a\x08GetSta" +
+	"ts\x12\x14.service.StatRequest\x1a\x15.servi" +
+	"ce.StatResponse\"\x00\x12J\x0a\x13GetOutbound" +
+	"sLatency\x12\x17.service.LatencyReques" +
+	"t\x1a\x18.service.LatencyResponse\"\x00\x12I\x0a" +
+	"\x12GetUserOnlineStats\x12\x14.service.St" +
+	"atRequest\x1a\x1b.service.OnlineStatRe" +
+	"sponse\"\x00\x12V\x0a\x18GetUserOnlineIpListS" +
+	"tats\x12\x14.service.StatRequest\x1a\".ser" +
+	"vice.StatsOnlineIpListResponse\"\x00" +
+	"\x12-\x0a\x08SyncUser\x12\x0d.service.User\x1a\x0e.se" +
+	"rvice.Empty\"\x00(\x01\x12-\x0a\x09SyncUsers\x12\x0e.s" +
+	"ervice.Users\x1a\x0e.service.Empty\"\x00\x12;" +
+	"\x0a\x10SyncUsersChunked\x12\x13.service.Use" +
+	"rsChunk\x1a\x0e.service.Empty\"\x00(\x01\x12C\x0a\x10L" +
+	"istRoutingRules\x12\x0e.service.Empty\x1a" +
+	"\x1d.service.RoutingRulesResponse\"\x00" +
+	"\x12P\x0a\x0fGetBalancerInfo\x12\x1c.service.Ba" +
+	"lancerInfoRequest\x1a\x1d.service.Bala" +
+	"ncerInfoResponse\"\x00\x12>\x0a\x09TestRoute\x12" +
+	"\x19.service.TestRouteRequest\x1a\x14.ser" +
+	"vice.RouteResult\"\x00\x12B\x0a\x0eAddRouting" +
+	"Rule\x12\x1e.service.AddRoutingRuleReq" +
+	"uest\x1a\x0e.service.Empty\"\x00\x12H\x0a\x11Remove" +
+	"RoutingRule\x12!.service.RemoveRout" +
+	"ingRuleRequest\x1a\x0e.service.Empty\"\x00" +
+	"\x12R\x0a\x16OverrideBalancerTarget\x12&.ser" +
+	"vice.OverrideBalancerTargetReque" +
+	"st\x1a\x0e.service.Empty\"\x00B#Z!github.c" +
+	"om/pasarguard/node/commonb\x06proto" +
+	"3"
 
 var (
 	file_common_service_proto_rawDescOnce sync.Once
@@ -1689,42 +2268,52 @@ func file_common_service_proto_rawDescGZIP() []byte {
 }
 
 var file_common_service_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_common_service_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_common_service_proto_goTypes = []any{
-	(BackendType)(0),                  // 0: service.BackendType
-	(StatType)(0),                     // 1: service.StatType
-	(*Empty)(nil),                     // 2: service.Empty
-	(*BaseInfoResponse)(nil),          // 3: service.BaseInfoResponse
-	(*Backend)(nil),                   // 4: service.Backend
-	(*Log)(nil),                       // 5: service.Log
-	(*Stat)(nil),                      // 6: service.Stat
-	(*StatResponse)(nil),              // 7: service.StatResponse
-	(*StatRequest)(nil),               // 8: service.StatRequest
-	(*OnlineStatResponse)(nil),        // 9: service.OnlineStatResponse
-	(*StatsOnlineIpListResponse)(nil), // 10: service.StatsOnlineIpListResponse
-	(*Latency)(nil),                   // 11: service.Latency
-	(*LatencyRequest)(nil),            // 12: service.LatencyRequest
-	(*LatencyResponse)(nil),           // 13: service.LatencyResponse
-	(*BackendStatsResponse)(nil),      // 14: service.BackendStatsResponse
-	(*SystemStatsResponse)(nil),       // 15: service.SystemStatsResponse
-	(*Vmess)(nil),                     // 16: service.Vmess
-	(*Vless)(nil),                     // 17: service.Vless
-	(*Trojan)(nil),                    // 18: service.Trojan
-	(*Shadowsocks)(nil),               // 19: service.Shadowsocks
-	(*Wireguard)(nil),                 // 20: service.Wireguard
-	(*Hysteria)(nil),                  // 21: service.Hysteria
-	(*Proxy)(nil),                     // 22: service.Proxy
-	(*User)(nil),                      // 23: service.User
-	(*Users)(nil),                     // 24: service.Users
-	(*UsersChunk)(nil),                // 25: service.UsersChunk
-	nil,                               // 26: service.StatsOnlineIpListResponse.IpsEntry
+	(BackendType)(0),                      // 0: service.BackendType
+	(StatType)(0),                         // 1: service.StatType
+	(*Empty)(nil),                         // 2: service.Empty
+	(*BaseInfoResponse)(nil),              // 3: service.BaseInfoResponse
+	(*Backend)(nil),                       // 4: service.Backend
+	(*Log)(nil),                           // 5: service.Log
+	(*Stat)(nil),                          // 6: service.Stat
+	(*StatResponse)(nil),                  // 7: service.StatResponse
+	(*StatRequest)(nil),                   // 8: service.StatRequest
+	(*OnlineStatResponse)(nil),            // 9: service.OnlineStatResponse
+	(*StatsOnlineIpListResponse)(nil),     // 10: service.StatsOnlineIpListResponse
+	(*Latency)(nil),                       // 11: service.Latency
+	(*LatencyRequest)(nil),                // 12: service.LatencyRequest
+	(*LatencyResponse)(nil),               // 13: service.LatencyResponse
+	(*BackendStatsResponse)(nil),          // 14: service.BackendStatsResponse
+	(*SystemStatsResponse)(nil),           // 15: service.SystemStatsResponse
+	(*Vmess)(nil),                         // 16: service.Vmess
+	(*Vless)(nil),                         // 17: service.Vless
+	(*Trojan)(nil),                        // 18: service.Trojan
+	(*Shadowsocks)(nil),                   // 19: service.Shadowsocks
+	(*Wireguard)(nil),                     // 20: service.Wireguard
+	(*Hysteria)(nil),                      // 21: service.Hysteria
+	(*Proxy)(nil),                         // 22: service.Proxy
+	(*User)(nil),                          // 23: service.User
+	(*Users)(nil),                         // 24: service.Users
+	(*UsersChunk)(nil),                    // 25: service.UsersChunk
+	(*RoutingRule)(nil),                   // 26: service.RoutingRule
+	(*RoutingRulesResponse)(nil),          // 27: service.RoutingRulesResponse
+	(*BalancerInfoRequest)(nil),           // 28: service.BalancerInfoRequest
+	(*BalancerInfoResponse)(nil),          // 29: service.BalancerInfoResponse
+	(*TestRouteRequest)(nil),              // 30: service.TestRouteRequest
+	(*RouteResult)(nil),                   // 31: service.RouteResult
+	(*AddRoutingRuleRequest)(nil),         // 32: service.AddRoutingRuleRequest
+	(*RemoveRoutingRuleRequest)(nil),      // 33: service.RemoveRoutingRuleRequest
+	(*OverrideBalancerTargetRequest)(nil), // 34: service.OverrideBalancerTargetRequest
+	nil,                                   // 35: service.StatsOnlineIpListResponse.IpsEntry
+	nil,                                   // 36: service.TestRouteRequest.AttributesEntry
 }
 var file_common_service_proto_depIdxs = []int32{
 	0,  // 0: service.Backend.type:type_name -> service.BackendType
 	23, // 1: service.Backend.users:type_name -> service.User
 	6,  // 2: service.StatResponse.stats:type_name -> service.Stat
 	1,  // 3: service.StatRequest.type:type_name -> service.StatType
-	26, // 4: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
+	35, // 4: service.StatsOnlineIpListResponse.ips:type_name -> service.StatsOnlineIpListResponse.IpsEntry
 	11, // 5: service.LatencyResponse.latencies:type_name -> service.Latency
 	16, // 6: service.Proxy.vmess:type_name -> service.Vmess
 	17, // 7: service.Proxy.vless:type_name -> service.Vless
@@ -1735,37 +2324,51 @@ var file_common_service_proto_depIdxs = []int32{
 	22, // 12: service.User.proxies:type_name -> service.Proxy
 	23, // 13: service.Users.users:type_name -> service.User
 	23, // 14: service.UsersChunk.users:type_name -> service.User
-	4,  // 15: service.NodeService.Start:input_type -> service.Backend
-	2,  // 16: service.NodeService.Stop:input_type -> service.Empty
-	2,  // 17: service.NodeService.GetBaseInfo:input_type -> service.Empty
-	2,  // 18: service.NodeService.GetLogs:input_type -> service.Empty
-	2,  // 19: service.NodeService.GetSystemStats:input_type -> service.Empty
-	2,  // 20: service.NodeService.GetBackendStats:input_type -> service.Empty
-	8,  // 21: service.NodeService.GetStats:input_type -> service.StatRequest
-	12, // 22: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
-	8,  // 23: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
-	8,  // 24: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
-	23, // 25: service.NodeService.SyncUser:input_type -> service.User
-	24, // 26: service.NodeService.SyncUsers:input_type -> service.Users
-	25, // 27: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
-	3,  // 28: service.NodeService.Start:output_type -> service.BaseInfoResponse
-	2,  // 29: service.NodeService.Stop:output_type -> service.Empty
-	3,  // 30: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
-	5,  // 31: service.NodeService.GetLogs:output_type -> service.Log
-	15, // 32: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
-	14, // 33: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
-	7,  // 34: service.NodeService.GetStats:output_type -> service.StatResponse
-	13, // 35: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
-	9,  // 36: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
-	10, // 37: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
-	2,  // 38: service.NodeService.SyncUser:output_type -> service.Empty
-	2,  // 39: service.NodeService.SyncUsers:output_type -> service.Empty
-	2,  // 40: service.NodeService.SyncUsersChunked:output_type -> service.Empty
-	28, // [28:41] is the sub-list for method output_type
-	15, // [15:28] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	26, // 15: service.RoutingRulesResponse.rules:type_name -> service.RoutingRule
+	36, // 16: service.TestRouteRequest.attributes:type_name -> service.TestRouteRequest.AttributesEntry
+	4,  // 17: service.NodeService.Start:input_type -> service.Backend
+	2,  // 18: service.NodeService.Stop:input_type -> service.Empty
+	2,  // 19: service.NodeService.GetBaseInfo:input_type -> service.Empty
+	2,  // 20: service.NodeService.GetLogs:input_type -> service.Empty
+	2,  // 21: service.NodeService.GetSystemStats:input_type -> service.Empty
+	2,  // 22: service.NodeService.GetBackendStats:input_type -> service.Empty
+	8,  // 23: service.NodeService.GetStats:input_type -> service.StatRequest
+	12, // 24: service.NodeService.GetOutboundsLatency:input_type -> service.LatencyRequest
+	8,  // 25: service.NodeService.GetUserOnlineStats:input_type -> service.StatRequest
+	8,  // 26: service.NodeService.GetUserOnlineIpListStats:input_type -> service.StatRequest
+	23, // 27: service.NodeService.SyncUser:input_type -> service.User
+	24, // 28: service.NodeService.SyncUsers:input_type -> service.Users
+	25, // 29: service.NodeService.SyncUsersChunked:input_type -> service.UsersChunk
+	2,  // 30: service.NodeService.ListRoutingRules:input_type -> service.Empty
+	28, // 31: service.NodeService.GetBalancerInfo:input_type -> service.BalancerInfoRequest
+	30, // 32: service.NodeService.TestRoute:input_type -> service.TestRouteRequest
+	32, // 33: service.NodeService.AddRoutingRule:input_type -> service.AddRoutingRuleRequest
+	33, // 34: service.NodeService.RemoveRoutingRule:input_type -> service.RemoveRoutingRuleRequest
+	34, // 35: service.NodeService.OverrideBalancerTarget:input_type -> service.OverrideBalancerTargetRequest
+	3,  // 36: service.NodeService.Start:output_type -> service.BaseInfoResponse
+	2,  // 37: service.NodeService.Stop:output_type -> service.Empty
+	3,  // 38: service.NodeService.GetBaseInfo:output_type -> service.BaseInfoResponse
+	5,  // 39: service.NodeService.GetLogs:output_type -> service.Log
+	15, // 40: service.NodeService.GetSystemStats:output_type -> service.SystemStatsResponse
+	14, // 41: service.NodeService.GetBackendStats:output_type -> service.BackendStatsResponse
+	7,  // 42: service.NodeService.GetStats:output_type -> service.StatResponse
+	13, // 43: service.NodeService.GetOutboundsLatency:output_type -> service.LatencyResponse
+	9,  // 44: service.NodeService.GetUserOnlineStats:output_type -> service.OnlineStatResponse
+	10, // 45: service.NodeService.GetUserOnlineIpListStats:output_type -> service.StatsOnlineIpListResponse
+	2,  // 46: service.NodeService.SyncUser:output_type -> service.Empty
+	2,  // 47: service.NodeService.SyncUsers:output_type -> service.Empty
+	2,  // 48: service.NodeService.SyncUsersChunked:output_type -> service.Empty
+	27, // 49: service.NodeService.ListRoutingRules:output_type -> service.RoutingRulesResponse
+	29, // 50: service.NodeService.GetBalancerInfo:output_type -> service.BalancerInfoResponse
+	31, // 51: service.NodeService.TestRoute:output_type -> service.RouteResult
+	2,  // 52: service.NodeService.AddRoutingRule:output_type -> service.Empty
+	2,  // 53: service.NodeService.RemoveRoutingRule:output_type -> service.Empty
+	2,  // 54: service.NodeService.OverrideBalancerTarget:output_type -> service.Empty
+	36, // [36:55] is the sub-list for method output_type
+	17, // [17:36] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_common_service_proto_init() }
@@ -1779,7 +2382,7 @@ func file_common_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_service_proto_rawDesc), len(file_common_service_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   25,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

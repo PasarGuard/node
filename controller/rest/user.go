@@ -129,18 +129,9 @@ func (s *Service) SyncUsersChunked(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Large chunk: update in-memory then restart (no API calls).
-	if len(users) > 100 {
-		if err := s.Backend().UpdateUsersAndRestart(r.Context(), users); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	} else {
-		// Small chunk: update via API without restart.
-		if err := s.Backend().UpdateUsers(r.Context(), users); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err := controller.ApplyChunkedUserUpdate(r.Context(), s.Backend(), users); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	common.SendProtoResponse(w, &common.Empty{})

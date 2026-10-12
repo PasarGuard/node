@@ -3,22 +3,20 @@ package wireguard
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/pasarguard/node/common"
 )
 
-const wireGuardNATOutputInterfaceEnv = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
-
 func (wg *WireGuard) latencyProbeInterface() string {
-	if iface := strings.TrimSpace(os.Getenv(wireGuardNATOutputInterfaceEnv)); iface != "" {
-		return iface
-	}
-
 	wg.mu.RLock()
 	defer wg.mu.RUnlock()
+	if wg.cfg != nil {
+		if iface := strings.TrimSpace(wg.cfg.WGNATOutputInterface); iface != "" {
+			return iface
+		}
+	}
 	if wg.config == nil {
 		return ""
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xtls/xray-core/app/proxyman/command"
+	routingService "github.com/xtls/xray-core/app/router/command"
 	statsService "github.com/xtls/xray-core/app/stats/command"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -15,6 +16,7 @@ import (
 type XrayHandler struct {
 	HandlerServiceClient *command.HandlerServiceClient
 	StatsServiceClient   *statsService.StatsServiceClient
+	RoutingServiceClient *routingService.RoutingServiceClient
 	GrpcClient           *grpc.ClientConn
 }
 
@@ -55,14 +57,17 @@ func NewXrayAPI(apiPort int) (*XrayHandler, error) {
 	ssClient := statsService.NewStatsServiceClient(x.GrpcClient)
 	x.HandlerServiceClient = &hsClient
 	x.StatsServiceClient = &ssClient
+	rsClient := routingService.NewRoutingServiceClient(x.GrpcClient)
+	x.RoutingServiceClient = &rsClient
 
 	return x, nil
 }
 
 func (x *XrayHandler) Close() {
+	// The service clients are intentionally left set: a call racing Close (e.g.
+	// an RPC in flight while Shutdown runs) then fails cleanly on the closed
+	// grpc.ClientConn instead of panicking on a nil client dereference.
 	if x.GrpcClient != nil {
 		_ = x.GrpcClient.Close()
 	}
-	x.StatsServiceClient = nil
-	x.HandlerServiceClient = nil
 }
