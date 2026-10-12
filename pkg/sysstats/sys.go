@@ -129,8 +129,14 @@ func bandwidthDelta(first, second []net.IOCountersStat) (uint64, uint64) {
 			continue
 		}
 		if p, ok := prev[c.Name]; ok {
-			totalRxBytes += c.BytesRecv - p.BytesRecv
-			totalTxBytes += c.BytesSent - p.BytesSent
+			// A counter that went down was reset (for example the interface was
+			// recreated between samples); skip it instead of wrapping around.
+			if c.BytesRecv >= p.BytesRecv {
+				totalRxBytes += c.BytesRecv - p.BytesRecv
+			}
+			if c.BytesSent >= p.BytesSent {
+				totalTxBytes += c.BytesSent - p.BytesSent
+			}
 		}
 	}
 
