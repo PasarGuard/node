@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"strconv"
@@ -18,6 +17,18 @@ import (
 // mgmtTimeout bounds one management round trip. The socket is local, so a slow
 // answer means the child is gone or wedged, not busy.
 const mgmtTimeout = 10 * time.Second
+
+// mgmtQuiet is how long a ">" that is not newline-terminated has to stay alone
+// before it is taken for the prompt.
+//
+// This is the difficulty of the protocol: the banner line starts with ">", so
+// at the instant the reader has consumed "\n>" it cannot yet tell a prompt from
+// the first two bytes of ">INFO:…". When the prompt arrives as a line of its
+// own — which is what line-oriented parsing detects unambiguously — the quiet
+// window is never consulted; it only arbitrates the newline-less form, on a
+// local socket where "more data is already in flight" and "nothing more is
+// coming" are microseconds apart.
+const mgmtQuiet = 300 * time.Millisecond
 
 // mgmtPasswordFile is where the node writes the management password for
 // openvpn's own `management <path> unix <pw-file>` directive. It is never
@@ -63,10 +74,12 @@ func (m *Management) closeLocked() {
 
 // dialLocked connects and performs the password handshake.
 //
-// The prompt is the trap: with a pw-file configured, openvpn writes
-// `ENTER PASSWORD:` and NOTHING else — no newline (measured, LEGACY-VPN.md 3
-// D0). A line-based reader blocks until the timeout and the interface looks
-// dead, so this reads byte by byte until the real `>` prompt arrives.
+// Two measured traps, both from LEGACY-VPN.md 3 (D0/D3c):
+//   - with a pw-file configured, openvpn writes `ENTER PASSWORD:` and NOTHING
+//     else — no newline. A line-based reader blocks until its timeout and the
+//     interface looks dead, so the prompt for the password is matched as bytes;
+//   - `management /path unix` is the working syntax; `management unix /path`
+//     is not.
 func (m *Management) dialLocked(ctx context.Context) error {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "unix", m.socket)
@@ -76,19 +89,12 @@ func (m *Management) dialLocked(ctx context.Context) error {
 	m.conn = conn
 	m.reader = bufio.NewReader(conn)
 
+	// The loop scans before it reads, so a byte that was already in hand —
+	// one the quiet-period peek took out of the stream — is processed without
+	// blocking for a next byte that may never come.
 	var buf []byte
 	sent := false
-	one := make([]byte, 1)
 	for {
-		if err := conn.SetReadDeadline(deadlineFrom(ctx, mgmtTimeout)); err != nil {
-			m.closeLocked()
-			return err
-		}
-		if _, err := m.reader.Read(one); err != nil {
-			m.closeLocked()
-			return fmt.Errorf("openvpn: management handshake: %w", err)
-		}
-		buf = append(buf, one[0])
 		if !sent && bytes.Contains(buf, []byte("ENTER PASSWORD:")) {
 			if _, err := conn.Write([]byte(m.password + "\n")); err != nil {
 				m.closeLocked()
@@ -96,34 +102,101 @@ func (m *Management) dialLocked(ctx context.Context) error {
 			}
 			sent = true
 			buf = buf[:0]
-		}
-		if bytes.HasSuffix(buf, []byte("\n>")) || bytes.Equal(buf, []byte(">")) {
-			return nil
+			continue
 		}
 		if bytes.Contains(buf, []byte("ERROR:")) || bytes.Contains(buf, []byte("bad password")) {
-			err := errors.New("openvpn: management interface refused the password")
 			m.closeLocked()
-			return err
+			return errors.New("openvpn: management interface refused the password")
+		}
+		// A newline-terminated prompt is a line that is exactly ">" — and that
+		// is the one shape the banner (">INFO:…") can never have.
+		for {
+			i := bytes.IndexByte(buf, '\n')
+			if i < 0 {
+				break
+			}
+			line := bytes.TrimRight(buf[:i], "\r")
+			buf = buf[i+1:]
+			if bytes.Equal(line, []byte(">")) {
+				return nil
+			}
+		}
+		// The prompt may arrive with no trailing newline. Only then does the
+		// buffer hold a bare ">" and does the quiet period get to arbitrate.
+		if bytes.Equal(buf, []byte(">")) {
+			peek, err := peekQuiet(m.reader, conn)
+			if err != nil {
+				m.closeLocked()
+				return fmt.Errorf("openvpn: management handshake: %w", err)
+			}
+			if len(peek) == 0 {
+				return nil
+			}
+			buf = append(buf, peek...)
+			continue
 		}
 		if len(buf) > 4096 {
 			buf = buf[len(buf)-64:]
 		}
+		if err := setDeadline(conn, ctx, mgmtTimeout); err != nil {
+			m.closeLocked()
+			return err
+		}
+		b, err := readByte(m.reader)
+		if err != nil {
+			m.closeLocked()
+			return fmt.Errorf("openvpn: management handshake: %w (sent=%v buf=%q)", err, sent, buf)
+		}
+		buf = append(buf, b)
 	}
 }
 
-func deadlineFrom(ctx context.Context, fallback time.Duration) time.Time {
-	if ctx == nil {
-		return time.Now().Add(fallback)
+// readByte reads exactly one byte at the caller's deadline.
+func readByte(r *bufio.Reader) (byte, error) {
+	b := make([]byte, 1)
+	if _, err := r.Read(b); err != nil {
+		return 0, err
 	}
-	if dl, ok := ctx.Deadline(); ok {
-		return dl
+	return b[0], nil
+}
+
+// peekQuiet waits mgmtQuiet for one more byte. An empty result means the
+// window elapsed with nothing: the ">" was the prompt.
+func peekQuiet(r *bufio.Reader, conn net.Conn) ([]byte, error) {
+	if err := conn.SetReadDeadline(time.Now().Add(mgmtQuiet)); err != nil {
+		return nil, err
+	}
+	b, err := readByte(r)
+	if err != nil {
+		if isTimeoutErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return []byte{b}, nil
+}
+
+func setDeadline(conn net.Conn, ctx context.Context, fallback time.Duration) error {
+	return conn.SetReadDeadline(deadlineFrom(ctx, fallback))
+}
+
+func deadlineFrom(ctx context.Context, fallback time.Duration) time.Time {
+	if ctx != nil {
+		if d, ok := ctx.Deadline(); ok {
+			return d
+		}
 	}
 	return time.Now().Add(fallback)
 }
 
-// Exec runs one management command and returns the reply with the `>` prompt
-// stripped. Lines that are asynchronous notifications (they start with `>`)
-// are kept out of the reply — they are not an answer to this command.
+func isTimeoutErr(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// Exec runs one management command and returns the reply with the prompt
+// stripped. Asynchronous notifications (lines starting with `>`) are kept out
+// of the reply — they are not an answer to this command.
 func (m *Management) Exec(ctx context.Context, cmd string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -136,33 +209,61 @@ func (m *Management) Exec(ctx context.Context, cmd string) (string, error) {
 			return "", err
 		}
 	}
-	if err := m.conn.SetDeadline(deadlineFrom(ctx, mgmtTimeout)); err != nil {
+	if err := setDeadline(m.conn, ctx, mgmtTimeout); err != nil {
 		m.closeLocked()
 		return "", err
 	}
-	if _, err := io.WriteString(m.conn, cmd+"\n"); err != nil {
+	if _, err := m.conn.Write([]byte(cmd + "\n")); err != nil {
 		m.closeLocked()
 		return "", fmt.Errorf("openvpn: management write %q: %w", cmd, err)
 	}
+	return m.readReply(ctx, cmd)
+}
 
+// readReply collects lines until the prompt.
+//
+// The prompt may be sent without a trailing newline, so a plain line reader
+// would hold the deadline open on every command. Once the reply has started
+// flowing the window shrinks to mgmtQuiet: the prompt arrives in the same
+// write as the last line, so a pause that long with a lone ">" buffered can
+// only be the end of the answer.
+func (m *Management) readReply(ctx context.Context, cmd string) (string, error) {
 	var out []string
+	seenOutput := false
 	for {
+		dl := deadlineFrom(ctx, mgmtTimeout)
+		if seenOutput {
+			if q := time.Now().Add(mgmtQuiet); q.Before(dl) {
+				dl = q
+			}
+		}
+		if err := m.conn.SetReadDeadline(dl); err != nil {
+			m.closeLocked()
+			return "", err
+		}
 		line, err := m.reader.ReadString('\n')
 		if err != nil {
+			trimmed := strings.TrimRight(line, "\r\n")
+			if trimmed == ">" && isTimeoutErr(err) {
+				return strings.Join(out, "\n"), nil
+			}
 			m.closeLocked()
 			return "", fmt.Errorf("openvpn: management read after %q: %w", cmd, err)
 		}
-		line = strings.TrimRight(line, "\r\n")
-		if line == ">" {
-			break
-		}
-		if strings.HasPrefix(line, ">") {
+		trimmed := strings.TrimRight(line, "\r\n")
+		switch {
+		case trimmed == ">":
+			return strings.Join(out, "\n"), nil
+		case trimmed == "":
+			// The newline the handshake left behind, or a blank in the reply.
+			continue
+		case strings.HasPrefix(trimmed, ">"):
 			// Async notification (">CLIENT:…", ">HOLD:…"), not the reply.
 			continue
 		}
-		out = append(out, line)
+		seenOutput = true
+		out = append(out, trimmed)
 	}
-	return strings.Join(out, "\n"), nil
 }
 
 // Kill ends the live session whose common name is name.
@@ -213,8 +314,9 @@ type Session struct {
 }
 
 // Sessions returns the connected clients, keyed by common name (the panel's
-// user id). The header row is parsed rather than the column numbers being
-// hard-coded: 2.4, 2.5 and 2.6 do not have the same column list.
+// user id). The header row gives the column positions rather than hard-coded
+// indices: 2.4, 2.5 and 2.6 do not have the same column list, and a fixed index
+// would silently read the wrong field instead of failing.
 func (m *Management) Sessions(ctx context.Context) (map[string]Session, error) {
 	reply, err := m.Exec(ctx, "status 2")
 	if err != nil {
@@ -230,6 +332,9 @@ func (m *Management) Sessions(ctx context.Context) (map[string]Session, error) {
 		switch fields[0] {
 		case "HEADER":
 			if len(fields) > 1 && fields[1] == "CLIENT_LIST" {
+				// The header row carries two leading fields (HEADER, CLIENT_LIST) that
+				// a CLIENT_LIST row does not, so a column ordinal taken from the
+				// header is one less than its index in the data row.
 				for i, name := range fields[2:] {
 					idx[name] = i
 				}
@@ -237,7 +342,7 @@ func (m *Management) Sessions(ctx context.Context) (map[string]Session, error) {
 		case "CLIENT_LIST":
 			at := func(name string) int {
 				i, ok := idx[name]
-				if !ok || i+1 >= len(fields)-1 {
+				if !ok || i+1 >= len(fields) {
 					return -1
 				}
 				return i + 1
@@ -263,8 +368,8 @@ func (m *Management) Sessions(ctx context.Context) (map[string]Session, error) {
 }
 
 // readManagementPassword loads the password the node wrote for openvpn. It is
-// only ever compared, written to its own 0600 file and used to authenticate —
-// it is never logged and never returned.
+// only ever written to its own 0600 file and used to authenticate — never
+// logged, never returned.
 func readManagementPassword(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

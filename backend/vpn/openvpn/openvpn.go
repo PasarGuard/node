@@ -317,6 +317,9 @@ func (o *OpenVPN) setIdle(v bool) {
 // Management is the seam accounting-quota drives: `kill` and the session list.
 // nil while the core has never started.
 func (o *OpenVPN) Management() *Management {
+	if o == nil {
+		return nil
+	}
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.mgmt
