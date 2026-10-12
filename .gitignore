@@ -29,6 +29,8 @@ xray-core/
 
 # AI
 .AI
+graphify-out
+superpowers/
 
 certs/
 generated/

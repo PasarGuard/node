@@ -12,18 +12,19 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/pasarguard/node/config"
 )
 
 const (
-	envHostRouting        = "PG_NODE_WG_HOST_ROUTING"
 	envNATOutputInterface = "PG_NODE_WG_NAT_OUTPUT_INTERFACE"
-	envNATEgressOnly      = "PG_NODE_WG_NAT_EGRESS_ONLY"
 	ipv4ForwardPath       = "/proc/sys/net/ipv4/ip_forward"
 	nftTableFamily        = "ip"
 	nftTableName          = "pg_node_wg_nat"
 	nftPostroutingChain   = "postrouting"
 	nftForwardChain       = "forward"
 	nftRuleCommentPrefix  = "pg_node_wg "
+	nftManglePriority     = -150
 )
 
 // applyLinuxHostRouting installs an nftables masquerade rule for traffic from the
@@ -35,9 +36,20 @@ const (
 //  2. IPv4 default route interface (ip -4 -j route, else /proc/net/route)
 //  3. eth0 as last-resort fallback
 //
+// Set PG_NODE_WG_NAT_DISABLE=1 to keep the forward rules but skip masquerade
+// (e.g. routing into an Xray TUN where Xray does its own outbound; SNAT there is
+// redundant and can interfere).
+//
+// Optional policy routing: when both PG_NODE_WG_ROUTE_TABLE and
+// PG_NODE_WG_ROUTE_OUT_INTERFACE are set, traffic ingressing on the WireGuard
+// interface is routed out the given interface via a dedicated table:
+//
+//	ip rule add iif <wgIf> lookup <table>
+//	ip route add default dev <outIface> table <table>
+//
 // Disable all of this with PG_NODE_WG_HOST_ROUTING=0.
-func applyLinuxHostRouting(wgInterfaceName string) func() {
-	if v := strings.TrimSpace(os.Getenv(envHostRouting)); v == "0" || strings.EqualFold(v, "false") {
+func applyLinuxHostRouting(cfg *config.Config, wgInterfaceName string) func() {
+	if cfg != nil && !cfg.WGHostRouting {
 		return nil
 	}
 
@@ -46,7 +58,10 @@ func applyLinuxHostRouting(wgInterfaceName string) func() {
 		wgIf = "wg0"
 	}
 
-	outIf := strings.TrimSpace(os.Getenv(envNATOutputInterface))
+	outIf := ""
+	if cfg != nil {
+		outIf = strings.TrimSpace(cfg.WGNATOutputInterface)
+	}
 	if outIf == "" {
 		var ok bool
 		outIf, ok = linuxDefaultRouteInterfaceIPv4()
@@ -60,13 +75,15 @@ func applyLinuxHostRouting(wgInterfaceName string) func() {
 		}
 	}
 
+	natDisabled := cfg != nil && cfg.WGNATDisable
+
 	egressOnly := true
-	if env := os.Getenv(envNATEgressOnly); env != "" {
-		egressOnly = envTruthy(env)
+	if cfg != nil {
+		egressOnly = cfg.WGNATEgressOnly
 	}
 	log.Printf(
-		"wireguard host routing: wg interface %q, NAT egress %q (masquerade, egress_only=%v)",
-		wgIf, outIf, egressOnly,
+		"wireguard host routing: wg interface %q, NAT egress %q (masquerade, egress_only=%v, nat_disabled=%v)",
+		wgIf, outIf, egressOnly, natDisabled,
 	)
 
 	ownerID := newHostRoutingOwnerID(wgIf)
@@ -76,15 +93,34 @@ func applyLinuxHostRouting(wgInterfaceName string) func() {
 		log.Printf("wireguard host routing: enabling IPv4 forwarding failed: %v", err)
 	}
 
-	if err := ensureNFTMasquerade(wgIf, outIf, egressOnly, ownerID); err != nil {
-		log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
+	if !natDisabled {
+		if err := ensureNFTMasquerade(wgIf, outIf, egressOnly, ownerID); err != nil {
+			log.Printf("wireguard host routing: nftables masquerade failed: %v", err)
+		}
 	}
 
 	if err := ensureNFTForwarding(wgIf, outIf, ownerID); err != nil {
 		log.Printf("wireguard host routing: nftables forward rules failed: %v", err)
 	}
 
+	policyRoute := parsePolicyRoute(cfg, wgIf)
+	if policyRoute != nil {
+		if err := policyRoute.apply(); err != nil {
+			log.Printf("wireguard host routing: policy routing failed: %v", err)
+		} else {
+			log.Printf(
+				"wireguard host routing: policy routing iif %q -> table %s default dev %q",
+				policyRoute.wgIface, policyRoute.table, policyRoute.outIface,
+			)
+		}
+	}
+
 	return func() {
+		if policyRoute != nil {
+			if err := policyRoute.cleanup(); err != nil {
+				log.Printf("wireguard host routing: policy routing cleanup failed: %v", err)
+			}
+		}
 		if err := cleanupLinuxHostRouting(ownerID); err != nil {
 			log.Printf("wireguard host routing: cleanup failed for owner %q: %v", ownerID, err)
 		}
@@ -94,6 +130,75 @@ func applyLinuxHostRouting(wgInterfaceName string) func() {
 func envTruthy(s string) bool {
 	v := strings.TrimSpace(s)
 	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+}
+
+// policyRouteConfig wires WireGuard ingress traffic into a dedicated routing
+// table whose default route points at outIface (e.g. an Xray TUN). This is the
+// "selective routing" mechanism: only packets arriving on wgIface are matched,
+// host traffic keeps using the main table.
+type policyRouteConfig struct {
+	wgIface  string
+	outIface string
+	table    string
+}
+
+// parsePolicyRoute returns a config only when both knobs are set; policy
+// routing is fully opt-in and independent of NAT.
+func parsePolicyRoute(cfg *config.Config, wgIface string) *policyRouteConfig {
+	if cfg == nil {
+		return nil
+	}
+	table := strings.TrimSpace(cfg.WGRouteTable)
+	outIface := strings.TrimSpace(cfg.WGRouteOutInterface)
+	if table == "" || outIface == "" {
+		return nil
+	}
+	return &policyRouteConfig{wgIface: wgIface, outIface: outIface, table: table}
+}
+
+func (p *policyRouteConfig) apply() error {
+	// ponytail: idempotent via add-then-ignore-exists; no read-back. Ceiling:
+	// a stale rule/route from a hard crash (no cleanup) lingers until the next
+	// apply re-adds (no-op) — harmless since iif+table are scoped to this wg.
+	if err := runIP("rule", "add", "iif", p.wgIface, "lookup", p.table); err != nil && !ipRuleExists(err) {
+		return err
+	}
+	if err := runIP("route", "add", "default", "dev", p.outIface, "table", p.table); err != nil && !ipRuleExists(err) {
+		return err
+	}
+	return nil
+}
+
+func (p *policyRouteConfig) cleanup() error {
+	var errs []error
+	if err := runIP("route", "del", "default", "dev", p.outIface, "table", p.table); err != nil && !ipRuleMissing(err) {
+		errs = append(errs, err)
+	}
+	if err := runIP("rule", "del", "iif", p.wgIface, "lookup", p.table); err != nil && !ipRuleMissing(err) {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func runIP(args ...string) error {
+	cmd := exec.Command("ip", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ip %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func ipRuleExists(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "File exists")
+}
+
+func ipRuleMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "No such") || strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
 }
 
 // ensureNFTMasquerade sets up NAT rules dynamically.
@@ -122,28 +227,11 @@ func ensureNFTMasquerade(wgIface, outputIface string, egressOnly bool, ownerID s
 	return runNFT(args...)
 }
 
-func nftMasqueradeRule(wgIface, outputIface string, egressOnly bool) string {
-	if egressOnly {
-		return fmt.Sprintf("oifname %q masquerade", outputIface)
-	}
-	return fmt.Sprintf("iifname %q oifname %q masquerade", wgIface, outputIface)
-}
-
 func nftMasqueradeRuleArgs(wgIface, outputIface string, egressOnly bool) []string {
 	if egressOnly {
 		return []string{"oifname", nftString(outputIface), "masquerade"}
 	}
 	return []string{"iifname", nftString(wgIface), "oifname", nftString(outputIface), "masquerade"}
-}
-
-func nftMasqueradeConfig(rule, comment string) string {
-	return fmt.Sprintf(`table %s %s {
-	chain %s {
-		type nat hook postrouting priority 100; policy accept;
-		%s comment %q
-	}
-}
-`, nftTableFamily, nftTableName, nftPostroutingChain, rule, comment)
 }
 
 func ensureNFTForwarding(wgIface, outputIface, ownerID string) error {
@@ -165,18 +253,6 @@ func ensureNFTForwarding(wgIface, outputIface, ownerID string) error {
 	return nil
 }
 
-func nftForwardConfig(wgIface, outputIface string) string {
-	return fmt.Sprintf(`iifname %q oifname %q accept comment %q
-iifname %q oifname %q ct state established,related accept comment %q`,
-		wgIface,
-		outputIface,
-		nftForwardRuleComment("test-owner", wgIface, outputIface, true),
-		outputIface,
-		wgIface,
-		nftForwardRuleComment("test-owner", wgIface, outputIface, false),
-	)
-}
-
 type nftBaseChain struct {
 	family string
 	table  string
@@ -188,10 +264,11 @@ type nftListRuleset struct {
 }
 
 type nftListChain struct {
-	Family string `json:"family"`
-	Table  string `json:"table"`
-	Name   string `json:"name"`
-	Hook   string `json:"hook"`
+	Family string          `json:"family"`
+	Table  string          `json:"table"`
+	Name   string          `json:"name"`
+	Hook   string          `json:"hook"`
+	Prio   json.RawMessage `json:"prio"`
 }
 
 func nftForwardBaseChains() ([]nftBaseChain, error) {
@@ -219,7 +296,7 @@ func parseNFTForwardBaseChains(data []byte) ([]nftBaseChain, error) {
 		if err := json.Unmarshal(raw, &chain); err != nil {
 			return nil, fmt.Errorf("parse nft chain: %w", err)
 		}
-		if chain.Hook != nftForwardChain || !nftForwardFamilySupported(chain.Family) {
+		if chain.Hook != nftForwardChain || !nftForwardFamilySupported(chain.Family) || nftMangleChain(chain) {
 			continue
 		}
 		chains = append(chains, nftBaseChain{
@@ -233,6 +310,18 @@ func parseNFTForwardBaseChains(data []byte) ([]nftBaseChain, error) {
 
 func nftForwardFamilySupported(family string) bool {
 	return family == "ip" || family == "inet"
+}
+
+// nftMangleChain reports forward chains that alter packets rather than filter them, such as
+// iptables-nft's mangle FORWARD or fw4's mangle_forward, which hold TCP MSS clamping. An accept
+// inserted at their top ends the chain before those rules run, and they do not drop traffic,
+// so the forward rules are not inserted there.
+func nftMangleChain(chain nftListChain) bool {
+	if chain.Table == "mangle" {
+		return true
+	}
+	var prio int
+	return json.Unmarshal(chain.Prio, &prio) == nil && prio == nftManglePriority
 }
 
 func removeNFTRulesWithCommentPrefix(chain nftBaseChain, commentPrefix string) error {
@@ -315,16 +404,6 @@ func ensureIPv4Forwarding() error {
 	}
 	if err := os.WriteFile(ipv4ForwardPath, []byte("1\n"), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", ipv4ForwardPath, err)
-	}
-	return nil
-}
-
-func runNFTScript(script string) error {
-	cmd := exec.Command("nft", "-f", "-")
-	cmd.Stdin = strings.NewReader(script)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nft -f -: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

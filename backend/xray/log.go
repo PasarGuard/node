@@ -4,28 +4,28 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"regexp"
+	"strings"
 
 	nodeLogger "github.com/pasarguard/node/logger"
 )
 
-var (
-	// Pattern for access logs: contains "accepted" (tcp/udp) and "email:"
-	accessLogPattern = regexp.MustCompile(`from .+:\d+ accepted (tcp|udp):.+:\d+ \[.+\] email: .+`)
-)
+func isAccessLog(log string) bool {
+	if !strings.Contains(log, "from ") || !strings.Contains(log, " email:") {
+		return false
+	}
+	return strings.Contains(log, " accepted tcp:") || strings.Contains(log, " accepted udp:")
+}
 
 func (c *Core) detectLogType(log string) {
 	if c.logger == nil {
 		return
 	}
 
-	// Check if it's an access log (contains accepted + email pattern)
-	if accessLogPattern.MatchString(log) {
+	if isAccessLog(log) {
 		c.logger.Log(nodeLogger.LogInfo, log)
 		return
 	}
 
-	// All other logs go to error file
 	c.logger.Log(nodeLogger.LogError, log)
 }
 

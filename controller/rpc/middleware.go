@@ -46,10 +46,10 @@ func validateApiKey(ctx context.Context, s *Service) error {
 func validateApiKeyMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
-		req interface{},
+		req any,
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
-	) (interface{}, error) {
+	) (any, error) {
 		if err := validateApiKey(ctx, s); err != nil {
 			return nil, err
 		}
@@ -60,7 +60,7 @@ func validateApiKeyMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 func validateApiKeyStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	return func(
-		srv interface{},
+		srv any,
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
@@ -89,10 +89,10 @@ func checkBackendStatus(s *Service) error {
 func CheckBackendMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
-		req interface{},
+		req any,
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
-	) (interface{}, error) {
+	) (any, error) {
 		if err := checkBackendStatus(s); err != nil {
 			return nil, err
 		}
@@ -103,7 +103,7 @@ func CheckBackendMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 func CheckBackendStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	return func(
-		srv interface{},
+		srv any,
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
@@ -137,10 +137,10 @@ func logRequest(ctx context.Context, method string, err error) {
 func LoggingInterceptor(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
-		req interface{},
+		req any,
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
-	) (interface{}, error) {
+	) (any, error) {
 		// Handle the request
 		resp, err := handler(ctx, req)
 
@@ -158,7 +158,7 @@ func LoggingInterceptor(s *Service) grpc.UnaryServerInterceptor {
 
 func LoggingStreamInterceptor(s *Service) grpc.StreamServerInterceptor {
 	return func(
-		srv interface{},
+		srv any,
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
@@ -195,15 +195,21 @@ var backendMethods = map[string]bool{
 	"/service.NodeService/SyncUsers":                true,
 	"/service.NodeService/SyncUsersChunked":         true,
 	"/service.NodeService/GetLogs":                  true,
+	"/service.NodeService/ListRoutingRules":         true,
+	"/service.NodeService/GetBalancerInfo":          true,
+	"/service.NodeService/TestRoute":                true,
+	"/service.NodeService/AddRoutingRule":           true,
+	"/service.NodeService/RemoveRoutingRule":        true,
+	"/service.NodeService/OverrideBalancerTarget":   true,
 }
 
 func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
-		req interface{},
+		req any,
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
-	) (interface{}, error) {
+	) (any, error) {
 		var interceptors []grpc.UnaryServerInterceptor
 
 		interceptors = append(interceptors, LoggingInterceptor(s))
@@ -221,7 +227,7 @@ func ConditionalMiddleware(s *Service) grpc.UnaryServerInterceptor {
 
 func ConditionalStreamMiddleware(s *Service) grpc.StreamServerInterceptor {
 	return func(
-		srv interface{},
+		srv any,
 		ss grpc.ServerStream,
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,

@@ -5,15 +5,13 @@ package wireguard
 import (
 	"strings"
 	"testing"
+
+	"github.com/pasarguard/node/config"
 )
 
-func TestNFTMasqueradeRule(t *testing.T) {
-	if got := nftMasqueradeRule("wg0", "eth0", true); got != `oifname "eth0" masquerade` {
-		t.Fatalf("unexpected egress-only rule: %s", got)
-	}
-
-	if got := nftMasqueradeRule("wg0", "eth0", false); got != `iifname "wg0" oifname "eth0" masquerade` {
-		t.Fatalf("unexpected interface-scoped rule: %s", got)
+func TestNFTMasqueradeRuleArgs(t *testing.T) {
+	if got := strings.Join(nftMasqueradeRuleArgs("wg0", "eth0", true), " "); got != `oifname "eth0" masquerade` {
+		t.Fatalf("unexpected egress-only args: %s", got)
 	}
 
 	if got := strings.Join(nftMasqueradeRuleArgs("wg0", "eth0", false), " "); got != `iifname "wg0" oifname "eth0" masquerade` {
@@ -32,46 +30,6 @@ func TestNFTAlreadyExists(t *testing.T) {
 
 	if nftAlreadyExists(staticError("permission denied")) {
 		t.Fatalf("unexpected already exists match")
-	}
-}
-
-func TestNFTMasqueradeConfigIsScoped(t *testing.T) {
-	cfg := nftMasqueradeConfig(`oifname "eth0" masquerade`, nftNATRuleComment("owner-1", "wg0", "eth0", true))
-
-	for _, want := range []string{
-		"table ip pg_node_wg_nat",
-		"chain postrouting",
-		"type nat hook postrouting priority 100; policy accept;",
-		`oifname "eth0" masquerade`,
-		`comment "pg_node_wg owner=owner-1 type=nat iface=wg0 out=eth0 scope=egress"`,
-	} {
-		if !strings.Contains(cfg, want) {
-			t.Fatalf("config missing %q:\n%s", want, cfg)
-		}
-	}
-
-	if strings.Contains(cfg, "flush ruleset") {
-		t.Fatalf("managed config must not flush the global nft ruleset:\n%s", cfg)
-	}
-}
-
-func TestNFTForwardConfigIsScoped(t *testing.T) {
-	cfg := nftForwardConfig("wg0", "eth0")
-
-	for _, want := range []string{
-		`iifname "wg0" oifname "eth0" accept comment "pg_node_wg owner=test-owner type=forward iface=wg0 out=eth0 direction=outbound"`,
-		`iifname "eth0" oifname "wg0" ct state established,related accept comment "pg_node_wg owner=test-owner type=forward iface=wg0 out=eth0 direction=return"`,
-	} {
-		if !strings.Contains(cfg, want) {
-			t.Fatalf("config missing %q:\n%s", want, cfg)
-		}
-	}
-
-	if strings.Contains(cfg, "flush ruleset") {
-		t.Fatalf("managed config must not flush the global nft ruleset:\n%s", cfg)
-	}
-	if strings.Contains(cfg, "type filter hook forward") || strings.Contains(cfg, "policy accept") {
-		t.Fatalf("forward config must not create a catch-all base chain:\n%s", cfg)
 	}
 }
 
@@ -101,6 +59,37 @@ func TestParseNFTForwardBaseChains(t *testing.T) {
 	}
 	if chains[1] != (nftBaseChain{family: "inet", table: "firewalld", name: "filter_FORWARD"}) {
 		t.Fatalf("unexpected second chain: %#v", chains[1])
+	}
+}
+
+func TestParseNFTForwardBaseChainsSkipsMangleChains(t *testing.T) {
+	const ruleset = `{
+		"nftables": [
+			{"chain": {"family": "ip", "table": "mangle", "name": "FORWARD", "type": "filter", "hook": "forward", "prio": -150, "policy": "accept"}},
+			{"chain": {"family": "inet", "table": "fw4", "name": "mangle_forward", "type": "filter", "hook": "forward", "prio": -150, "policy": "accept"}},
+			{"chain": {"family": "inet", "table": "fw4", "name": "forward", "type": "filter", "hook": "forward", "prio": 0, "policy": "drop"}},
+			{"chain": {"family": "ip", "table": "filter", "name": "FORWARD", "type": "filter", "hook": "forward", "prio": 0, "policy": "drop"}},
+			{"chain": {"family": "ip", "table": "custom", "name": "fwd", "type": "filter", "hook": "forward", "prio": "unexpected", "policy": "accept"}}
+		]
+	}`
+
+	chains, err := parseNFTForwardBaseChains([]byte(ruleset))
+	if err != nil {
+		t.Fatalf("parseNFTForwardBaseChains returned error: %v", err)
+	}
+
+	want := []nftBaseChain{
+		{family: "inet", table: "fw4", name: "forward"},
+		{family: "ip", table: "filter", name: "FORWARD"},
+		{family: "ip", table: "custom", name: "fwd"},
+	}
+	if len(chains) != len(want) {
+		t.Fatalf("expected %d chains without the mangle ones, got %#v", len(want), chains)
+	}
+	for i := range want {
+		if chains[i] != want[i] {
+			t.Fatalf("chain %d: expected %#v, got %#v", i, want[i], chains[i])
+		}
 	}
 }
 
@@ -144,3 +133,43 @@ func TestSanitizeNFTOwnerPart(t *testing.T) {
 type staticError string
 
 func (e staticError) Error() string { return string(e) }
+
+func TestParsePolicyRoute(t *testing.T) {
+	if parsePolicyRoute(nil, "wg0") != nil {
+		t.Fatalf("policy route must be nil when cfg is nil")
+	}
+
+	cfg := &config.Config{}
+	if parsePolicyRoute(cfg, "wg0") != nil {
+		t.Fatalf("policy route must be nil when unset")
+	}
+
+	cfg.WGRouteTable = "100"
+	if parsePolicyRoute(cfg, "wg0") != nil {
+		t.Fatalf("policy route must be nil when only table set")
+	}
+
+	cfg.WGRouteOutInterface = "xray0"
+	got := parsePolicyRoute(cfg, "wg0")
+	if got == nil {
+		t.Fatalf("expected policy route config when both set")
+	}
+	if got.wgIface != "wg0" || got.table != "100" || got.outIface != "xray0" {
+		t.Fatalf("unexpected policy route config: %#v", got)
+	}
+}
+
+func TestIPRuleErrorClassifiers(t *testing.T) {
+	if !ipRuleExists(staticError("RTNETLINK answers: File exists")) {
+		t.Fatalf("File exists must be treated as already-exists")
+	}
+	if ipRuleExists(nil) {
+		t.Fatalf("nil must not be already-exists")
+	}
+	if !ipRuleMissing(staticError("RTNETLINK answers: No such file or directory")) {
+		t.Fatalf("No such must be treated as missing")
+	}
+	if ipRuleMissing(nil) {
+		t.Fatalf("nil must not be missing")
+	}
+}

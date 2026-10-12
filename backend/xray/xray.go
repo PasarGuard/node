@@ -20,6 +20,7 @@ type Xray struct {
 	metricPort int
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
+	syncMu     sync.Mutex
 }
 
 func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort, metricPort int, cfg *config.Config) (*Xray, error) {
@@ -130,12 +131,22 @@ func (x *Xray) Started() bool {
 }
 
 func (x *Xray) Restart() error {
+	return x.restartCoreWithConfig(x.config)
+}
+
+func (x *Xray) restartCoreWithConfig(config *Config) error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if err := x.core.Restart(x.config, x.cfg.Debug); err != nil {
+	if err := x.core.Restart(config, x.cfg.Debug); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (x *Xray) setConfig(config *Config) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	x.config = config
 }
 
 func (x *Xray) Shutdown() {

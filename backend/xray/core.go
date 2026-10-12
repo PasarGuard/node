@@ -115,13 +115,30 @@ func (c *Core) Version() string {
 }
 
 func (c *Core) Started() bool {
-	if c.process == nil || c.process.Process == nil {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.startedLocked()
+}
+
+// startedLocked requires c.mu. Wait closes waitDone without taking c.mu, so
+// callers can observe process exit even while Stop holds the lock to reap it.
+func (c *Core) startedLocked() bool {
+	if c.process == nil || c.process.Process == nil || c.waitDone == nil {
 		return false
 	}
-	if c.process.ProcessState == nil {
+	// exec.Cmd.Wait writes ProcessState outside c.mu; never read it here.
+	select {
+	case <-c.waitDone:
+		return false
+	default:
 		return true
 	}
-	return false
+}
+
+func (c *Core) Stopping() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stopping
 }
 
 func collectUnixSocketPaths(cfg *Config) []string {
@@ -192,7 +209,7 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	defer c.mu.Unlock()
 
 	// Check if already started after acquiring lock to prevent race condition
-	if c.Started() {
+	if c.startedLocked() {
 		return errors.New("xray is started already")
 	}
 
@@ -275,6 +292,9 @@ func (c *Core) handleProcessExit(cmd *exec.Cmd, err error) {
 	message := "xray process exited unexpectedly"
 	if err != nil {
 		message = fmt.Sprintf("%s: %v", message, err)
+		if strings.Contains(strings.ToLower(err.Error()), "signal: killed") {
+			message += " (process was killed externally; check container/system OOM and memory limits)"
+		}
 	}
 
 	log.Println(message)
@@ -285,7 +305,7 @@ func (c *Core) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	started := c.Started()
+	started := c.startedLocked()
 	if !started && c.process == nil && c.cancelFunc == nil && c.logger == nil && len(c.unixSocketPaths) == 0 {
 		return
 	}
