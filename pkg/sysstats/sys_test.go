@@ -59,7 +59,7 @@ func TestBandwidthDeltaExcludesLoopback(t *testing.T) {
 	}
 }
 
-func TestBandwidthDeltaSkipsInterfacesWhoseCountersWentDown(t *testing.T) {
+func TestBandwidthDeltaCountsTrafficSinceACounterReset(t *testing.T) {
 	first := []net.IOCountersStat{
 		{Name: "eth0", BytesRecv: 1000, BytesSent: 2000},
 		{Name: "wg0", BytesRecv: 5000, BytesSent: 7000},
@@ -71,8 +71,8 @@ func TestBandwidthDeltaSkipsInterfacesWhoseCountersWentDown(t *testing.T) {
 	}
 
 	rx, tx := bandwidthDelta(first, second)
-	if rx != 100 {
-		t.Fatalf("incoming bytes: got %d, want 100 (wg0 reset skipped)", rx)
+	if rx != 140 {
+		t.Fatalf("incoming bytes: got %d, want 140 (eth0 100 plus wg0 40 since its reset)", rx)
 	}
 	if tx != 2300 {
 		t.Fatalf("outgoing bytes: got %d, want 2300", tx)

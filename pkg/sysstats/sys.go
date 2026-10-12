@@ -112,6 +112,16 @@ func cpuBusyTotal(t cpu.TimesStat) (all, busy float64) {
 	return busy + t.Idle, busy
 }
 
+// counterDelta returns how far a byte counter moved between two samples. A
+// counter that went down was reset (for example the interface was recreated
+// between samples), so its current value is the traffic since the reset.
+func counterDelta(prev, cur uint64) uint64 {
+	if cur < prev {
+		return cur
+	}
+	return cur - prev
+}
+
 // bandwidthDelta returns aggregate incoming (rx) and outgoing (tx) bytes
 // between two IO counter snapshots. Loopback (lo) is excluded.
 func bandwidthDelta(first, second []net.IOCountersStat) (uint64, uint64) {
@@ -129,14 +139,8 @@ func bandwidthDelta(first, second []net.IOCountersStat) (uint64, uint64) {
 			continue
 		}
 		if p, ok := prev[c.Name]; ok {
-			// A counter that went down was reset (for example the interface was
-			// recreated between samples); skip it instead of wrapping around.
-			if c.BytesRecv >= p.BytesRecv {
-				totalRxBytes += c.BytesRecv - p.BytesRecv
-			}
-			if c.BytesSent >= p.BytesSent {
-				totalTxBytes += c.BytesSent - p.BytesSent
-			}
+			totalRxBytes += counterDelta(p.BytesRecv, c.BytesRecv)
+			totalTxBytes += counterDelta(p.BytesSent, c.BytesSent)
 		}
 	}
 
