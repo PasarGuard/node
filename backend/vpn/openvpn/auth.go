@@ -135,7 +135,7 @@ func verifyWithAuthExecutable(ctx context.Context, exe, dir string, attempt cred
 	// password on the node's own log either.
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("openvpn: auth verification did not finish within %s: %w", authTimeout, ctx.Err())
+			return fmt.Errorf("openvpn: auth verification did not finish before the caller deadline: %w", ctx.Err())
 		}
 		return fmt.Errorf("openvpn: credentials rejected by %s", exe)
 	}
