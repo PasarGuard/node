@@ -1,0 +1,81 @@
+# openvpn flavour: node + the auth executable + a pinned OpenVPN package.
+#
+# Supply chain: unlike sing-box (built from source) and hysteria (a signed-tag
+# raw binary), OpenVPN ships as a distro package, so the pin is the .deb and
+# its sha256 — measured, not assumed, in docs/multi/LEGACY-VPN.md 2:
+#   openvpn_2.6.19-0ubuntu0.24.04.4_amd64.deb
+#   sha256 d288c3789e825b140258da3e2c40bdb8f07820b8e69ca6480b619b83af8f108a
+# The install step refuses a mismatch instead of trusting the download, and the
+# runtime stage re-checks the version the panel's accounting contract assumed.
+#
+# GPL-2.0: this image *runs* openvpn, it never links it. The two binaries the
+# node does link (main, pg-ovpn-auth) are this project's own.
+#
+# Base is ubuntu, not alpine: the pinned package is a Ubuntu 24.04 deb and its
+# ELF wants glibc. An alpine base would silently run a *different* openvpn from
+# apk, which is exactly what the pin exists to prevent.
+#
+# amd64 only: that is the architecture the sha256 above was measured on. An
+# unpinned architecture is refused rather than installed unverified.
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN apk update && apk add --no-cache make curl
+
+WORKDIR /src
+
+COPY go* .
+RUN go mod download
+
+COPY . .
+# The node, and the executable `auth-user-pass-verify … via-file` execve()s.
+# Both CGO-free so they run on the ubuntu runtime unchanged.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+      go build -trimpath -ldflags "-s -w -buildid=" -o /src/pg-ovpn-auth ./backend/vpn/openvpn/authcmd
+
+FROM ubuntu:24.04
+
+LABEL org.opencontainers.image.source="https://github.com/PasarGuard/node"
+
+ARG TARGETARCH
+# The two halves of the pin: the version the panel's stats pipeline was
+# measured against, and the exact package file that carries it.
+ARG OPENVPN_VERSION=2.6.19
+ARG OPENVPN_DEB_VERSION=2.6.19-0ubuntu0.24.04.4
+ARG OPENVPN_DEB_SHA256_linux_amd64=d288c3789e825b140258da3e2c40bdb8f07820b8e69ca6480b619b83af8f108a
+
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl iproute2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# hadolint ignore=DL3008
+RUN case "${TARGETARCH}" in \
+      amd64) ovpn_sha="${OPENVPN_DEB_SHA256_linux_amd64}" ;; \
+      *) echo "no pinned openvpn .deb for ${TARGETARCH}; refusing to install an unverified package"; exit 1 ;; \
+    esac; \
+    if [ -z "$ovpn_sha" ]; then \
+      echo "no pinned openvpn .deb for ${TARGETARCH}; refusing to install an unverified package"; exit 1; \
+    fi; \
+    curl -fsSL -o /tmp/openvpn.deb \
+      "https://archive.ubuntu.com/ubuntu/pool/main/o/openvpn/openvpn_${OPENVPN_DEB_VERSION}_amd64.deb" && \
+    echo "${ovpn_sha}  /tmp/openvpn.deb" | sha256sum -c - && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends /tmp/openvpn.deb && \
+    rm -rf /var/lib/apt/lists/* /tmp/openvpn.deb
+
+# Fail the build here, not at container start: the node's accounting and the
+# panel's client compatibility were measured against exactly this version.
+RUN openvpn --version | grep -F "OpenVPN ${OPENVPN_VERSION}"
+
+WORKDIR /app
+COPY --from=builder /src/main /app/main
+COPY --from=builder /src/pg-ovpn-auth /usr/local/bin/pg-ovpn-auth
+
+# The package installs to /usr/sbin; the node's default is /usr/local/bin.
+ENV OPENVPN_EXECUTABLE_PATH=/usr/sbin/openvpn
+
+ENTRYPOINT ["./main"]
