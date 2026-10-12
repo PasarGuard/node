@@ -30,6 +30,7 @@ enum BackendType {
   WIREGUARD = 1;
   SINGBOX = 2;
   HYSTERIA2 = 3;
+  OPENVPN = 4;
 }
 
 message Backend {
@@ -156,6 +157,13 @@ message Hysteria {
     string auth = 1;
 }
 
+// OpenVPN authenticates with a username/password pair the panel generates
+// per core (CONTRACT 6.1). username is str(user.id), like User.email.
+message Openvpn {
+    string username = 1;
+    string password = 2;
+}
+
 message Proxy {
     Vmess vmess = 1;
     Vless vless = 2;
@@ -163,6 +171,7 @@ message Proxy {
     Shadowsocks shadowsocks = 4;
     Wireguard wireguard = 5;
     Hysteria hysteria = 6;
+    Openvpn openvpn = 7;
 }
 
 message User {
