@@ -223,3 +223,37 @@ func TestToBytesSerializesExcludedInboundUnchanged(t *testing.T) {
 		t.Fatalf("excluded inbound changed by ToBytes:\n got  %v\n want %v", out.Inbounds, want)
 	}
 }
+
+// The snapshot copies Inbound fields by hand because Inbound holds a mutex.
+// Fill every exported field so a field added later without a matching copy fails here.
+func TestSnapshotInboundCopiesEveryExportedField(t *testing.T) {
+	original := &Inbound{exclude: true}
+	value := reflect.ValueOf(original).Elem()
+	for idx := 0; idx < value.NumField(); idx++ {
+		field := value.Field(idx)
+		if !value.Type().Field(idx).IsExported() {
+			continue
+		}
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + value.Type().Field(idx).Name)
+		case reflect.Map:
+			field.Set(reflect.ValueOf(map[string]any{"key": value.Type().Field(idx).Name}))
+		case reflect.Interface:
+			field.Set(reflect.ValueOf(value.Type().Field(idx).Name))
+		default:
+			t.Fatalf("Inbound.%s has kind %s: extend this test and the snapshot copy", value.Type().Field(idx).Name, field.Kind())
+		}
+	}
+
+	snap := reflect.ValueOf(snapshotInboundForSerialization(original)).Elem()
+	for idx := 0; idx < value.NumField(); idx++ {
+		name := value.Type().Field(idx).Name
+		if !value.Type().Field(idx).IsExported() {
+			continue
+		}
+		if !reflect.DeepEqual(snap.Field(idx).Interface(), value.Field(idx).Interface()) {
+			t.Fatalf("snapshot did not copy Inbound.%s: got %v, want %v", name, snap.Field(idx).Interface(), value.Field(idx).Interface())
+		}
+	}
+}
