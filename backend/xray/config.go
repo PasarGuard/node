@@ -360,115 +360,132 @@ func (i *Inbound) removeUser(email string) {
 
 type Stats struct{}
 
+func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
+	inbound.mu.RLock()
+	defer inbound.mu.RUnlock()
+
+	snap := &Inbound{
+		Tag:            inbound.Tag,
+		Listen:         inbound.Listen,
+		Port:           inbound.Port,
+		Protocol:       inbound.Protocol,
+		StreamSettings: inbound.StreamSettings,
+		Sniffing:       inbound.Sniffing,
+		Allocation:     inbound.Allocation,
+		exclude:        inbound.exclude,
+	}
+
+	// Shallow copy: values share references with the original map. This is safe
+	// because Settings values are primitives or read-only config data (strings,
+	// ints, nested map[string]any from JSON unmarshal). If the data model ever
+	// adds mutable nested types (e.g., pointers to structs that get mutated),
+	// this loop must switch to a deep copy.
+	snap.Settings = make(map[string]any, len(inbound.Settings)+1)
+	for k, v := range inbound.Settings {
+		snap.Settings[k] = v
+	}
+
+	// Excluded inbounds are managed by hand: serialize their settings unchanged.
+	if inbound.exclude {
+		return snap
+	}
+
+	if len(inbound.clients) == 0 {
+		if inbound.Protocol == Wireguard {
+			snap.Settings["peers"] = []any{}
+		} else {
+			snap.Settings["clients"] = []any{}
+		}
+		return snap
+	}
+
+	switch inbound.Protocol {
+	case Vmess:
+		clients := make([]*api.VmessAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.VmessAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Vless:
+		clients := make([]*api.VlessAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.VlessAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Trojan:
+		clients := make([]*api.TrojanAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.TrojanAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Shadowsocks:
+		method, methodOk := inbound.Settings["method"].(string)
+		if methodOk && strings.HasPrefix(method, "2022-blake3") {
+			clients := make([]*api.ShadowsocksAccount, 0, len(inbound.clients))
+			for _, account := range inbound.clients {
+				if a, ok := account.(*api.ShadowsocksAccount); ok {
+					clients = append(clients, a)
+				}
+			}
+			snap.Settings["clients"] = clients
+		} else {
+			clients := make([]*api.ShadowsocksTcpAccount, 0, len(inbound.clients))
+			for _, account := range inbound.clients {
+				if a, ok := account.(*api.ShadowsocksTcpAccount); ok {
+					clients = append(clients, a)
+				}
+			}
+			snap.Settings["clients"] = clients
+		}
+
+	case Hysteria:
+		clients := make([]*api.HysteriaAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.HysteriaAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Wireguard:
+		peers := make([]*api.WireguardAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.WireguardAccount); ok {
+				peers = append(peers, a)
+			}
+		}
+		snap.Settings["peers"] = peers
+	}
+
+	return snap
+}
+
 func (c *Config) ToBytes() ([]byte, error) {
-	// Acquire read locks for all inbounds
-	for _, i := range c.InboundConfigs {
-		i.mu.RLock()
+	snapInbounds := make([]*Inbound, len(c.InboundConfigs))
+	for idx, inbound := range c.InboundConfigs {
+		snapInbounds[idx] = snapshotInboundForSerialization(inbound)
 	}
 
-	// Build slices from maps for serialization
-	for _, i := range c.InboundConfigs {
-		if i.exclude {
-			continue
-		}
+	snapConfig := *c
+	snapConfig.InboundConfigs = snapInbounds
 
-		if i.Settings == nil {
-			i.Settings = make(map[string]any)
-		}
-
-		if len(i.clients) == 0 {
-			if i.Protocol == Wireguard {
-				i.Settings["peers"] = []any{}
-			} else {
-				i.Settings["clients"] = []any{}
-			}
-			continue
-		}
-
-		switch i.Protocol {
-		case Vmess:
-			clients := make([]*api.VmessAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if vmessAccount, ok := account.(*api.VmessAccount); ok {
-					clients = append(clients, vmessAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Vless:
-			clients := make([]*api.VlessAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if vlessAccount, ok := account.(*api.VlessAccount); ok {
-					clients = append(clients, vlessAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Trojan:
-			clients := make([]*api.TrojanAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if trojanAccount, ok := account.(*api.TrojanAccount); ok {
-					clients = append(clients, trojanAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Shadowsocks:
-			method, methodOk := i.Settings["method"].(string)
-			if methodOk && strings.HasPrefix(method, "2022-blake3") {
-				clients := make([]*api.ShadowsocksAccount, 0, len(i.clients))
-				for _, account := range i.clients {
-					if ssAccount, ok := account.(*api.ShadowsocksAccount); ok {
-						clients = append(clients, ssAccount)
-					}
-				}
-				i.Settings["clients"] = clients
-			} else {
-				clients := make([]*api.ShadowsocksTcpAccount, 0, len(i.clients))
-				for _, account := range i.clients {
-					if ssTcpAccount, ok := account.(*api.ShadowsocksTcpAccount); ok {
-						clients = append(clients, ssTcpAccount)
-					}
-				}
-				i.Settings["clients"] = clients
-			}
-
-		case Hysteria:
-			clients := make([]*api.HysteriaAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if hyAccount, ok := account.(*api.HysteriaAccount); ok {
-					clients = append(clients, hyAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Wireguard:
-			peers := make([]*api.WireguardAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if wgAccount, ok := account.(*api.WireguardAccount); ok {
-					peers = append(peers, wgAccount)
-				}
-			}
-			i.Settings["peers"] = peers
-		}
+	if c.LogConfig != nil {
+		snapLog := *c.LogConfig
+		snapLog.AccessLog = ""
+		snapLog.ErrorLog = ""
+		snapConfig.LogConfig = &snapLog
 	}
 
-	// Save Variables for next use
-	aLog := c.LogConfig.AccessLog
-	eLog := c.LogConfig.ErrorLog
-	c.LogConfig.AccessLog = ""
-	c.LogConfig.ErrorLog = ""
-
-	b, err := json.Marshal(c)
-
-	// Restore variables to prevent conflict on next run
-	c.LogConfig.AccessLog = aLog
-	c.LogConfig.ErrorLog = eLog
-
-	// Release all locks
-	for _, i := range c.InboundConfigs {
-		i.mu.RUnlock()
-	}
+	b, err := json.Marshal(&snapConfig)
 
 	if err != nil {
 		return nil, err

@@ -58,3 +58,23 @@ func TestBandwidthDeltaExcludesLoopback(t *testing.T) {
 		t.Fatalf("outgoing bytes: got %d, want 300 (lo excluded)", tx)
 	}
 }
+
+func TestBandwidthDeltaCountsTrafficSinceACounterReset(t *testing.T) {
+	first := []net.IOCountersStat{
+		{Name: "eth0", BytesRecv: 1000, BytesSent: 2000},
+		{Name: "wg0", BytesRecv: 5000, BytesSent: 7000},
+	}
+	second := []net.IOCountersStat{
+		{Name: "eth0", BytesRecv: 1100, BytesSent: 2300},
+		// wg0 was recreated between the samples, so its counters restarted.
+		{Name: "wg0", BytesRecv: 40, BytesSent: 9000},
+	}
+
+	rx, tx := bandwidthDelta(first, second)
+	if rx != 140 {
+		t.Fatalf("incoming bytes: got %d, want 140 (eth0 100 plus wg0 40 since its reset)", rx)
+	}
+	if tx != 2300 {
+		t.Fatalf("outgoing bytes: got %d, want 2300", tx)
+	}
+}

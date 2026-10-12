@@ -5,9 +5,17 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 
 	nodeLogger "github.com/pasarguard/node/logger"
 )
+
+var bufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 64*1024)
+		return &buf
+	},
+}
 
 func isAccessLog(log string) bool {
 	if !strings.Contains(log, "from ") || !strings.Contains(log, " email:") {
@@ -31,7 +39,10 @@ func (c *Core) detectLogType(log string) {
 
 func (c *Core) captureProcessLogs(ctx context.Context, pipe io.Reader) {
 	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	bufp := bufPool.Get().(*[]byte)
+	scanner.Buffer(*bufp, 1024*1024)
+	defer bufPool.Put(bufp)
+
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
