@@ -23,7 +23,7 @@
             "protocol": "shadowsocks",
             "settings": {
                 "method": "2022-blake3-aes-128-gcm",
-                "password": "sMLi2fSOqrmrYArJZbLhfH8LcaE5s0kHf4CdebqVLdg=",
+                "password": "MDEyMzQ1Njc4OWFiY2RlZg==",
                 "clients": [],
                 "network": "tcp,udp"
             }

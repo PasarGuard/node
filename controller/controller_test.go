@@ -19,7 +19,7 @@ type stubBackend struct {
 
 func (s *stubBackend) Started() bool { return s.started.Load() }
 func (s *stubBackend) Version() string { return "test" }
-func (s *stubBackend) Logs() <-chan string { return nil }
+func (s *stubBackend) SubscribeLogs(context.Context) <-chan string { return nil }
 func (s *stubBackend) Restart() error { return nil }
 func (s *stubBackend) Shutdown() { s.shutdowns.Add(1); s.started.Store(false) }
 func (s *stubBackend) SyncUser(context.Context, *common.User) error { return nil }

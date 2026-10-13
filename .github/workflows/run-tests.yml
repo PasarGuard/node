@@ -22,7 +22,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.26.3"
+          go-version: "1.27.1"
           check-latest: true
 
       - name: Get project dependencies
@@ -42,6 +42,9 @@ jobs:
 
       - name: Run regular test suite
         run: TEST_INTEGRATION=true go test ./... -v -p 1
+
+      - name: Check Xray process status races
+        run: go test -race ./backend/xray -run '^TestCoreStarted' -count=10 -timeout=120s
 
       - name: Run wireguard integration tests
         run: sudo -E make test-integration-wireguard
