@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,5 +138,64 @@ func TestKeepAliveStaleIncludesGrace(t *testing.T) {
 	}
 	if !keepAliveStale(last.Add(-keepAliveGrace), 10*time.Second) {
 		t.Fatal("keep-alive must fire after keep_alive plus grace")
+	}
+}
+
+type liveStubBackend struct {
+	stubBackend
+	applied bool
+	err     error
+	calls   atomic.Int32
+}
+
+func (s *liveStubBackend) ApplyConfigLive(context.Context, string, []string) (bool, error) {
+	s.calls.Add(1)
+	return s.applied, s.err
+}
+
+func startOnLiveStub(t *testing.T, running *liveStubBackend) (*Controller, error) {
+	t.Helper()
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	running.started.Store(true)
+	c.backend = running
+	c.activeData = &common.Backend{Type: common.BackendType_XRAY, Config: "cfg1"}
+
+	c.LockControl()
+	defer c.UnlockControl()
+	return c, c.StartOrAttach(context.Background(), &common.Backend{Type: common.BackendType_XRAY, Config: "cfg2", KeepAlive: 60})
+}
+
+// TestStartOrAttachAppliesConfigLive: changed config that the backend takes live → no restart.
+func TestStartOrAttachAppliesConfigLive(t *testing.T) {
+	running := &liveStubBackend{applied: true}
+	c, err := startOnLiveStub(t, running)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running.calls.Load() != 1 {
+		t.Fatalf("ApplyConfigLive calls = %d, want 1", running.calls.Load())
+	}
+	if running.shutdowns.Load() != 0 || c.Backend() != running {
+		t.Fatal("a live config update restarted the backend")
+	}
+	c.mu.RLock()
+	got := c.activeData.GetConfig()
+	c.mu.RUnlock()
+	if got != "cfg2" {
+		t.Fatalf("activeData config = %q, want cfg2 so the next heartbeat matches", got)
+	}
+}
+
+// TestStartOrAttachRestartsWhenLiveUpdateIsNotPossible: declined or failed live update → restart.
+func TestStartOrAttachRestartsWhenLiveUpdateIsNotPossible(t *testing.T) {
+	for _, running := range []*liveStubBackend{{applied: false}, {err: errors.New("convert failed")}} {
+		if _, err := startOnLiveStub(t, running); err == nil {
+			t.Fatal("expected StartBackend to fail with fake config")
+		}
+		if running.shutdowns.Load() != 1 {
+			t.Fatalf("running backend shutdowns = %d, want 1", running.shutdowns.Load())
+		}
 	}
 }

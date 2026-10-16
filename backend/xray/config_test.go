@@ -8,51 +8,24 @@ import (
 )
 
 func TestSanitizeAPIServices(t *testing.T) {
+	required := []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
 	cases := []struct {
 		name string
 		in   []string
 		want []string
 	}{
-		{
-			name: "nil yields required only",
-			in:   nil,
-			want: []string{"HandlerService", "LoggerService", "StatsService"},
-		},
-		{
-			name: "empty yields required only",
-			in:   []string{},
-			want: []string{"HandlerService", "LoggerService", "StatsService"},
-		},
-		{
-			name: "routing service appended",
-			in:   []string{"routingservice"},
-			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
-		},
-		{
-			name: "dedupe and case fold",
-			in:   []string{"HandlerService", "handlerservice", "ROUTINGSERVICE"},
-			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
-		},
-		{
-			name: "dedupe extras across case",
-			in:   []string{"routingservice", "RoutingService"},
-			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
-		},
-		{
-			name: "unknown dropped, required preserved",
-			in:   []string{"foo", "RoutigService"},
-			want: []string{"HandlerService", "LoggerService", "StatsService"},
-		},
+		{name: "nil yields required only", in: nil, want: required},
+		{name: "empty yields required only", in: []string{}, want: required},
+		{name: "routing service is already required", in: []string{"routingservice"}, want: required},
+		{name: "dedupe and case fold", in: []string{"HandlerService", "handlerservice", "ROUTINGSERVICE"}, want: required},
+		{name: "dedupe extras across case", in: []string{"routingservice", "RoutingService"}, want: required},
+		{name: "unknown dropped, required preserved", in: []string{"foo", "RoutigService"}, want: required},
 		{
 			name: "extras sorted deterministically",
 			in:   []string{"routingservice", "observatoryservice", "reflectionservice"},
-			want: []string{"HandlerService", "LoggerService", "StatsService", "ObservatoryService", "ReflectionService", "RoutingService"},
+			want: append(slices.Clone(required), "ObservatoryService", "ReflectionService"),
 		},
-		{
-			name: "whitespace trimmed",
-			in:   []string{"  routingservice  "},
-			want: []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"},
-		},
+		{name: "whitespace trimmed", in: []string{"  routingservice  "}, want: required},
 	}
 
 	for _, tc := range cases {
@@ -98,7 +71,7 @@ func TestApplyAPINilAPIYieldsRequiredServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"HandlerService", "LoggerService", "StatsService"}
+	want := []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
 	if !slices.Equal(cfg.API.Services, want) {
 		t.Fatalf("API.Services = %#v, want %#v", cfg.API.Services, want)
 	}
