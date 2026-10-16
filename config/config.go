@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 
@@ -23,6 +24,7 @@ type Config struct {
 	ServiceProtocol             string
 	Debug                       bool
 	GeneratedConfigPath         string
+	UsageJournalPath            string
 	LogBufferSize               int
 	StartupLogTailSize          int
 	StatsUpdateIntervalSeconds  int
@@ -50,6 +52,7 @@ func Load() (*Config, error) {
 		SslCertFile:                 GetEnv("SSL_CERT_FILE", "/var/lib/pg-node/certs/ssl_cert.pem"),
 		SslKeyFile:                  GetEnv("SSL_KEY_FILE", "/var/lib/pg-node/certs/ssl_key.pem"),
 		GeneratedConfigPath:         GetEnv("GENERATED_CONFIG_PATH", "/var/lib/pg-node/generated/"),
+		UsageJournalPath:            GetEnv("USAGE_JOURNAL_PATH", "/var/lib/pg-node/usage/receipts.db"),
 		ServiceProtocol:             GetEnv("SERVICE_PROTOCOL", "grpc"),
 		Debug:                       GetEnvAsBool("DEBUG", false),
 		LogBufferSize:               GetEnvAsInt("LOG_BUFFER_SIZE", 10000),
@@ -104,6 +107,7 @@ func Load() (*Config, error) {
 func NewTestConfig(generatedConfigPath string, key uuid.UUID) *Config {
 	cfg, _ := Load()
 	cfg.GeneratedConfigPath = generatedConfigPath
+	cfg.UsageJournalPath = filepath.Join(generatedConfigPath, "usage-test.db")
 	cfg.ApiKey = key
 	return cfg
 }
