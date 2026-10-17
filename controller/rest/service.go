@@ -45,6 +45,7 @@ func (s *Service) setRouter() {
 			statsGroup.Get("/latency", s.GetOutboundsLatency)
 			statsGroup.Get("/user/online", s.GetUserOnlineStat)
 			statsGroup.Get("/user/online_ip", s.GetUserOnlineIpListStats)
+			statsGroup.Get("/users/online_ip", s.GetUsersOnlineIpListStats)
 			statsGroup.Get("/backend", s.GetBackendStats)
 			statsGroup.Get("/system", s.GetSystemStats)
 		})

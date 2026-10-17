@@ -19,6 +19,10 @@ func (x *Xray) GetUserOnlineIpListStats(ctx context.Context, email string) (*com
 	return x.handler.GetUserOnlineIpListStats(ctx, email)
 }
 
+func (x *Xray) GetUsersOnlineIpListStats(ctx context.Context) (*common.StatsAllOnlineIpListResponse, error) {
+	return x.handler.GetUsersOnlineIpListStats(ctx)
+}
+
 func (x *Xray) GetStats(ctx context.Context, request *common.StatRequest) (*common.StatResponse, error) {
 	switch request.GetType() {
 

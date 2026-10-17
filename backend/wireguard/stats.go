@@ -149,6 +149,30 @@ func (wg *WireGuard) GetUserOnlineIpListStats(ctx context.Context, email string)
 	return response, nil
 }
 
+func (wg *WireGuard) GetUsersOnlineIpListStats(ctx context.Context) (*common.StatsAllOnlineIpListResponse, error) {
+	wg.mu.RLock()
+	state := wg.state
+	wg.mu.RUnlock()
+
+	if state != lifecycleRunning {
+		return nil, errWireGuardNotStarted
+	}
+
+	users := make(map[string]*common.StatsOnlineIpListResponse)
+	for _, peer := range wg.peerStore.GetAll() {
+		key := peer.PublicKey.String()
+		ips := wg.statsTracker.EndpointActivity([]string{key})
+		if len(ips) == 0 {
+			continue
+		}
+		users[peer.Email] = &common.StatsOnlineIpListResponse{
+			Ips: ips,
+		}
+	}
+
+	return &common.StatsAllOnlineIpListResponse{Users: users}, nil
+}
+
 // GetSysStats returns system stats for the WireGuard backend
 func (wg *WireGuard) GetSysStats(ctx context.Context) (*common.BackendStatsResponse, error) {
 	wg.mu.RLock()
