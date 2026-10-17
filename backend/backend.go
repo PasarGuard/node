@@ -21,6 +21,7 @@ type Backend interface {
 	GetOutboundsLatency(context.Context, *common.LatencyRequest) (*common.LatencyResponse, error)
 	GetUserOnlineStats(context.Context, string) (*common.OnlineStatResponse, error)
 	GetUserOnlineIpListStats(context.Context, string) (*common.StatsOnlineIpListResponse, error)
+	GetUsersOnlineIpListStats(context.Context) (*common.StatsAllOnlineIpListResponse, error)
 }
 
 // RoutingBackend is implemented by backends that expose xray RoutingService.

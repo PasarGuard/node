@@ -19,25 +19,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NodeService_Start_FullMethodName                    = "/service.NodeService/Start"
-	NodeService_Stop_FullMethodName                     = "/service.NodeService/Stop"
-	NodeService_GetBaseInfo_FullMethodName              = "/service.NodeService/GetBaseInfo"
-	NodeService_GetLogs_FullMethodName                  = "/service.NodeService/GetLogs"
-	NodeService_GetSystemStats_FullMethodName           = "/service.NodeService/GetSystemStats"
-	NodeService_GetBackendStats_FullMethodName          = "/service.NodeService/GetBackendStats"
-	NodeService_GetStats_FullMethodName                 = "/service.NodeService/GetStats"
-	NodeService_GetOutboundsLatency_FullMethodName      = "/service.NodeService/GetOutboundsLatency"
-	NodeService_GetUserOnlineStats_FullMethodName       = "/service.NodeService/GetUserOnlineStats"
-	NodeService_GetUserOnlineIpListStats_FullMethodName = "/service.NodeService/GetUserOnlineIpListStats"
-	NodeService_SyncUser_FullMethodName                 = "/service.NodeService/SyncUser"
-	NodeService_SyncUsers_FullMethodName                = "/service.NodeService/SyncUsers"
-	NodeService_SyncUsersChunked_FullMethodName         = "/service.NodeService/SyncUsersChunked"
-	NodeService_ListRoutingRules_FullMethodName         = "/service.NodeService/ListRoutingRules"
-	NodeService_GetBalancerInfo_FullMethodName          = "/service.NodeService/GetBalancerInfo"
-	NodeService_TestRoute_FullMethodName                = "/service.NodeService/TestRoute"
-	NodeService_AddRoutingRule_FullMethodName           = "/service.NodeService/AddRoutingRule"
-	NodeService_RemoveRoutingRule_FullMethodName        = "/service.NodeService/RemoveRoutingRule"
-	NodeService_OverrideBalancerTarget_FullMethodName   = "/service.NodeService/OverrideBalancerTarget"
+	NodeService_Start_FullMethodName                     = "/service.NodeService/Start"
+	NodeService_Stop_FullMethodName                      = "/service.NodeService/Stop"
+	NodeService_GetBaseInfo_FullMethodName               = "/service.NodeService/GetBaseInfo"
+	NodeService_GetLogs_FullMethodName                   = "/service.NodeService/GetLogs"
+	NodeService_GetSystemStats_FullMethodName            = "/service.NodeService/GetSystemStats"
+	NodeService_GetBackendStats_FullMethodName           = "/service.NodeService/GetBackendStats"
+	NodeService_GetStats_FullMethodName                  = "/service.NodeService/GetStats"
+	NodeService_GetOutboundsLatency_FullMethodName       = "/service.NodeService/GetOutboundsLatency"
+	NodeService_GetUserOnlineStats_FullMethodName        = "/service.NodeService/GetUserOnlineStats"
+	NodeService_GetUserOnlineIpListStats_FullMethodName  = "/service.NodeService/GetUserOnlineIpListStats"
+	NodeService_GetUsersOnlineIpListStats_FullMethodName = "/service.NodeService/GetUsersOnlineIpListStats"
+	NodeService_SyncUser_FullMethodName                  = "/service.NodeService/SyncUser"
+	NodeService_SyncUsers_FullMethodName                 = "/service.NodeService/SyncUsers"
+	NodeService_SyncUsersChunked_FullMethodName          = "/service.NodeService/SyncUsersChunked"
+	NodeService_ListRoutingRules_FullMethodName          = "/service.NodeService/ListRoutingRules"
+	NodeService_GetBalancerInfo_FullMethodName           = "/service.NodeService/GetBalancerInfo"
+	NodeService_TestRoute_FullMethodName                 = "/service.NodeService/TestRoute"
+	NodeService_AddRoutingRule_FullMethodName            = "/service.NodeService/AddRoutingRule"
+	NodeService_RemoveRoutingRule_FullMethodName         = "/service.NodeService/RemoveRoutingRule"
+	NodeService_OverrideBalancerTarget_FullMethodName    = "/service.NodeService/OverrideBalancerTarget"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -56,6 +57,7 @@ type NodeServiceClient interface {
 	GetOutboundsLatency(ctx context.Context, in *LatencyRequest, opts ...grpc.CallOption) (*LatencyResponse, error)
 	GetUserOnlineStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*OnlineStatResponse, error)
 	GetUserOnlineIpListStats(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatsOnlineIpListResponse, error)
+	GetUsersOnlineIpListStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatsAllOnlineIpListResponse, error)
 	SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error)
 	SyncUsers(ctx context.Context, in *Users, opts ...grpc.CallOption) (*Empty, error)
 	SyncUsersChunked(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UsersChunk, Empty], error)
@@ -184,6 +186,16 @@ func (c *nodeServiceClient) GetUserOnlineIpListStats(ctx context.Context, in *St
 	return out, nil
 }
 
+func (c *nodeServiceClient) GetUsersOnlineIpListStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatsAllOnlineIpListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StatsAllOnlineIpListResponse)
+	err := c.cc.Invoke(ctx, NodeService_GetUsersOnlineIpListStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *nodeServiceClient) SyncUser(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[User, Empty], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &NodeService_ServiceDesc.Streams[1], NodeService_SyncUser_FullMethodName, cOpts...)
@@ -296,6 +308,7 @@ type NodeServiceServer interface {
 	GetOutboundsLatency(context.Context, *LatencyRequest) (*LatencyResponse, error)
 	GetUserOnlineStats(context.Context, *StatRequest) (*OnlineStatResponse, error)
 	GetUserOnlineIpListStats(context.Context, *StatRequest) (*StatsOnlineIpListResponse, error)
+	GetUsersOnlineIpListStats(context.Context, *Empty) (*StatsAllOnlineIpListResponse, error)
 	SyncUser(grpc.ClientStreamingServer[User, Empty]) error
 	SyncUsers(context.Context, *Users) (*Empty, error)
 	SyncUsersChunked(grpc.ClientStreamingServer[UsersChunk, Empty]) error
@@ -344,6 +357,9 @@ func (UnimplementedNodeServiceServer) GetUserOnlineStats(context.Context, *StatR
 }
 func (UnimplementedNodeServiceServer) GetUserOnlineIpListStats(context.Context, *StatRequest) (*StatsOnlineIpListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUserOnlineIpListStats not implemented")
+}
+func (UnimplementedNodeServiceServer) GetUsersOnlineIpListStats(context.Context, *Empty) (*StatsAllOnlineIpListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUsersOnlineIpListStats not implemented")
 }
 func (UnimplementedNodeServiceServer) SyncUser(grpc.ClientStreamingServer[User, Empty]) error {
 	return status.Error(codes.Unimplemented, "method SyncUser not implemented")
@@ -566,6 +582,24 @@ func _NodeService_GetUserOnlineIpListStats_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_GetUsersOnlineIpListStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).GetUsersOnlineIpListStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_GetUsersOnlineIpListStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).GetUsersOnlineIpListStats(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NodeService_SyncUser_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(NodeServiceServer).SyncUser(&grpc.GenericServerStream[User, Empty]{ServerStream: stream})
 }
@@ -748,6 +782,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUserOnlineIpListStats",
 			Handler:    _NodeService_GetUserOnlineIpListStats_Handler,
+		},
+		{
+			MethodName: "GetUsersOnlineIpListStats",
+			Handler:    _NodeService_GetUsersOnlineIpListStats_Handler,
 		},
 		{
 			MethodName: "SyncUsers",

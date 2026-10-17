@@ -17,14 +17,14 @@ type stubBackend struct {
 	shutdowns atomic.Int32
 }
 
-func (s *stubBackend) Started() bool { return s.started.Load() }
-func (s *stubBackend) Version() string { return "test" }
-func (s *stubBackend) SubscribeLogs(context.Context) <-chan string { return nil }
-func (s *stubBackend) Restart() error { return nil }
-func (s *stubBackend) Shutdown() { s.shutdowns.Add(1); s.started.Store(false) }
-func (s *stubBackend) SyncUser(context.Context, *common.User) error { return nil }
-func (s *stubBackend) SyncUsers(context.Context, []*common.User) error { return nil }
-func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error { return nil }
+func (s *stubBackend) Started() bool                                               { return s.started.Load() }
+func (s *stubBackend) Version() string                                             { return "test" }
+func (s *stubBackend) SubscribeLogs(context.Context) <-chan string                 { return nil }
+func (s *stubBackend) Restart() error                                              { return nil }
+func (s *stubBackend) Shutdown()                                                   { s.shutdowns.Add(1); s.started.Store(false) }
+func (s *stubBackend) SyncUser(context.Context, *common.User) error                { return nil }
+func (s *stubBackend) SyncUsers(context.Context, []*common.User) error             { return nil }
+func (s *stubBackend) UpdateUsers(context.Context, []*common.User) error           { return nil }
 func (s *stubBackend) UpdateUsersAndRestart(context.Context, []*common.User) error { return nil }
 func (s *stubBackend) GetSysStats(context.Context) (*common.BackendStatsResponse, error) {
 	return &common.BackendStatsResponse{}, nil
@@ -40,6 +40,10 @@ func (s *stubBackend) GetUserOnlineStats(context.Context, string) (*common.Onlin
 }
 func (s *stubBackend) GetUserOnlineIpListStats(context.Context, string) (*common.StatsOnlineIpListResponse, error) {
 	return &common.StatsOnlineIpListResponse{}, nil
+}
+
+func (s *stubBackend) GetUsersOnlineIpListStats(context.Context) (*common.StatsAllOnlineIpListResponse, error) {
+	return &common.StatsAllOnlineIpListResponse{}, nil
 }
 
 func TestConnectCancelsPreviousStatsCollector(t *testing.T) {

@@ -59,6 +59,20 @@ func (s *Service) GetUserOnlineIpListStats(ctx context.Context, request *common.
 	return stats, nil
 }
 
+func (s *Service) GetUsersOnlineIpListStats(ctx context.Context, _ *common.Empty) (*common.StatsAllOnlineIpListResponse, error) {
+	backend, err := s.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := backend.GetUsersOnlineIpListStats(ctx)
+	if err != nil {
+		err = common.InterceptNotFound(err)
+		return nil, err
+	}
+	return stats, nil
+}
+
 func (s *Service) GetBackendStats(ctx context.Context, _ *common.Empty) (*common.BackendStatsResponse, error) {
 	backend, err := s.backend()
 	if err != nil {
