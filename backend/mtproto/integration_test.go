@@ -52,7 +52,9 @@ func integrationMTConfig(t *testing.T) *Config {
 func TestIntegration_LifecycleAndUsers(t *testing.T) {
 	bin := telemtBinOrSkip(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	// telemt binds its API only after the Telegram DC check (up to about 60 s
+	// with slow DCs), and New allows it telemtStartupTimeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 
 	users := []*common.User{mtUser("alice", "mtproto", testSecret)}
@@ -125,7 +127,9 @@ func TestIntegration_LifecycleAndUsers(t *testing.T) {
 func TestIntegration_EmptyUsersSentinel(t *testing.T) {
 	bin := telemtBinOrSkip(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	// telemt binds its API only after the Telegram DC check (up to about 60 s
+	// with slow DCs), and New allows it telemtStartupTimeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 
 	// Zero real users: telemt rejects an empty [access.users], so the sentinel

@@ -3,8 +3,6 @@ package mtproto
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -174,7 +172,7 @@ func TestGetStats_MetricsUnavailable(t *testing.T) {
 func metricsUnavailableBackend() *MTProto {
 	return &MTProto{
 		config:         &Config{InboundTag: "mtproto"},
-		process:        &processManager{cmd: &exec.Cmd{Process: &os.Process{Pid: 1}}},
+		process:        &processManager{run: &telemtRun{pid: 1, waitDone: make(chan struct{})}},
 		metricsScraper: newMetricsScraper("http://127.0.0.1:1/metrics"),
 		tracker:        newTrafficTracker(),
 		desired:        map[string]*runtimeUser{"alice": {Username: "alice", Secret: testSecret}},

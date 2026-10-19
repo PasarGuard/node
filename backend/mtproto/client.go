@@ -57,6 +57,12 @@ type telemtHealth struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
+type telemtHealthReady struct {
+	Ready  bool   `json:"ready"`
+	Status string `json:"status"`
+	Reason string `json:"reason"`
+}
+
 type telemtCreateUserRequest struct {
 	Username     string `json:"username"`
 	Secret       string `json:"secret,omitempty"`
@@ -108,6 +114,21 @@ func newAPIClient(baseURL, authHeader string) *apiClient {
 
 func (c *apiClient) Health(ctx context.Context) error {
 	_, err := doAPIRequest[telemtHealth](ctx, c, http.MethodGet, "/v1/health", nil)
+	return err
+}
+
+// Ready returns nil when /v1/health/ready answers 200: telemt admits clients
+// and has a healthy Telegram upstream. On 503 the error carries telemt's
+// reason, such as no_healthy_upstreams.
+func (c *apiClient) Ready(ctx context.Context) error {
+	_, err := doAPIRequest[telemtHealthReady](ctx, c, http.MethodGet, "/v1/health/ready", nil)
+	var apiErr *apiStatusError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable {
+		var body apiSuccessResponse[telemtHealthReady]
+		if json.Unmarshal([]byte(apiErr.Message), &body) == nil && body.Data.Reason != "" {
+			return fmt.Errorf("telemt is not ready: %s", body.Data.Reason)
+		}
+	}
 	return err
 }
 

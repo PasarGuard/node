@@ -46,9 +46,10 @@ GEOFILES_DIR ?= /usr/local/share/xray
 GEOFILES_XRAY ?= /usr/local/bin/xray
 GEOFILES_CHECK_CONFIG ?= $(CURDIR)/testdata/geofiles-check.json
 
-# telemt (MTProto backend): pinned release; static musl tarball + sha256 verify
+# telemt (MTProto backend): pinned release; static musl tarball + sha256 verify.
+# 3.5.14 is also the floor: the node refuses to start an older telemt.
 TELEMT_REPOSITORY ?= telemt/telemt
-TELEMT_VERSION    ?= 3.4.25
+TELEMT_VERSION    ?= 3.5.14
 TELEMT_OS   ?=
 TELEMT_ARCH ?=
 TELEMT_ARCH_MAP_amd64 = x86_64

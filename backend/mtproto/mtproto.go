@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,17 +17,13 @@ import (
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
-	"github.com/pasarguard/node/pkg/netutil"
-)
-
-const (
-	telemtStartupTimeout = 30 * time.Second
 )
 
 type MTProto struct {
 	cfg            *config.Config
 	config         *Config
 	process        *processManager
+	configPath     string
 	apiClient      *apiClient
 	metricsScraper *metricsScraper
 	tracker        *trafficTracker
@@ -36,78 +33,19 @@ type MTProto struct {
 	metricsPort   int
 	apiAuthHeader string
 
-	mu           sync.RWMutex
-	desired      map[string]*runtimeUser
-	shutdownOnce sync.Once
-}
+	// syncMu serializes every operation that changes users or the telemt
+	// process: syncs, restarts, the supervisor and Shutdown.
+	syncMu sync.Mutex
+	closed bool // guarded by syncMu
 
-func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*common.User) (*MTProto, error) {
-	if cfg == nil {
-		return nil, errors.New("config is nil")
-	}
-	if mtConfig == nil {
-		return nil, errors.New("mtproto config is nil")
-	}
+	// mu guards desired for readers; writers also hold syncMu.
+	mu      sync.RWMutex
+	desired map[string]*runtimeUser
 
-	apiPort := netutil.FindFreePort()
-	metricsPort := netutil.FindFreePort()
-	for metricsPort == apiPort {
-		metricsPort = netutil.FindFreePort()
-	}
-
-	authHeader, err := generateBearerToken()
-	if err != nil {
-		return nil, err
-	}
-
-	generatedRoot, err := filepath.Abs(cfg.GeneratedConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	telemtDir := filepath.Join(generatedRoot, "telemt")
-	process, err := newProcessManager(
-		cfg.TelemtExecutablePath,
-		filepath.Join(telemtDir, "config.toml"),
-		filepath.Join(telemtDir, "telemt.pid"),
-		cfg.LogBufferSize,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	activeUsers, _ := ActiveUsersFromCommon(users, mtConfig.InboundTag)
-
-	sentinel, err := newSentinelUser()
-	if err != nil {
-		return nil, err
-	}
-
-	mt := &MTProto{
-		cfg:            cfg,
-		config:         mtConfig,
-		process:        process,
-		apiClient:      newAPIClient(fmt.Sprintf("http://127.0.0.1:%d", apiPort), authHeader),
-		metricsScraper: newMetricsScraper(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort)),
-		tracker:        newTrafficTracker(),
-		sentinel:       sentinel,
-		apiPort:        apiPort,
-		metricsPort:    metricsPort,
-		apiAuthHeader:  authHeader,
-		desired:        cloneRuntimeUserMap(activeUsers),
-	}
-
-	if err := mt.writeRenderedConfigLocked(mt.desired); err != nil {
-		return nil, err
-	}
-	if err := mt.process.Start(); err != nil {
-		return nil, err
-	}
-	if err := mt.waitForHealth(ctx); err != nil {
-		mt.Shutdown()
-		return nil, err
-	}
-
-	return mt, nil
+	// lifetime is cancelled by Shutdown so waits for telemt stop early.
+	lifetime       context.Context
+	cancel         context.CancelFunc
+	supervisorDone chan struct{}
 }
 
 func (m *MTProto) Started() bool {
@@ -123,24 +61,17 @@ func (m *MTProto) SubscribeLogs(ctx context.Context) <-chan string {
 }
 
 func (m *MTProto) Restart() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
 
+	if m.closed {
+		return errClosed
+	}
 	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
 		return err
 	}
-	if err := m.process.Restart(); err != nil {
-		return err
-	}
-
-	return m.waitForHealth(context.Background())
-}
-
-func (m *MTProto) Shutdown() {
-	m.shutdownOnce.Do(func() {
-		m.process.Shutdown()
-		m.process.logs.Close()
-	})
+	m.process.Stop()
+	return m.startLocked(m.lifetime)
 }
 
 func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
@@ -153,9 +84,12 @@ func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
 }
 
 func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
 
+	if m.closed {
+		return errClosed
+	}
 	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
 
 	return m.applyFullDesiredLocked(ctx, desired)
@@ -166,9 +100,12 @@ func (m *MTProto) UpdateUsers(ctx context.Context, users []*common.User) error {
 }
 
 func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
 
+	if m.closed {
+		return errClosed
+	}
 	nextDesired := m.buildNextDesiredLocked(users)
 
 	return m.applyFullDesiredLocked(ctx, nextDesired)
@@ -184,7 +121,7 @@ func (m *MTProto) GetSysStats(_ context.Context) (*common.BackendStatsResponse, 
 		return nil, errors.New("telemt process pid is unavailable")
 	}
 
-	process, err := gopsutilprocess.NewProcess(pid)
+	process, err := gopsutilprocess.NewProcess(int32(pid))
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +152,9 @@ func (m *MTProto) GetStats(ctx context.Context, request *common.StatRequest) (*c
 		return nil, errors.New("mtproto backend is not started")
 	}
 
-	// Prometheus only binds after telemt's data plane is up (Telegram egress).
-	// Treat a scrape miss as empty stats rather than failing the panel poll.
+	// telemt binds metrics together with its API, after the Telegram DC
+	// check. Treat a scrape miss (telemt restarting, say) as empty stats
+	// rather than failing the panel poll.
 	if err := m.refreshTracker(ctx); err != nil {
 		return &common.StatResponse{Stats: []*common.Stat{}}, nil
 	}
@@ -306,9 +244,12 @@ func (m *MTProto) GetUserOnlineIpListStats(ctx context.Context, email string) (*
 }
 
 func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
 
+	if m.closed {
+		return errClosed
+	}
 	nextDesired := m.buildNextDesiredLocked(users)
 
 	if len(m.desired) == 0 || len(nextDesired) == 0 {
@@ -319,7 +260,7 @@ func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) 
 		return m.applyFullDesiredLocked(ctx, nextDesired)
 	}
 
-	m.desired = cloneRuntimeUserMap(nextDesired)
+	m.setDesiredLocked(nextDesired)
 	return nil
 }
 
@@ -410,48 +351,45 @@ func (m *MTProto) applyFullDesiredLocked(ctx context.Context, desired map[string
 	}
 
 	if !m.process.Started() {
-		if err := m.process.Start(); err != nil {
+		if err := m.startLocked(ctx); err != nil {
 			return err
 		}
-		if err := m.waitForHealth(ctx); err != nil {
-			m.process.Shutdown()
-			return err
-		}
-		if err := m.waitForRuntimeUsers(ctx, previousDesired, desired); err != nil {
-			return err
-		}
-		m.desired = cloneRuntimeUserMap(desired)
-		return nil
+	} else if err := m.reloadLocked(ctx); err != nil {
+		return err
 	}
 
-	if err := m.process.Reload(); err != nil {
-		if restartErr := m.process.Restart(); restartErr != nil {
-			return fmt.Errorf("telemt reload failed: %w (restart failed: %v)", err, restartErr)
-		}
-		if healthErr := m.waitForHealth(ctx); healthErr != nil {
-			return healthErr
-		}
-		if runtimeErr := m.waitForRuntimeUsers(ctx, previousDesired, desired); runtimeErr != nil {
-			return runtimeErr
-		}
-		m.desired = cloneRuntimeUserMap(desired)
-		return nil
-	}
-
-	if err := m.waitForHealth(ctx); err != nil {
-		if restartErr := m.process.Restart(); restartErr != nil {
-			return fmt.Errorf("telemt reload health check failed: %w (restart failed: %v)", err, restartErr)
-		}
-		if healthErr := m.waitForHealth(ctx); healthErr != nil {
-			return healthErr
-		}
-	}
 	if err := m.waitForRuntimeUsers(ctx, previousDesired, desired); err != nil {
 		return err
 	}
 
-	m.desired = cloneRuntimeUserMap(desired)
+	m.setDesiredLocked(desired)
 	return nil
+}
+
+// reloadLocked makes the running telemt re-read the rendered config and
+// restarts it when the reload fails. Requires syncMu.
+func (m *MTProto) reloadLocked(ctx context.Context) error {
+	err := m.process.Reload()
+	if err == nil {
+		err = m.waitForHealth(ctx)
+	}
+	if err == nil || errors.Is(err, errClosed) {
+		return err
+	}
+
+	log.Printf("telemt reload failed, restarting it: %v", err)
+	m.process.Stop()
+	if restartErr := m.startLocked(ctx); restartErr != nil {
+		return fmt.Errorf("telemt reload failed: %w (restart failed: %v)", err, restartErr)
+	}
+	return nil
+}
+
+// setDesiredLocked replaces the desired users. Requires syncMu.
+func (m *MTProto) setDesiredLocked(desired map[string]*runtimeUser) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.desired = cloneRuntimeUserMap(desired)
 }
 
 func (m *MTProto) writeRenderedConfigLocked(desired map[string]*runtimeUser) error {
@@ -465,38 +403,7 @@ func (m *MTProto) writeRenderedConfigLocked(desired map[string]*runtimeUser) err
 		return err
 	}
 
-	return writeFileAtomic(m.process.configPath, []byte(rendered))
-}
-
-func (m *MTProto) waitForHealth(ctx context.Context) error {
-	waitContext := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		waitContext, cancel = context.WithTimeout(ctx, telemtStartupTimeout)
-		defer cancel()
-	}
-
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	waitCh := m.process.WaitChan()
-
-	for {
-		if err := m.apiClient.Health(waitContext); err == nil {
-			return nil
-		}
-
-		select {
-		case <-waitContext.Done():
-			return waitContext.Err()
-		case err := <-waitCh:
-			if err == nil {
-				return errors.New("telemt process exited before becoming healthy")
-			}
-			return fmt.Errorf("telemt process exited before becoming healthy: %w", err)
-		case <-ticker.C:
-		}
-	}
+	return writeFileAtomic(m.configPath, []byte(rendered))
 }
 
 func (m *MTProto) waitForRuntimeUsers(ctx context.Context, previousDesired, desired map[string]*runtimeUser) error {
@@ -563,6 +470,8 @@ func (m *MTProto) waitForRuntimeUsers(ctx context.Context, previousDesired, desi
 		select {
 		case <-waitContext.Done():
 			return waitContext.Err()
+		case <-m.lifetime.Done():
+			return errClosed
 		case <-ticker.C:
 		}
 	}
