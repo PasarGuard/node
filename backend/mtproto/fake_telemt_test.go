@@ -52,6 +52,8 @@ type fakeTelemt struct {
 	// DropUsers closes GET /v1/users requests without an answer, like an API
 	// that cannot be reached.
 	DropUsers bool `json:"drop_users"`
+	// UsersRequestFile gets one line per GET /v1/users request.
+	UsersRequestFile string `json:"users_request_file"`
 	// SignalFile gets one line per SIGHUP received.
 	SignalFile string `json:"signal_file"`
 	// SignalDelay makes the fake handle SIGHUP only this long after it binds
@@ -276,6 +278,7 @@ func serveFakeTelemtAPI(f fakeTelemt, configPath string, runtime *fakeTelemtRunt
 		_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":false,"status":"not_ready","reason":"no_healthy_upstreams"},"revision":"r"}`))
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, _ *http.Request) {
+		appendFakeLine(f.UsersRequestFile, "GET /v1/users")
 		if f.DropUsers {
 			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
 				_ = conn.Close()

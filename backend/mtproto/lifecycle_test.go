@@ -472,6 +472,56 @@ func TestUsersAPIUnreachableRestartsTelemt(t *testing.T) {
 	}
 }
 
+// TestShutdownEndsApplyInMarkerWait: Shutdown while a full apply waits for
+// telemt to load its render returns at once instead of after
+// markerConfirmTimeout. The apply ends with errClosed and leaves
+// needsFullApply set, desired keeps the confirmed users, and telemt is not
+// restarted. telemt here never loads the render: it has no config watcher
+// and never handles SIGHUP, so the node never sends it.
+func TestShutdownEndsApplyInMarkerWait(t *testing.T) {
+	lowerSignalGrace(t, time.Hour)
+	polls := filepath.Join(t.TempDir(), "polls")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, SignalDelay: time.Hour, UsersRequestFile: polls})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	applied := make(chan error, 1)
+	go func() {
+		applied <- mt.SyncUsers(context.Background(), []*common.User{mtUser("bob", "mtproto", testSecret)})
+	}()
+	// Only the marker wait lists users here.
+	waitFor(t, 10*time.Second, "the marker wait to poll telemt", func() bool {
+		data, _ := os.ReadFile(polls)
+		return len(data) > 0
+	})
+
+	started := time.Now()
+	mt.Shutdown()
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("Shutdown took %s during an apply", elapsed)
+	}
+	select {
+	case err := <-applied:
+		if !errors.Is(err, errClosed) {
+			t.Errorf("SyncUsers = %v, want errClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the apply did not end on Shutdown")
+	}
+
+	mt.syncMu.Lock()
+	closed, needsFullApply := mt.closed, mt.needsFullApply
+	mt.syncMu.Unlock()
+	if !closed || !needsFullApply {
+		t.Errorf("closed %v, needsFullApply %v after Shutdown cut an apply; want both", closed, needsFullApply)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"alice"}) {
+		t.Errorf("desired = %q, want the confirmed alice", got)
+	}
+	if generation := mt.process.Generation(); generation != 1 {
+		t.Errorf("telemt was restarted during Shutdown (generation %d)", generation)
+	}
+}
+
 // TestCancelledContextNeverRestartsTelemt covers the paths below the entry
 // check: a reload whose caller is gone keeps telemt, and a start with a done
 // context spawns nothing.
