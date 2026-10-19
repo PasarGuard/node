@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,37 +19,56 @@ import (
 	"time"
 
 	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/pkg/logstream"
 )
 
 const otherSecret = "ffeeddccbbaa00112233445566778899"
+const thirdSecret = "0123456789abcdef0123456789abcdef"
 
 var markerUsernamePattern = regexp.MustCompile(`^pgm_[0-9a-f]{16}$`)
 
-// fakeTelemtAPI stands in for telemt's control API. It keeps the users of
-// the config file (disk) and of the running config (runtime), records every
-// call, and plays telemt's config watcher: a changed config file reaches the
-// running config when GET /v1/users is polled, after reloadDelayPolls polls,
-// unless rejectReload is set.
+// fakeOverride is an admission override telemt stages for a user API write.
+type fakeOverride struct {
+	deleted bool
+	secret  string
+}
+
+// fakeTelemtAPI stands in for telemt's control API and the parts of telemt
+// behind it that the node depends on:
+//   - user API writes change the config file, as telemt saves them, and
+//     stage an admission override that only a published config with the same
+//     value clears;
+//   - the config watcher publishes a changed config file when GET /v1/users
+//     is polled (or connects asks), after reloadDelayPolls polls, unless
+//     rejectReload is set;
+//   - GET /v1/users lists the users of the config file, with in_runtime from
+//     the published config.
 type fakeTelemtAPI struct {
 	t          *testing.T
 	server     *httptest.Server
 	configPath string
 
-	mu      sync.Mutex
-	disk    map[string]string // username to secret
-	runtime map[string]string
-	calls   []string // "METHOD /path" per request
+	mu        sync.Mutex
+	runtime   map[string]string // published users: username to secret
+	overrides map[string]fakeOverride
+	calls     []string // "METHOD /path" per request
 
 	rejectReload     bool
 	reloadDelayPolls int
-	appliedConfig    string // the config file content runtime was loaded from
-	pendingConfig    string // a changed config file waiting to be applied
+	appliedConfig    string // the config file content runtime was published from
+	pendingConfig    string // a changed config file waiting to be published
 	pendingPolls     int
 	// rejectedConfig is the last changed config file rejectReload kept out.
 	rejectedConfig string
 
-	failPatch bool // PATCH answers 500
-	activeIPs map[string][]string
+	// loadError makes reads of the config file fail like a file telemt
+	// cannot parse: 500 "failed to load config: <loadError>".
+	loadError string
+	// dropUsersRequests closes this many GET /v1/users requests without an
+	// answer.
+	dropUsersRequests int
+	failPatch         bool // PATCH answers 500
+	activeIPs         map[string][]string
 }
 
 func newFakeTelemtAPI(t *testing.T) *fakeTelemtAPI {
@@ -58,8 +76,8 @@ func newFakeTelemtAPI(t *testing.T) *fakeTelemtAPI {
 	f := &fakeTelemtAPI{
 		t:          t,
 		configPath: filepath.Join(t.TempDir(), "config.toml"),
-		disk:       make(map[string]string),
 		runtime:    make(map[string]string),
+		overrides:  make(map[string]fakeOverride),
 		activeIPs:  make(map[string][]string),
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
@@ -76,10 +94,12 @@ func (f *fakeTelemtAPI) takeCalls() []string {
 	return calls
 }
 
-// realRuntimeUsers returns the running users without marker users.
+// realRuntimeUsers returns the published users without marker users, after
+// the watcher picked up the config file.
 func (f *fakeTelemtAPI) realRuntimeUsers() map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.watchConfigLocked()
 	users := make(map[string]string)
 	for name, secret := range f.runtime {
 		if !strings.HasPrefix(name, markerUsernamePrefix) {
@@ -89,10 +109,11 @@ func (f *fakeTelemtAPI) realRuntimeUsers() map[string]string {
 	return users
 }
 
-// runtimeMarkers lists the marker users in the running config.
+// runtimeMarkers lists the marker users in the published config.
 func (f *fakeTelemtAPI) runtimeMarkers() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.watchConfigLocked()
 	var markers []string
 	for name := range f.runtime {
 		if strings.HasPrefix(name, markerUsernamePrefix) {
@@ -102,32 +123,62 @@ func (f *fakeTelemtAPI) runtimeMarkers() []string {
 	return markers
 }
 
+// connects reports whether a client with secret gets past telemt's
+// handshake as username: the published config and the effective admission
+// state (a staged override wins) must both hold that secret. The watcher
+// picks up the config file first, as time passing would.
+func (f *fakeTelemtAPI) connects(username, secret string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.watchConfigLocked()
+	configured, ok := f.runtime[username]
+	if !ok || configured != secret {
+		return false
+	}
+	if override, staged := f.overrides[username]; staged {
+		return !override.deleted && override.secret == secret
+	}
+	return true
+}
+
 func (f *fakeTelemtAPI) set(apply func(f *fakeTelemtAPI)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	apply(f)
 }
 
-// startLocked loads the config file into disk and runtime, as a telemt start.
+// startLocked publishes the config file, as a telemt start: fresh admission
+// state, no overrides.
 func (f *fakeTelemtAPI) startLocked() {
 	data, err := os.ReadFile(f.configPath)
 	if err != nil {
 		f.t.Errorf("fake telemt: reading the config: %v", err)
 		return
 	}
-	f.disk = parseConfigUsers(string(data))
-	f.runtime = maps.Clone(f.disk)
-	f.appliedConfig = string(data)
+	f.publishLocked(string(data))
+	f.overrides = make(map[string]fakeOverride)
+}
+
+// publishLocked makes content the running config and clears the overrides
+// it matches, like telemt's admission reconcile.
+func (f *fakeTelemtAPI) publishLocked(content string) {
+	f.runtime = parseConfigUsers(content)
+	f.appliedConfig = content
+	for name, override := range f.overrides {
+		configured, present := f.runtime[name]
+		if (override.deleted && !present) || (!override.deleted && present && configured == override.secret) {
+			delete(f.overrides, name)
+		}
+	}
 }
 
 // watchConfigLocked plays telemt's config watcher.
 func (f *fakeTelemtAPI) watchConfigLocked() {
 	data, err := os.ReadFile(f.configPath)
-	if err != nil {
-		return // no config file: the test set the users directly
+	if err != nil || f.loadError != "" {
+		return
 	}
 	content := string(data)
-	f.disk = parseConfigUsers(content)
 	if content == f.appliedConfig {
 		return
 	}
@@ -143,8 +194,18 @@ func (f *fakeTelemtAPI) watchConfigLocked() {
 		f.pendingPolls--
 		return
 	}
-	f.runtime = maps.Clone(f.disk)
-	f.appliedConfig = content
+	f.publishLocked(content)
+}
+
+// editDiskLocked changes the users of the config file, as telemt's user API
+// saves a change.
+func (f *fakeTelemtAPI) editDiskLocked(edit func(users map[string]string)) {
+	data, _ := os.ReadFile(f.configPath)
+	users := parseConfigUsers(string(data))
+	edit(users)
+	if err := os.WriteFile(f.configPath, []byte(rewriteConfigUsers(string(data), users)), 0o600); err != nil {
+		f.t.Errorf("fake telemt: writing the config: %v", err)
+	}
 }
 
 // parseConfigUsers reads [access.users] from a rendered config.
@@ -170,6 +231,42 @@ func parseConfigUsers(config string) map[string]string {
 	return users
 }
 
+// rewriteConfigUsers replaces the [access.users] entries of config.
+func rewriteConfigUsers(config string, users map[string]string) string {
+	names := make([]string, 0, len(users))
+	for name := range users {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	entries := make([]string, 0, len(names))
+	for _, name := range names {
+		entries = append(entries, name+" = "+strconv.Quote(users[name]))
+	}
+
+	var out []string
+	section, wrote := "", false
+	for _, line := range strings.Split(config, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			section = strings.Trim(trimmed, "[]")
+			out = append(out, line)
+			if section == "access.users" {
+				out = append(out, entries...)
+				wrote = true
+			}
+			continue
+		}
+		if section == "access.users" && strings.Contains(trimmed, "=") {
+			continue
+		}
+		out = append(out, line)
+	}
+	if !wrote {
+		out = append(append(out, "[access.users]"), entries...)
+	}
+	return strings.Join(out, "\n") + "\n"
+}
+
 // configMarkers lists the marker users of a rendered config.
 func configMarkers(config string) []string {
 	var markers []string
@@ -189,8 +286,7 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	f.calls = append(f.calls, r.Method+" "+path)
 
-	switch {
-	case r.Method == http.MethodGet && path == "/v1/stats/users/active-ips":
+	if r.Method == http.MethodGet && path == "/v1/stats/users/active-ips" {
 		type entry struct {
 			Username  string   `json:"username"`
 			ActiveIPs []string `json:"active_ips"`
@@ -200,17 +296,37 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 			data = append(data, entry{Username: name, ActiveIPs: ips})
 		}
 		writeFakeSuccess(w, http.StatusOK, data)
-
-	case r.Method == http.MethodGet && path == "/v1/users":
-		// telemt lists the users of the config file and computes in_runtime
-		// from the running config.
-		f.watchConfigLocked()
-		data := []map[string]any{}
-		for name := range f.disk {
-			_, inRuntime := f.runtime[name]
-			data = append(data, map[string]any{"username": name, "in_runtime": inRuntime})
+		return
+	}
+	if r.Method == http.MethodGet && path == "/v1/users" && f.dropUsersRequests > 0 {
+		f.dropUsersRequests--
+		if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+			_ = conn.Close()
 		}
-		writeFakeSuccess(w, http.StatusOK, data)
+		return
+	}
+	if !strings.HasPrefix(path, "/v1/users") {
+		writeFakeError(w, http.StatusNotFound, "not_found", "Route not found")
+		return
+	}
+
+	// Every users route loads the config file first.
+	data, err := os.ReadFile(f.configPath)
+	if f.loadError != "" || err != nil {
+		writeFakeError(w, http.StatusInternalServerError, "internal_error", "failed to load config: "+f.loadError)
+		return
+	}
+	disk := parseConfigUsers(string(data))
+
+	switch {
+	case r.Method == http.MethodGet && path == "/v1/users":
+		f.watchConfigLocked()
+		users := []map[string]any{}
+		for name := range disk {
+			_, inRuntime := f.runtime[name]
+			users = append(users, map[string]any{"username": name, "in_runtime": inRuntime})
+		}
+		writeFakeSuccess(w, http.StatusOK, users)
 
 	case r.Method == http.MethodPost && path == "/v1/users":
 		var request telemtCreateUserRequest
@@ -218,17 +334,17 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 			writeFakeError(w, http.StatusBadRequest, "bad_request", err.Error())
 			return
 		}
-		if _, exists := f.runtime[request.Username]; exists {
+		if _, exists := disk[request.Username]; exists {
 			writeFakeError(w, http.StatusConflict, "user_exists", "User already exists")
 			return
 		}
-		f.runtime[request.Username] = request.Secret
-		f.disk[request.Username] = request.Secret
+		f.editDiskLocked(func(users map[string]string) { users[request.Username] = request.Secret })
+		f.overrides[request.Username] = fakeOverride{secret: request.Secret}
 		writeFakeSuccess(w, http.StatusCreated, map[string]any{"user": map[string]any{"username": request.Username}})
 
 	case strings.HasPrefix(path, "/v1/users/"):
 		name := strings.TrimPrefix(path, "/v1/users/")
-		if _, exists := f.runtime[name]; !exists {
+		if _, exists := disk[name]; !exists {
 			writeFakeError(w, http.StatusNotFound, "not_found", "User not found")
 			return
 		}
@@ -243,18 +359,20 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 				writeFakeError(w, http.StatusBadRequest, "bad_request", err.Error())
 				return
 			}
+			secret := disk[name]
 			if request.Secret != "" {
-				f.runtime[name] = request.Secret
-				f.disk[name] = request.Secret
+				secret = request.Secret
 			}
+			f.editDiskLocked(func(users map[string]string) { users[name] = secret })
+			f.overrides[name] = fakeOverride{secret: secret}
 			writeFakeSuccess(w, http.StatusOK, map[string]any{"username": name})
 		case http.MethodDelete:
-			if len(f.runtime) == 1 {
+			if len(disk) == 1 {
 				writeFakeError(w, http.StatusConflict, "last_user_forbidden", "Cannot delete the last user")
 				return
 			}
-			delete(f.runtime, name)
-			delete(f.disk, name)
+			f.editDiskLocked(func(users map[string]string) { delete(users, name) })
+			f.overrides[name] = fakeOverride{deleted: true}
 			writeFakeSuccess(w, http.StatusOK, name)
 		default:
 			// A GET of one user loads the whole config in telemt; the node
@@ -299,11 +417,11 @@ func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) 
 	desired, _ := ActiveUsersFromCommon(users, mtConfig.InboundTag)
 
 	lifetime, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	m := &MTProto{
 		config: mtConfig,
 		process: &processManager{
 			run:         &telemtRun{pid: 1, waitDone: make(chan struct{})},
+			logs:        logstream.NewBuffer(100),
 			startupTail: newLineRing(telemtStartupTailSize),
 		},
 		configPath:     api.configPath,
@@ -317,6 +435,11 @@ func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) 
 		lifetime:       lifetime,
 		cancel:         cancel,
 	}
+	// End a detached apply before the fake's server closes.
+	t.Cleanup(func() {
+		cancel()
+		m.background.Wait()
+	})
 	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
 		t.Fatal(err)
 	}
@@ -324,12 +447,35 @@ func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) 
 	return m
 }
 
-// lowerMarkerConfirmTimeout sets markerConfirmTimeout for one test.
+// waitSettled waits until no apply holds syncMu.
+func waitSettled(m *MTProto) {
+	m.syncMu.Lock()
+	m.syncMu.Unlock()
+}
+
+// lowerMarkerConfirmTimeout sets markerConfirmTimeout for one test. Register
+// it before newSyncTestBackend, so a detached apply ends before the restore.
 func lowerMarkerConfirmTimeout(t *testing.T, timeout time.Duration) {
 	t.Helper()
 	previous := markerConfirmTimeout
 	markerConfirmTimeout = timeout
 	t.Cleanup(func() { markerConfirmTimeout = previous })
+}
+
+// logLines returns what the backend published to telemt's log stream.
+func logLines(m *MTProto) []string {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := m.SubscribeLogs(ctx)
+	var lines []string
+	for {
+		select {
+		case line := <-stream:
+			lines = append(lines, line)
+		default:
+			return lines
+		}
+	}
 }
 
 func desiredNames(m *MTProto) []string {
@@ -394,8 +540,8 @@ func TestPartialSkipsUnchangedUsers(t *testing.T) {
 	if got := desiredSecret(m, "u2"); got != otherSecret {
 		t.Errorf("desired u2 secret = %q, want %q", got, otherSecret)
 	}
-	if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
-		t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
+	if !api.connects("u2", otherSecret) {
+		t.Error("u2 cannot connect with the new secret")
 	}
 
 	// A batch with nothing new reaches telemt not at all.
@@ -422,29 +568,29 @@ func TestPartialCreatesAndDeletesWithoutGet(t *testing.T) {
 	}
 
 	t.Run("patch of a user telemt lacks creates it", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { delete(f.runtime, "u2") })
+		api.set(func(f *fakeTelemtAPI) { f.editDiskLocked(func(users map[string]string) { delete(users, "u2") }) })
 		if err := m.SyncUser(ctx, mtUser("u2", "mtproto", otherSecret)); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
 		assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "POST /v1/users")
-		if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
-			t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
+		if !api.connects("u2", otherSecret) {
+			t.Error("u2 cannot connect with the new secret")
 		}
 	})
 
 	t.Run("create of a user telemt has patches it", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { f.runtime["u4"] = testSecret })
+		api.set(func(f *fakeTelemtAPI) { f.editDiskLocked(func(users map[string]string) { users["u4"] = testSecret }) })
 		if err := m.SyncUser(ctx, mtUser("u4", "mtproto", otherSecret)); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
 		assertCalls(t, api.takeCalls(), "POST /v1/users", "PATCH /v1/users/u4")
-		if got := api.realRuntimeUsers()["u4"]; got != otherSecret {
-			t.Errorf("telemt u4 secret = %q, want %q", got, otherSecret)
+		if !api.connects("u4", otherSecret) {
+			t.Error("u4 cannot connect with the new secret")
 		}
 	})
 
 	t.Run("delete of a user telemt lacks succeeds", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { delete(f.runtime, "u3") })
+		api.set(func(f *fakeTelemtAPI) { f.editDiskLocked(func(users map[string]string) { delete(users, "u3") }) })
 		if err := m.SyncUser(ctx, untagged("u3")); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
@@ -551,8 +697,9 @@ func TestHotReloadWaitsForMarker(t *testing.T) {
 
 // TestRejectedHotReloadRestoresPreviousUsers: telemt never loads the new
 // config (it rejected it), so the marker never reaches its running config.
-// The sync fails with telemt's last output, desired is unchanged, and the
-// previous users are rendered again with a new marker.
+// The sync fails with telemt's last output, desired is unchanged, the
+// previous users are rendered again with a new marker, and the rejection
+// reaches the log stream the panel shows.
 func TestRejectedHotReloadRestoresPreviousUsers(t *testing.T) {
 	lowerMarkerConfirmTimeout(t, 600*time.Millisecond)
 	api := newFakeTelemtAPI(t)
@@ -581,6 +728,203 @@ func TestRejectedHotReloadRestoresPreviousUsers(t *testing.T) {
 	rejectedMarkers, restoredMarkers := configMarkers(rejected), configMarkers(config)
 	if len(rejectedMarkers) != 1 || len(restoredMarkers) != 1 || rejectedMarkers[0] == restoredMarkers[0] {
 		t.Errorf("markers: rejected %q, restored %q; want one each and a new one for the restore", rejectedMarkers, restoredMarkers)
+	}
+	if lines := logLines(m); !slices.ContainsFunc(lines, func(line string) bool {
+		return strings.Contains(line, "did not load the new config")
+	}) {
+		t.Errorf("the rejection is not in the log stream: %q", lines)
+	}
+}
+
+// TestLoadFailureRejectsAtOnce: telemt cannot load the rendered file, so GET
+// /v1/users answers 500 "failed to load config"; that is a rejection with
+// telemt's message, without waiting out markerConfirmTimeout.
+func TestLoadFailureRejectsAtOnce(t *testing.T) {
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+	api.set(func(f *fakeTelemtAPI) { f.loadError = "TOML parse error at line 3" })
+
+	started := time.Now()
+	err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)})
+	if !errors.Is(err, errReloadRejected) || !strings.Contains(err.Error(), "TOML parse error at line 3") {
+		t.Fatalf("SyncUsers = %v, want a rejection with telemt's message", err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("the rejection took %s", elapsed)
+	}
+	if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
+		t.Errorf("desired = %q, want u1", got)
+	}
+	if users := parseConfigUsers(readConfig(t, api.configPath)); users["u1"] == "" || users["u2"] != "" {
+		t.Errorf("the previous users were not rendered again: %v", users)
+	}
+}
+
+// TestCallerDeadlineDoesNotStopApply: a panel call's deadline (here 1 s)
+// ends before telemt's verdict. The caller gets its ctx error at once; the
+// apply goes on, finds the render rejected, renders the previous users
+// again and logs telemt's reason for the panel.
+func TestCallerDeadlineDoesNotStopApply(t *testing.T) {
+	lowerMarkerConfirmTimeout(t, 2*time.Second)
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+	m.process.startupTail.add("config reload rejected: bad listener")
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	err := m.SyncUsers(ctx, []*common.User{mtUser("u2", "mtproto", otherSecret)})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SyncUsers = %v, want the caller's deadline", err)
+	}
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Errorf("the caller waited %s after its 1 s deadline", elapsed)
+	}
+
+	waitSettled(m)
+	if users := parseConfigUsers(readConfig(t, api.configPath)); users["u1"] != testSecret || users["u2"] != "" {
+		t.Errorf("the previous users were not rendered again: %v", users)
+	}
+	if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
+		t.Errorf("desired = %q, want u1", got)
+	}
+	if lines := logLines(m); !slices.ContainsFunc(lines, func(line string) bool {
+		return strings.Contains(line, "did not load the new config") && strings.Contains(line, "bad listener")
+	}) {
+		t.Errorf("the rejection and telemt's reason are not in the log stream: %q", lines)
+	}
+
+	// telemt still runs the confirmed users, so the next change is a diff.
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = false })
+	api.takeCalls()
+	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u1", "mtproto", otherSecret)}); err != nil {
+		t.Fatalf("UpdateUsers: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u1")
+}
+
+// TestQueuedCallerGivesUpAtDeadline: a call waiting for syncMu behind a
+// long apply returns its ctx error at its own deadline, not when the apply
+// ends.
+func TestQueuedCallerGivesUpAtDeadline(t *testing.T) {
+	lowerMarkerConfirmTimeout(t, 3*time.Second)
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
+
+	initialMarker := m.markerUsername()
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)})
+	}()
+	// The first apply holds syncMu once it rendered its marker.
+	deadline := time.Now().Add(5 * time.Second)
+	for m.markerUsername() == initialMarker {
+		if time.Now().After(deadline) {
+			t.Fatal("the first apply never rendered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := m.UpdateUsers(ctx, []*common.User{mtUser("u3", "mtproto", testSecret)})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued UpdateUsers = %v, want its deadline", err)
+	}
+	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
+		t.Errorf("the queued caller waited %s with a 500 ms deadline", elapsed)
+	}
+	if err := <-firstDone; !errors.Is(err, errReloadRejected) {
+		t.Errorf("first SyncUsers = %v, want the rejection", err)
+	}
+}
+
+// TestFullRenderClearsStaleAPIOverrides: telemt stages an admission
+// override for every user API write and clears it only when a published
+// config carries the same value. A full render that changes such a user
+// again, before telemt published the API's own write, must first make the
+// override agree, or the user is locked out.
+func TestFullRenderClearsStaleAPIOverrides(t *testing.T) {
+	cases := map[string]struct {
+		apiChange *common.User
+		render    []*common.User
+		user      string
+		secret    string
+		calls     []string
+	}{
+		"patched, then changed by a render": {
+			apiChange: mtUser("u2", "mtproto", otherSecret),
+			render:    []*common.User{mtUser("u1", "mtproto", testSecret), mtUser("u2", "mtproto", thirdSecret)},
+			user:      "u2",
+			secret:    thirdSecret,
+			calls:     []string{"PATCH /v1/users/u2", "PATCH /v1/users/u2", "GET /v1/users"},
+		},
+		"deleted, then added back by a render": {
+			apiChange: untagged("u2"),
+			render:    []*common.User{mtUser("u1", "mtproto", testSecret), mtUser("u2", "mtproto", thirdSecret)},
+			user:      "u2",
+			secret:    thirdSecret,
+			calls:     []string{"DELETE /v1/users/u2", "POST /v1/users", "GET /v1/users"},
+		},
+		"created, then removed by a render": {
+			apiChange: mtUser("u3", "mtproto", otherSecret),
+			render:    []*common.User{mtUser("u1", "mtproto", testSecret), mtUser("u2", "mtproto", testSecret)},
+			user:      "u3",
+			calls:     []string{"POST /v1/users", "DELETE /v1/users/u3", "GET /v1/users"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			api := newFakeTelemtAPI(t)
+			m := newSyncTestBackend(t, api, []*common.User{
+				mtUser("u1", "mtproto", testSecret),
+				mtUser("u2", "mtproto", testSecret),
+			})
+
+			// The API write and, before telemt's watcher read the file, the
+			// full render.
+			if err := m.SyncUser(context.Background(), tc.apiChange); err != nil {
+				t.Fatalf("SyncUser: %v", err)
+			}
+			if err := m.SyncUsers(context.Background(), tc.render); err != nil {
+				t.Fatalf("SyncUsers: %v", err)
+			}
+			assertCalls(t, api.takeCalls(), tc.calls...)
+
+			if tc.secret != "" && !api.connects(tc.user, tc.secret) {
+				var override fakeOverride
+				api.set(func(f *fakeTelemtAPI) { override = f.overrides[tc.user] })
+				t.Errorf("%s cannot connect with %s after the render (staged override %+v)", tc.user, tc.secret, override)
+			}
+			api.set(func(f *fakeTelemtAPI) {
+				if len(f.overrides) != 0 {
+					t.Errorf("overrides left after the render: %+v", f.overrides)
+				}
+			})
+		})
+	}
+}
+
+// TestSingleAPIErrorKeepsPolling: polls without an answer, fewer than
+// markerUnreachablePolls in a row from a telemt that still runs, are not an
+// unreachable telemt; the wait goes on and telemt is not restarted.
+func TestSingleAPIErrorKeepsPolling(t *testing.T) {
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+	api.set(func(f *fakeTelemtAPI) { f.dropUsersRequests = markerUnreachablePolls - 1 })
+
+	if err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "GET /v1/users", "GET /v1/users", "GET /v1/users")
+	if !m.process.Started() {
+		t.Error("telemt was stopped after failed requests")
+	}
+	if got := desiredNames(m); !slices.Equal(got, []string{"u2"}) {
+		t.Errorf("desired = %q, want u2", got)
 	}
 }
 
@@ -626,15 +970,16 @@ func TestLastRealUserGoesThroughAPI(t *testing.T) {
 		t.Fatalf("SyncUser from zero users: %v", err)
 	}
 	assertCalls(t, api.takeCalls(), "POST /v1/users")
-	if runtime := api.realRuntimeUsers(); len(runtime) != 1 || runtime["u2"] == "" {
-		t.Errorf("telemt users = %v, want u2", runtime)
+	if !api.connects("u2", testSecret) {
+		t.Error("u2 cannot connect")
 	}
 
-	// A full sync to zero users renders the marker alone.
+	// A full sync to zero users renders the marker alone; u2, last written
+	// through the API, is deleted through it again first.
 	if err := m.SyncUsers(ctx, nil); err != nil {
 		t.Fatalf("SyncUsers to zero users: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "GET /v1/users")
+	assertCalls(t, api.takeCalls(), "DELETE /v1/users/u2", "GET /v1/users")
 	if runtime := api.realRuntimeUsers(); len(runtime) != 0 {
 		t.Errorf("telemt users = %v, want only the marker", runtime)
 	}
@@ -683,50 +1028,10 @@ func TestOnlineIPListUsesBulkEndpoint(t *testing.T) {
 	}
 }
 
-// TestUnconfirmedReloadForcesFullApply: the caller gives up before telemt
-// loaded the config. telemt keeps running, desired keeps the confirmed
-// users, and the next sync renders and reloads everything instead of a diff.
-func TestUnconfirmedReloadForcesFullApply(t *testing.T) {
-	api := newFakeTelemtAPI(t)
-	m := newSyncTestBackend(t, api, []*common.User{
-		mtUser("u1", "mtproto", testSecret),
-		mtUser("u2", "mtproto", testSecret),
-	})
-	api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	err := m.SyncUsers(ctx, []*common.User{mtUser("u1", "mtproto", testSecret), mtUser("u3", "mtproto", testSecret)})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("SyncUsers = %v, want a deadline error", err)
-	}
-	if got := desiredNames(m); !slices.Equal(got, []string{"u1", "u2"}) {
-		t.Errorf("desired = %q after an unconfirmed reload, want u1, u2", got)
-	}
-	if !m.process.Started() {
-		t.Error("an unconfirmed reload stopped telemt")
-	}
-	api.takeCalls()
-
-	api.set(func(f *fakeTelemtAPI) { f.rejectReload = false })
-	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)}); err != nil {
-		t.Fatalf("UpdateUsers: %v", err)
-	}
-	assertCalls(t, api.takeCalls(), "GET /v1/users")
-	if got := desiredNames(m); !slices.Equal(got, []string{"u1", "u2"}) {
-		t.Errorf("desired = %q, want u1, u2", got)
-	}
-	if runtime := api.realRuntimeUsers(); len(runtime) != 2 || runtime["u2"] != otherSecret {
-		t.Errorf("telemt users = %v, want u1 and the new u2", runtime)
-	}
-
-	// Confirmed again: the next small change is a diff.
-	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u1", "mtproto", otherSecret)}); err != nil {
-		t.Fatalf("UpdateUsers: %v", err)
-	}
-	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u1")
-}
-
+// TestPartialFailureFallsBackToFullApply: a failed PATCH may or may not have
+// reached telemt, so the full apply writes the user through the API again
+// before the render. When that fails too, the render still lands, but the
+// state stays unconfirmed so the next sync tries again.
 func TestPartialFailureFallsBackToFullApply(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	m := newSyncTestBackend(t, api, []*common.User{
@@ -738,13 +1043,25 @@ func TestPartialFailureFallsBackToFullApply(t *testing.T) {
 	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)}); err != nil {
 		t.Fatalf("UpdateUsers: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "GET /v1/users")
-	if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
-		t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
+	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "PATCH /v1/users/u2", "GET /v1/users")
+	if !api.connects("u2", otherSecret) {
+		t.Error("u2 cannot connect with the new secret")
 	}
 	if got := desiredSecret(m, "u2"); got != otherSecret {
 		t.Errorf("desired u2 secret = %q, want %q", got, otherSecret)
 	}
+	m.syncMu.Lock()
+	needsFullApply := m.needsFullApply
+	m.syncMu.Unlock()
+	if !needsFullApply {
+		t.Error("a user whose API write failed twice must keep the state unconfirmed")
+	}
+
+	api.set(func(f *fakeTelemtAPI) { f.failPatch = false })
+	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u1", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("UpdateUsers: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "GET /v1/users")
 }
 
 func TestRuntimeUserEqual(t *testing.T) {
@@ -773,7 +1090,12 @@ func TestRuntimeUserEqual(t *testing.T) {
 func TestAPIClientListUsersAndActiveIPs(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	api.set(func(f *fakeTelemtAPI) {
-		f.disk = map[string]string{"u1": testSecret, "u2": testSecret}
+		f.editDiskLocked(func(users map[string]string) {
+			users["u1"] = testSecret
+			users["u2"] = testSecret
+		})
+		data, _ := os.ReadFile(f.configPath)
+		f.appliedConfig = string(data)
 		f.runtime = map[string]string{"u1": testSecret}
 		f.activeIPs = map[string][]string{"u1": {"203.0.113.7"}}
 	})

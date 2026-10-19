@@ -31,13 +31,17 @@ type MTProto struct {
 	apiAuthHeader string
 
 	// syncMu serializes every operation that changes users or the telemt
-	// process: syncs, restarts, the supervisor and Shutdown.
-	syncMu sync.Mutex
+	// process: syncs, restarts, the supervisor and Shutdown. A full apply
+	// holds it until telemt's verdict, even after its caller gave up.
+	syncMu syncLock
 	closed bool // guarded by syncMu
 	// needsFullApply is set when telemt may run users other than desired: a
 	// reload whose outcome is unknown, or user API calls that failed midway.
 	// The next sync then renders and reloads every user. Guarded by syncMu.
 	needsFullApply bool
+	// apiSent holds the users written through telemt's user API since the
+	// last confirmed render or telemt start. Guarded by syncMu.
+	apiSent map[string]apiWrite
 
 	// stateMu guards desired and marker for readers; writers also hold
 	// syncMu. desired holds only users telemt confirmed it runs. marker is
@@ -256,7 +260,9 @@ func (m *MTProto) markerUsername() string {
 
 // newMarkerUser returns a marker user with a fresh random name and secret.
 // Every render carries one, disabled: once telemt's running config has it,
-// telemt runs that render. It also keeps telemt's user list non-empty.
+// telemt has published that render (its user admission follows from the
+// published config shortly after). It also keeps telemt's user list
+// non-empty.
 func newMarkerUser() (*runtimeUser, error) {
 	secret := make([]byte, 16)
 	usernameSuffix := make([]byte, 8)

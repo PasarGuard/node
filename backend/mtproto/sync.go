@@ -7,7 +7,6 @@ import (
 	"log"
 	"maps"
 	"strings"
-	"time"
 
 	"github.com/pasarguard/node/common"
 )
@@ -17,26 +16,6 @@ import (
 // config for each such call, so a larger batch renders the config once and
 // reloads it instead.
 const partialApplyMaxUsers = 32
-
-// markerPollInterval is how often the node checks whether telemt loaded a
-// rendered config.
-const markerPollInterval = 200 * time.Millisecond
-
-// markerConfirmTimeout bounds the wait for telemt to load a rendered config;
-// a config it did not load by then counts as rejected. It is a variable so
-// tests can lower it.
-var markerConfirmTimeout = 30 * time.Second
-
-// errReloadRejected marks a rendered config telemt did not load. telemt
-// keeps running the config it had.
-var errReloadRejected = errors.New("telemt did not load the new config")
-
-// userChange is one user to create, patch or delete in telemt.
-type userChange struct {
-	username string
-	user     *runtimeUser // the new state; nil deletes the user
-	known    bool         // the user is in m.desired
-}
 
 func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
 	// The batch paths skip a user that fails validation; a single-user sync
@@ -49,19 +28,17 @@ func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
 
 // SyncUsers replaces all users through one config render and reload.
 func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if err := m.syncAllowedLocked(ctx); err != nil {
+	if err := m.lockSync(ctx); err != nil {
 		return err
 	}
 	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
 
 	// Nothing to apply: skip the render and the wait for telemt.
 	if m.confirmedLocked() && maps.EqualFunc(m.desired, desired, runtimeUserEqual) {
+		m.syncMu.Unlock()
 		return nil
 	}
-	return m.applyFullLocked(ctx, desired)
+	return m.applyFullDetachedLocked(ctx, desired)
 }
 
 // UpdateUsers applies users on top of the current ones. Up to
@@ -69,56 +46,75 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 // unconfirmed telemt state, go through a config render and reload. Users
 // that did not change are not sent at all.
 func (m *MTProto) UpdateUsers(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if err := m.syncAllowedLocked(ctx); err != nil {
+	if err := m.lockSync(ctx); err != nil {
 		return err
 	}
-	next := m.buildNextDesiredLocked(users)
-	changes := m.userChangesLocked(users, next)
-
-	if !m.confirmedLocked() || len(changes) > partialApplyMaxUsers {
-		return m.applyFullLocked(ctx, next)
-	}
-	if len(changes) == 0 {
+	next, full := m.updateUsersLocked(ctx, users)
+	if !full {
+		m.syncMu.Unlock()
 		return nil
 	}
-
-	if err := m.applyUserChangesLocked(ctx, changes); err != nil {
-		// Some changes may have reached telemt: its users are unknown until
-		// a full apply succeeds.
-		m.needsFullApply = true
-		log.Printf("mtproto: applying %d user changes through the telemt API failed, rendering all users instead: %v", len(changes), err)
-		return m.applyFullLocked(ctx, next)
-	}
-	m.confirmLocked(next)
-	return nil
+	return m.applyFullDetachedLocked(ctx, next)
 }
 
 // UpdateUsersAndRestart applies users on top of the current ones through a
 // config render and reload.
 func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if err := m.syncAllowedLocked(ctx); err != nil {
+	if err := m.lockSync(ctx); err != nil {
 		return err
 	}
-	return m.applyFullLocked(ctx, m.buildNextDesiredLocked(users))
+	return m.applyFullDetachedLocked(ctx, m.buildNextDesiredLocked(users))
+}
+
+// lockSync takes syncMu for a sync call. A caller waiting behind another
+// apply gives up at its own deadline, and every waiter on Shutdown. A closed
+// backend or a caller already gone is refused.
+func (m *MTProto) lockSync(ctx context.Context) error {
+	if err := m.syncMu.LockContext(ctx, m.lifetime.Done()); err != nil {
+		return err
+	}
+	if err := m.syncAllowedLocked(ctx); err != nil {
+		m.syncMu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // syncAllowedLocked refuses a sync after Shutdown, or one whose caller gave
 // up while it queued on syncMu. Requires syncMu.
 func (m *MTProto) syncAllowedLocked(ctx context.Context) error {
-	if m.closed {
+	if m.closed || m.lifetime.Err() != nil {
 		return errClosed
 	}
 	return ctx.Err()
 }
 
-// confirmedLocked reports whether telemt runs and runs exactly m.desired.
-// Requires syncMu.
+// updateUsersLocked applies users through telemt's user API when it can and
+// reports whether next needs a full apply instead. Requires syncMu.
+func (m *MTProto) updateUsersLocked(ctx context.Context, users []*common.User) (next map[string]*runtimeUser, full bool) {
+	next = m.buildNextDesiredLocked(users)
+	changes := m.userChangesLocked(users, next)
+
+	if !m.confirmedLocked() || len(changes) > partialApplyMaxUsers {
+		return next, true
+	}
+	if len(changes) == 0 {
+		return next, false
+	}
+	if err := m.applyUserChangesLocked(ctx, changes); err != nil {
+		// Some changes may have reached telemt: its users are unknown until
+		// a full apply succeeds.
+		m.needsFullApply = true
+		log.Printf("mtproto: applying %d user changes through the telemt API failed, rendering all users instead: %v", len(changes), err)
+		return next, true
+	}
+	m.confirmLocked(next)
+	return next, false
+}
+
+// confirmedLocked reports whether telemt runs and has published exactly
+// m.desired, with no user API write whose outcome is unknown. Requires
+// syncMu.
 func (m *MTProto) confirmedLocked() bool {
 	return !m.needsFullApply && m.process.Started()
 }
@@ -171,69 +167,82 @@ func (m *MTProto) userChangesLocked(users []*common.User, next map[string]*runti
 	return changes
 }
 
-// applyUserChangesLocked sends each change to telemt's user API. m.desired
-// picks create or patch; when telemt disagrees, its answer corrects the
-// choice: a patch of a missing user creates it, a create of an existing user
-// patches it, and deleting a missing user is done. Requires syncMu.
+// applyUserChangesLocked sends each change to telemt's user API, stopping at
+// the first failure. Requires syncMu.
 func (m *MTProto) applyUserChangesLocked(ctx context.Context, changes []userChange) error {
 	for _, change := range changes {
-		var err error
-		switch {
-		case change.user == nil:
-			err = m.deleteUser(ctx, change.username)
-		case change.known:
-			err = m.patchOrCreateUser(ctx, change.user)
-		default:
-			err = m.createOrPatchUser(ctx, change.user)
-		}
-		if err != nil {
+		if err := m.sendUserChangeLocked(ctx, change); err != nil {
 			return fmt.Errorf("user %s: %w", change.username, err)
 		}
 	}
 	return nil
 }
 
-func (m *MTProto) patchOrCreateUser(ctx context.Context, user *runtimeUser) error {
-	err := m.apiClient.PatchUser(ctx, user.Username, user)
-	var apiErr *apiStatusError
-	if errors.As(err, &apiErr) && apiErr.NotFound() {
-		return m.apiClient.CreateUser(ctx, user)
+// applyFullDetachedLocked runs applyFullLocked in the background and waits
+// for it or for ctx. It takes over syncMu from the caller and releases it
+// once the apply settles, so the render, telemt's verdict and the restore of
+// a rejected config all happen even when the caller gives up, which a panel
+// deadline (10 to 15 s) does before markerConfirmTimeout. That caller gets
+// ctx's error at once, and the outcome is logged instead.
+func (m *MTProto) applyFullDetachedLocked(ctx context.Context, desired map[string]*runtimeUser) error {
+	// Do not start a render for a caller already gone.
+	if err := ctx.Err(); err != nil {
+		m.syncMu.Unlock()
+		return err
 	}
-	return err
+
+	applyCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopOnShutdown := context.AfterFunc(m.lifetime, cancel)
+	result := make(chan error)
+	callerGone := make(chan struct{})
+	// Shutdown waits for this goroutine: it is added under syncMu before
+	// closed is set.
+	m.background.Go(func() {
+		defer m.syncMu.Unlock()
+		defer cancel()
+		defer stopOnShutdown()
+
+		err := m.applyFullLocked(applyCtx, desired)
+		select {
+		case result <- err:
+		case <-callerGone:
+			logSettledApply(err)
+		}
+	})
+
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		close(callerGone)
+		return fmt.Errorf("the users are still being applied: %w", ctx.Err())
+	}
 }
 
-func (m *MTProto) createOrPatchUser(ctx context.Context, user *runtimeUser) error {
-	err := m.apiClient.CreateUser(ctx, user)
-	var apiErr *apiStatusError
-	if errors.As(err, &apiErr) && apiErr.UserExists() {
-		return m.apiClient.PatchUser(ctx, user.Username, user)
+// logSettledApply logs how a full apply ended after its caller stopped
+// waiting. A rejection is already in telemt's log stream.
+func logSettledApply(err error) {
+	switch {
+	case err == nil:
+		log.Println("mtproto: telemt loaded the new users after the caller stopped waiting")
+	case errors.Is(err, errClosed), errors.Is(err, errReloadRejected):
+	default:
+		log.Printf("mtproto: applying the users failed after the caller stopped waiting: %v", err)
 	}
-	return err
-}
-
-func (m *MTProto) deleteUser(ctx context.Context, username string) error {
-	err := m.apiClient.DeleteUser(ctx, username)
-	var apiErr *apiStatusError
-	if errors.As(err, &apiErr) && apiErr.NotFound() {
-		return nil
-	}
-	return err
 }
 
 // applyFullLocked renders desired and makes telemt run it: a hot reload of
 // the running telemt, or a start when none runs. m.desired takes desired only
-// once telemt confirmed it. Requires syncMu.
+// once telemt published it. Requires syncMu.
 func (m *MTProto) applyFullLocked(ctx context.Context, desired map[string]*runtimeUser) error {
-	// A partial apply that failed on an expired ctx falls back here; do not
-	// rewrite the config for a caller that is gone.
 	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := m.writeRenderedConfigLocked(desired); err != nil {
 		return err
 	}
 
 	if !m.process.Started() {
+		if err := m.writeRenderedConfigLocked(desired); err != nil {
+			return err
+		}
 		if err := m.startLocked(ctx); err != nil {
 			return err
 		}
@@ -241,19 +250,22 @@ func (m *MTProto) applyFullLocked(ctx context.Context, desired map[string]*runti
 		return nil
 	}
 
+	m.matchAPIWritesLocked(ctx, desired)
+	if err := m.writeRenderedConfigLocked(desired); err != nil {
+		return err
+	}
+
 	err := m.reloadLocked(ctx)
 	switch {
 	case err == nil:
 		m.confirmLocked(desired)
+		m.forgetSettledAPIWritesLocked()
 		return nil
 	case errors.Is(err, errReloadRejected):
-		// telemt still runs the users it had. Put them back on disk too:
-		// telemt watches the config file and would retry the rejected one.
-		if restoreErr := m.writeRenderedConfigLocked(m.desired); restoreErr != nil {
+		m.process.Notice("mtproto: " + strings.ReplaceAll(err.Error(), "\n", " | ") + "; rendering the previous users again")
+		if restoreErr := m.restoreLocked(ctx); restoreErr != nil {
+			m.needsFullApply = true
 			return fmt.Errorf("%w (restoring the previous telemt config failed: %v)", err, restoreErr)
-		}
-		if signalErr := m.process.Reload(); signalErr != nil {
-			log.Printf("warning: %v", signalErr)
 		}
 		return err
 	default:
@@ -263,93 +275,23 @@ func (m *MTProto) applyFullLocked(ctx context.Context, desired map[string]*runti
 	}
 }
 
-// reloadLocked makes the running telemt hot-reload the rendered config:
-// SIGHUP (telemt's config watcher also sees the file change), then a wait
-// until the render's marker user is in telemt's running config. A hot reload
-// replaces only the users that changed; an API reload would cut every
-// session. Only an API that cannot be reached, or a telemt that cannot be
-// signalled, restarts telemt, on the rendered config; a caller that gave up
-// or a rejected config never does. Requires syncMu.
-func (m *MTProto) reloadLocked(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+// restoreLocked renders m.desired again after telemt did not load a render:
+// telemt keeps running the previous users, and it watches the config file,
+// so the rejected file must not stay there. The restore is not confirmed. If
+// telemt was only slow and loads the rejected render after all, the restore
+// render follows it. Requires syncMu.
+func (m *MTProto) restoreLocked(ctx context.Context) error {
+	m.matchAPIWritesLocked(ctx, m.desired)
+	if m.hasUnknownAPIWritesLocked() {
+		m.needsFullApply = true
+	}
+	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
 		return err
 	}
-	err := m.process.Reload()
-	if err == nil {
-		err = m.waitForMarker(ctx, m.marker.Username)
-	}
-	switch {
-	case err == nil || errors.Is(err, errClosed) || errors.Is(err, errReloadRejected):
-		return err
-	case ctx.Err() != nil:
-		return fmt.Errorf("telemt reload not confirmed: %w", ctx.Err())
-	}
-
-	log.Printf("telemt did not answer a reload, restarting it: %v", err)
-	m.process.Stop()
-	// telemt is down now: start it again even if the caller gives up.
-	if restartErr := m.startLocked(context.WithoutCancel(ctx)); restartErr != nil {
-		return fmt.Errorf("telemt reload failed: %w (restart failed: %v)", err, restartErr)
+	if err := m.process.Reload(); err != nil {
+		log.Printf("warning: %v", err)
 	}
 	return nil
-}
-
-// waitForMarker polls GET /v1/users until telemt's running config has the
-// marker user, for up to markerConfirmTimeout. It returns ctx's error once
-// the caller gives up, errClosed on Shutdown, an errReloadRejected error with
-// telemt's last output when the time is up, and the request error when the
-// API cannot be reached.
-func (m *MTProto) waitForMarker(ctx context.Context, marker string) error {
-	// Requests do not end with the caller's ctx, so an aborted request is
-	// never mistaken for an unreachable API.
-	waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), markerConfirmTimeout)
-	defer cancel()
-	stop := context.AfterFunc(m.lifetime, cancel)
-	defer stop()
-
-	ticker := time.NewTicker(markerPollInterval)
-	defer ticker.Stop()
-
-	for {
-		users, err := m.apiClient.ListUsers(waitCtx)
-		if err == nil && userInRuntime(users, marker) {
-			return nil
-		}
-		var apiErr *apiStatusError
-		if err != nil && !errors.As(err, &apiErr) && waitCtx.Err() == nil {
-			return fmt.Errorf("telemt API unreachable: %w", err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-waitCtx.Done():
-			if m.lifetime.Err() != nil {
-				return errClosed
-			}
-			return m.reloadRejectedError()
-		case <-ticker.C:
-		}
-	}
-}
-
-// reloadRejectedError reports a config telemt did not load in time, with
-// its last output, which carries the reason.
-func (m *MTProto) reloadRejectedError() error {
-	tail := m.process.StartupTail(telemtCrashTailSize)
-	if len(tail) == 0 {
-		return fmt.Errorf("%w within %s", errReloadRejected, markerConfirmTimeout)
-	}
-	return fmt.Errorf("%w within %s; recent telemt output:\n%s", errReloadRejected, markerConfirmTimeout, strings.Join(tail, "\n"))
-}
-
-func userInRuntime(users []telemtUserInfo, username string) bool {
-	for _, user := range users {
-		if user.Username == username {
-			return user.InRuntime
-		}
-	}
-	return false
 }
 
 // confirmLocked records desired as the users telemt runs. Requires syncMu.

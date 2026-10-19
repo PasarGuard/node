@@ -327,6 +327,13 @@ func (p *processManager) Reload() error {
 	return nil
 }
 
+// Notice logs a node message about telemt and adds it to telemt's log
+// stream, which the panel shows.
+func (p *processManager) Notice(message string) {
+	log.Println(message)
+	p.logs.Publish(message)
+}
+
 // Stop terminates telemt and waits for it to exit, killing it after
 // telemtStopTimeout.
 func (p *processManager) Stop() {
