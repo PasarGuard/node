@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -956,6 +957,45 @@ func TestSingleAPIErrorKeepsPolling(t *testing.T) {
 	}
 	if got := desiredNames(m); !slices.Equal(got, []string{"u2"}) {
 		t.Errorf("desired = %q, want u2", got)
+	}
+}
+
+// TestHungUsersAPIIsUnreachable: an API that accepts connections but never
+// answers gets markerPollTimeout per poll, so markerUnreachablePolls polls
+// in a row end the marker wait inside markerConfirmTimeout as an
+// unreachable telemt, which reloadLocked restarts, not as a rejected config.
+func TestHungUsersAPIIsUnreachable(t *testing.T) {
+	lowerMarkerConfirmTimeout(t, 4*time.Second)
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+
+	var polls atomic.Int32
+	release := make(chan struct{})
+	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		polls.Add(1)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(hung.Close)
+	t.Cleanup(func() { close(release) })
+	m.apiClient = newAPIClient(hung.URL, "Bearer test")
+
+	m.syncMu.Lock()
+	started := time.Now()
+	err := m.waitForMarkerLocked(context.Background(), m.markerUsername())
+	elapsed := time.Since(started)
+	m.syncMu.Unlock()
+
+	if err == nil || errors.Is(err, errReloadRejected) || !strings.Contains(err.Error(), "telemt API unreachable") {
+		t.Fatalf("waitForMarkerLocked = %v, want telemt API unreachable", err)
+	}
+	if elapsed >= markerConfirmTimeout {
+		t.Errorf("the wait took %s, not inside markerConfirmTimeout (%s)", elapsed, markerConfirmTimeout)
+	}
+	if got := polls.Load(); got != markerUnreachablePolls {
+		t.Errorf("%d polls reached the API, want %d", got, markerUnreachablePolls)
 	}
 }
 

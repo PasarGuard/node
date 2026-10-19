@@ -35,6 +35,16 @@ var readSIGHUPCaught = sighupCaught
 // tests can lower it.
 var markerConfirmTimeout = 30 * time.Second
 
+// markerPollTimeout bounds one poll of the marker wait, so an API that
+// accepts connections but never answers counts as unanswered, and
+// markerUnreachablePolls such polls in a row end inside markerConfirmTimeout
+// (and restart telemt). It is a quarter of that budget, 7.5 s, because
+// telemt reads its whole config for each poll: listing 150k users took
+// about 2.5 s on a fast host.
+func markerPollTimeout() time.Duration {
+	return markerConfirmTimeout / (markerUnreachablePolls + 1)
+}
+
 // errReloadRejected marks a rendered config telemt did not load. telemt
 // keeps running the config it had.
 var errReloadRejected = errors.New("telemt did not load the new config")
@@ -125,10 +135,11 @@ func (m *MTProto) telemtHandlesSIGHUPLocked() bool {
 // the marker user, for up to markerConfirmTimeout, and sends telemt SIGHUP
 // once telemt handles it: at once in steady state, or once the config
 // watcher installed the handler if it has not loaded the render by then.
-// It returns an errReloadRejected error when telemt cannot read the
-// rendered file or the time is up, errClosed on Shutdown, ctx's error when
-// ctx ends, and the signal or request error when telemt cannot be
-// signalled, the API stays unreachable or telemt exited. Requires syncMu.
+// Each poll gets markerPollTimeout. It returns an errReloadRejected error
+// when telemt cannot read the rendered file or the time is up, errClosed on
+// Shutdown, ctx's error when ctx ends, and the signal or request error when
+// telemt cannot be signalled, the API stays unreachable or telemt exited.
+// Requires syncMu.
 func (m *MTProto) waitForMarkerLocked(ctx context.Context, marker string) error {
 	waitCtx, cancel := context.WithTimeout(ctx, markerConfirmTimeout)
 	defer cancel()
@@ -139,6 +150,7 @@ func (m *MTProto) waitForMarkerLocked(ctx context.Context, marker string) error 
 	ticker := time.NewTicker(markerPollInterval)
 	defer ticker.Stop()
 
+	pollTimeout := markerPollTimeout()
 	signalled := false
 	unanswered := 0
 	for {
@@ -149,7 +161,9 @@ func (m *MTProto) waitForMarkerLocked(ctx context.Context, marker string) error 
 			}
 		}
 
-		users, err := m.apiClient.ListUsers(waitCtx)
+		pollCtx, cancelPoll := context.WithTimeout(waitCtx, pollTimeout)
+		users, err := m.apiClient.ListUsers(pollCtx)
+		cancelPoll()
 		var apiErr *apiStatusError
 		switch {
 		case err == nil:
@@ -165,6 +179,8 @@ func (m *MTProto) waitForMarkerLocked(ctx context.Context, marker string) error 
 				return fmt.Errorf("%w: %s", errReloadRejected, apiErr.Message)
 			}
 		case waitCtx.Err() == nil:
+			// No answer: a refused or reset connection, or a poll that ran
+			// out of pollTimeout.
 			unanswered++
 			if unanswered >= markerUnreachablePolls || isClosed(exited) {
 				return fmt.Errorf("telemt API unreachable: %w", err)
