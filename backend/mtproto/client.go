@@ -57,6 +57,11 @@ type telemtUserActiveIPs struct {
 	ActiveIPs []string `json:"active_ips"`
 }
 
+type telemtDeleteUserResponse struct {
+	Username  string `json:"username"`
+	InRuntime bool   `json:"in_runtime"`
+}
+
 type telemtHealth struct {
 	Status   string `json:"status"`
 	ReadOnly bool   `json:"read_only"`
@@ -184,10 +189,10 @@ func (c *apiClient) PatchUser(ctx context.Context, username string, user *runtim
 	return err
 }
 
-// DeleteUser removes the user. telemt answers with the deleted username as a
-// JSON string.
+// DeleteUser removes the user. telemt answers with the username and whether
+// its running config still has the user (status 202 then, else 200).
 func (c *apiClient) DeleteUser(ctx context.Context, username string) error {
-	_, err := doAPIRequest[string](ctx, c, http.MethodDelete, "/v1/users/"+url.PathEscape(username), nil)
+	_, err := doAPIRequest[telemtDeleteUserResponse](ctx, c, http.MethodDelete, "/v1/users/"+url.PathEscape(username), nil)
 	return err
 }
 

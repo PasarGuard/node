@@ -373,7 +373,14 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			f.editDiskLocked(func(users map[string]string) { delete(users, name) })
 			f.overrides[name] = fakeOverride{deleted: true}
-			writeFakeSuccess(w, http.StatusOK, name)
+			// telemt 3.5.14 answers 202 while the running config still has
+			// the user, 200 otherwise.
+			_, inRuntime := f.runtime[name]
+			status := http.StatusOK
+			if inRuntime {
+				status = http.StatusAccepted
+			}
+			writeFakeSuccess(w, status, map[string]any{"username": name, "in_runtime": inRuntime})
 		default:
 			// A GET of one user loads the whole config in telemt; the node
 			// must not need it.
@@ -1119,5 +1126,27 @@ func TestAPIClientListUsersAndActiveIPs(t *testing.T) {
 	}
 	if !slices.Equal(ips["u1"], []string{"203.0.113.7"}) {
 		t.Errorf("ActiveIPs = %v", ips)
+	}
+}
+
+// telemt 3.5.14 answers DELETE /v1/users/{name} with an object, 202 while
+// the running config still has the user. Reading it as anything else made
+// every API delete look failed and fall back to a full render.
+func TestAPIClientDeleteUserReadsTelemtAnswer(t *testing.T) {
+	api := newFakeTelemtAPI(t)
+	api.set(func(f *fakeTelemtAPI) {
+		f.editDiskLocked(func(users map[string]string) {
+			users["u1"] = testSecret
+			users["u2"] = testSecret
+		})
+		f.runtime = map[string]string{"u1": testSecret, "u2": testSecret}
+	})
+	client := newAPIClient(api.server.URL, "Bearer test")
+
+	if err := client.DeleteUser(context.Background(), "u1"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if _, onDisk := parseConfigUsers(readConfig(t, api.configPath))["u1"]; onDisk {
+		t.Error("u1 is still in the config file")
 	}
 }
