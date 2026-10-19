@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pasarguard/node/common"
@@ -321,6 +323,44 @@ func (m *MTProto) writeRenderedConfigLocked(desired map[string]*runtimeUser) err
 	defer m.stateMu.Unlock()
 	m.marker = marker
 	return nil
+}
+
+// writeFileAtomic writes payload to path via a temp file and rename. The
+// rendered config holds the API bearer token and per-user secrets, so the
+// directory and file are created with owner-only permissions.
+func writeFileAtomic(path string, payload []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+
+	tempFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+
+	if _, err := tempFile.Write(payload); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
+}
+
+func cloneRuntimeUserMap(input map[string]*runtimeUser) map[string]*runtimeUser {
+	cloned := make(map[string]*runtimeUser, len(input))
+	for username, user := range input {
+		if user == nil {
+			continue
+		}
+		copyUser := *user
+		cloned[username] = &copyUser
+	}
+	return cloned
 }
 
 // runtimeUserEqual reports whether a and b give telemt the same user.

@@ -2,19 +2,16 @@ package mtproto
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/pasarguard/node/config"
 )
 
+// MTProto runs telemt as the node's MTProto proxy backend: it renders the
+// panel config plus the users into telemt's config file, supervises the
+// telemt process (lifecycle.go), applies user changes through telemt's user
+// API or a hot reload (sync.go, reload.go) and reads traffic from telemt's
+// metrics (stats.go).
 type MTProto struct {
-	cfg            *config.Config
 	config         *Config
 	process        *processManager
 	configPath     string
@@ -74,104 +71,4 @@ func (m *MTProto) Version() string {
 
 func (m *MTProto) SubscribeLogs(ctx context.Context) <-chan string {
 	return m.process.SubscribeLogs(ctx)
-}
-
-func (m *MTProto) Restart() error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if m.closed {
-		return errClosed
-	}
-	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
-		return err
-	}
-	m.process.Stop()
-	if err := m.startLocked(m.lifetime); err != nil {
-		return err
-	}
-	m.needsFullApply = false
-	return nil
-}
-
-// markerUsernamePrefix starts every marker username. Panel usernames are
-// numeric user ids, so no real user has it.
-const markerUsernamePrefix = "pgm_"
-
-// markerUsername returns the marker user of the latest render. Stats must
-// never report it; older markers share markerUsernamePrefix.
-func (m *MTProto) markerUsername() string {
-	m.stateMu.RLock()
-	defer m.stateMu.RUnlock()
-	if m.marker == nil {
-		return ""
-	}
-	return m.marker.Username
-}
-
-// newMarkerUser returns a marker user with a fresh random name and secret.
-// Every render carries one, disabled: once telemt's running config has it,
-// telemt has published that render (its user admission follows from the
-// published config shortly after). It also keeps telemt's user list
-// non-empty.
-func newMarkerUser() (*runtimeUser, error) {
-	secret := make([]byte, 16)
-	usernameSuffix := make([]byte, 8)
-	if _, err := rand.Read(secret); err != nil {
-		return nil, fmt.Errorf("failed to generate the mtproto marker secret: %w", err)
-	}
-	if _, err := rand.Read(usernameSuffix); err != nil {
-		return nil, fmt.Errorf("failed to generate the mtproto marker username: %w", err)
-	}
-
-	return &runtimeUser{
-		Username: markerUsernamePrefix + hex.EncodeToString(usernameSuffix),
-		Secret:   hex.EncodeToString(secret),
-	}, nil
-}
-
-func generateBearerToken() (string, error) {
-	token := make([]byte, 24)
-	if _, err := rand.Read(token); err != nil {
-		return "", err
-	}
-	return "Bearer " + hex.EncodeToString(token), nil
-}
-
-func cloneRuntimeUserMap(input map[string]*runtimeUser) map[string]*runtimeUser {
-	cloned := make(map[string]*runtimeUser, len(input))
-	for username, user := range input {
-		if user == nil {
-			continue
-		}
-		copyUser := *user
-		cloned[username] = &copyUser
-	}
-	return cloned
-}
-
-// writeFileAtomic writes payload to path via a temp file and rename. The
-// rendered config holds the API bearer token and per-user secrets, so the
-// directory and file are created with owner-only permissions.
-func writeFileAtomic(path string, payload []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-
-	tempFile, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := tempFile.Name()
-	defer func() { _ = os.Remove(tempPath) }()
-
-	if _, err := tempFile.Write(payload); err != nil {
-		_ = tempFile.Close()
-		return err
-	}
-	if err := tempFile.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
 }

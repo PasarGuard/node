@@ -489,6 +489,16 @@ func logLines(m *MTProto) []string {
 	}
 }
 
+// markerUsername returns the marker user of the latest render.
+func (m *MTProto) markerUsername() string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	if m.marker == nil {
+		return ""
+	}
+	return m.marker.Username
+}
+
 func desiredNames(m *MTProto) []string {
 	m.stateMu.RLock()
 	defer m.stateMu.RUnlock()

@@ -2,6 +2,8 @@ package mtproto
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -77,7 +79,6 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 
 	lifetime, cancel := context.WithCancel(context.Background())
 	mt := &MTProto{
-		cfg:            cfg,
 		config:         mtConfig,
 		process:        process,
 		configPath:     filepath.Join(telemtDir, "config.toml"),
@@ -178,6 +179,16 @@ func pickInternalPorts(listenPorts []int, findFreePort func() int) (apiPort, met
 		return 0, 0, err
 	}
 	return apiPort, metricsPort, nil
+}
+
+// generateBearerToken returns a random Authorization header value for
+// telemt's API.
+func generateBearerToken() (string, error) {
+	token := make([]byte, 24)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	return "Bearer " + hex.EncodeToString(token), nil
 }
 
 // startLocked starts telemt on the rendered config and waits for its API.
@@ -369,6 +380,25 @@ func (m *MTProto) supervisorState() (closed, running bool) {
 	m.syncMu.Lock()
 	defer m.syncMu.Unlock()
 	return m.closed, m.process.Started()
+}
+
+// Restart renders the desired users again and restarts telemt on them.
+func (m *MTProto) Restart() error {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+
+	if m.closed {
+		return errClosed
+	}
+	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
+		return err
+	}
+	m.process.Stop()
+	if err := m.startLocked(m.lifetime); err != nil {
+		return err
+	}
+	m.needsFullApply = false
+	return nil
 }
 
 // restartIfStopped starts telemt again unless it already runs, re-rendering

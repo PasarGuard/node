@@ -20,17 +20,13 @@ type apiClient struct {
 }
 
 type apiSuccessResponse[T any] struct {
-	OK       bool          `json:"ok"`
-	Data     T             `json:"data"`
-	Revision string        `json:"revision"`
-	Error    *apiErrorBody `json:"error,omitempty"`
+	OK    bool          `json:"ok"`
+	Data  T             `json:"data"`
+	Error *apiErrorBody `json:"error,omitempty"`
 }
 
 type apiErrorResponse struct {
-	OK       bool          `json:"ok"`
-	Error    *apiErrorBody `json:"error"`
-	Request  uint64        `json:"request_id"`
-	Revision string        `json:"revision"`
+	Error *apiErrorBody `json:"error"`
 }
 
 type apiErrorBody struct {
@@ -38,18 +34,13 @@ type apiErrorBody struct {
 	Message string `json:"message"`
 }
 
+// telemtUserInfo is the part of telemt's user record the node reads.
 type telemtUserInfo struct {
-	Username            string   `json:"username"`
-	InRuntime           bool     `json:"in_runtime"`
-	CurrentConnections  uint64   `json:"current_connections"`
-	ActiveUniqueIPsList []string `json:"active_unique_ips_list"`
-	RecentUniqueIPsList []string `json:"recent_unique_ips_list"`
-	ActiveUniqueIPs     int      `json:"active_unique_ips"`
-	RecentUniqueIPs     int      `json:"recent_unique_ips"`
-	UserAdTag           string   `json:"user_ad_tag"`
-	MaxTCPConns         int      `json:"max_tcp_conns"`
-	MaxUniqueIPs        int      `json:"max_unique_ips"`
-	TotalOctets         uint64   `json:"total_octets"`
+	Username           string `json:"username"`
+	InRuntime          bool   `json:"in_runtime"`
+	CurrentConnections uint64 `json:"current_connections"`
+	ActiveUniqueIPs    int    `json:"active_unique_ips"`
+	TotalOctets        uint64 `json:"total_octets"`
 }
 
 type telemtUserActiveIPs struct {

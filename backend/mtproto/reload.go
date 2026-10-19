@@ -2,6 +2,8 @@ package mtproto
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -35,6 +37,31 @@ var markerConfirmTimeout = 30 * time.Second
 // errReloadRejected marks a rendered config telemt did not load. telemt
 // keeps running the config it had.
 var errReloadRejected = errors.New("telemt did not load the new config")
+
+// markerUsernamePrefix starts every marker username. Panel usernames are
+// numeric user ids, so no real user has it.
+const markerUsernamePrefix = "pgm_"
+
+// newMarkerUser returns a marker user with a fresh random name and secret.
+// Every render carries one, disabled: once telemt's running config has it,
+// telemt has published that render (its user admission follows from the
+// published config shortly after). It also keeps telemt's user list
+// non-empty.
+func newMarkerUser() (*runtimeUser, error) {
+	secret := make([]byte, 16)
+	usernameSuffix := make([]byte, 8)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, fmt.Errorf("failed to generate the mtproto marker secret: %w", err)
+	}
+	if _, err := rand.Read(usernameSuffix); err != nil {
+		return nil, fmt.Errorf("failed to generate the mtproto marker username: %w", err)
+	}
+
+	return &runtimeUser{
+		Username: markerUsernamePrefix + hex.EncodeToString(usernameSuffix),
+		Secret:   hex.EncodeToString(secret),
+	}, nil
+}
 
 // reloadLocked makes the running telemt hot-reload the rendered config and
 // waits until the render's marker user is in telemt's running config.

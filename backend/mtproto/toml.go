@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-type tomlLiteral string
-
 func renderTOML(root map[string]any) (string, error) {
 	var builder strings.Builder
 	if err := writeTOMLSection(&builder, nil, root, tomlHeaderNone); err != nil {
@@ -28,10 +26,7 @@ const (
 )
 
 func writeTOMLSection(builder *strings.Builder, path []string, section map[string]any, headerKind tomlHeaderKind) error {
-	scalarKeys, tableKeys, arrayTableKeys, err := classifyTOMLSection(section)
-	if err != nil {
-		return err
-	}
+	scalarKeys, tableKeys, arrayTableKeys := classifyTOMLSection(section)
 
 	if headerKind != tomlHeaderNone {
 		writeSectionSpacing(builder)
@@ -82,16 +77,17 @@ func writeTOMLSection(builder *strings.Builder, path []string, section map[strin
 	return nil
 }
 
-func classifyTOMLSection(section map[string]any) ([]string, []string, []string, error) {
+// classifyTOMLSection sorts the keys of section into scalars (inline
+// values), tables and arrays of tables, each in key order.
+func classifyTOMLSection(section map[string]any) (scalarKeys, tableKeys, arrayTableKeys []string) {
 	keys := make([]string, 0, len(section))
 	for key := range section {
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
 
-	scalarKeys := make([]string, 0, len(keys))
-	tableKeys := make([]string, 0, len(keys))
-	arrayTableKeys := make([]string, 0)
+	scalarKeys = make([]string, 0, len(keys))
+	tableKeys = make([]string, 0, len(keys))
 
 	for _, key := range keys {
 		switch value := section[key].(type) {
@@ -111,7 +107,7 @@ func classifyTOMLSection(section map[string]any) ([]string, []string, []string, 
 		}
 	}
 
-	return scalarKeys, tableKeys, arrayTableKeys, nil
+	return scalarKeys, tableKeys, arrayTableKeys
 }
 
 func isArrayOfObjects(values []any) bool {
@@ -130,8 +126,6 @@ func renderInlineValue(value any) (string, error) {
 	switch typed := value.(type) {
 	case nil:
 		return "", fmt.Errorf("null array elements are not valid in TOML")
-	case tomlLiteral:
-		return string(typed), nil
 	case string:
 		return quoteTOMLString(typed), nil
 	case bool:
