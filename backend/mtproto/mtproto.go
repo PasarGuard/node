@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,9 +35,14 @@ type MTProto struct {
 	// process: syncs, restarts, the supervisor and Shutdown.
 	syncMu sync.Mutex
 	closed bool // guarded by syncMu
+	// needsFullApply is set when telemt may run users other than desired: a
+	// reload whose outcome is unknown, or user API calls that failed midway.
+	// The next sync then renders and reloads every user. Guarded by syncMu.
+	needsFullApply bool
 
-	// mu guards desired for readers; writers also hold syncMu.
-	mu      sync.RWMutex
+	// stateMu guards desired for readers; writers also hold syncMu. desired
+	// holds only users telemt confirmed it runs.
+	stateMu sync.RWMutex
 	desired map[string]*runtimeUser
 
 	// lifetime is cancelled by Shutdown so waits for telemt stop early.
@@ -72,51 +75,11 @@ func (m *MTProto) Restart() error {
 		return err
 	}
 	m.process.Stop()
-	return m.startLocked(m.lifetime)
-}
-
-func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
-	// The batch paths skip a user that fails validation; a single-user sync
-	// reports it to the caller instead.
-	if _, _, err := activeUserFromCommon(user, m.config.InboundTag); err != nil {
+	if err := m.startLocked(m.lifetime); err != nil {
 		return err
 	}
-	return m.updateUsersPartial(ctx, []*common.User{user})
-}
-
-func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if m.closed {
-		return errClosed
-	}
-	// The call may have queued on syncMu past its deadline.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
-
-	return m.applyFullDesiredLocked(ctx, desired)
-}
-
-func (m *MTProto) UpdateUsers(ctx context.Context, users []*common.User) error {
-	return m.updateUsersPartial(ctx, users)
-}
-
-func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if m.closed {
-		return errClosed
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	nextDesired := m.buildNextDesiredLocked(users)
-
-	return m.applyFullDesiredLocked(ctx, nextDesired)
+	m.needsFullApply = false
+	return nil
 }
 
 func (m *MTProto) GetSysStats(_ context.Context) (*common.BackendStatsResponse, error) {
@@ -230,18 +193,16 @@ func (m *MTProto) GetUserOnlineIpListStats(ctx context.Context, email string) (*
 		return response, nil
 	}
 
-	// The active-IP *list* is only available from the API (metrics expose the count only).
-	userInfo, err := m.apiClient.GetUser(ctx, email)
+	// The active-IP list is only available from the API (metrics expose the
+	// count only). A read of one user loads telemt's whole config, so this
+	// takes the list of every user in one call.
+	activeIPs, err := m.apiClient.ActiveIPs(ctx)
 	if err != nil {
-		var apiErr *apiStatusError
-		if errors.As(err, &apiErr) && apiErr.NotFound() {
-			return response, nil
-		}
 		return nil, err
 	}
 
 	now := time.Now().Unix()
-	for _, ip := range userInfo.ActiveUniqueIPsList {
+	for _, ip := range activeIPs[email] {
 		if ip == "" {
 			continue
 		}
@@ -251,264 +212,15 @@ func (m *MTProto) GetUserOnlineIpListStats(ctx context.Context, email string) (*
 	return response, nil
 }
 
-func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) error {
-	m.syncMu.Lock()
-	defer m.syncMu.Unlock()
-
-	if m.closed {
-		return errClosed
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	nextDesired := m.buildNextDesiredLocked(users)
-
-	if len(m.desired) == 0 || len(nextDesired) == 0 {
-		return m.applyFullDesiredLocked(ctx, nextDesired)
-	}
-
-	if err := m.applyPartialDesiredLocked(ctx, users, nextDesired); err != nil {
-		return m.applyFullDesiredLocked(ctx, nextDesired)
-	}
-
-	m.setDesiredLocked(nextDesired)
-	return nil
-}
-
-// buildNextDesiredLocked applies users on top of m.desired. A user that fails
-// validation is logged and treated as not included, like an untagged one.
-func (m *MTProto) buildNextDesiredLocked(users []*common.User) map[string]*runtimeUser {
-	nextDesired := cloneRuntimeUserMap(m.desired)
-	for _, user := range users {
-		if user == nil {
-			continue
-		}
-
-		username := strings.TrimSpace(user.GetEmail())
-		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
-		if err != nil {
-			logSkippedUser(username, err)
-		}
-		if include {
-			nextDesired[runtimeUser.Username] = runtimeUser
-			continue
-		}
-		delete(nextDesired, username)
-	}
-	return nextDesired
-}
-
-func (m *MTProto) applyPartialDesiredLocked(ctx context.Context, users []*common.User, nextDesired map[string]*runtimeUser) error {
-	for _, user := range users {
-		if user == nil {
-			continue
-		}
-
-		// An invalid user (already logged by buildNextDesiredLocked) is
-		// removed like an untagged one.
-		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
-		if err == nil && include {
-			if err := m.upsertUser(ctx, runtimeUser); err != nil {
-				return err
-			}
-			continue
-		}
-
-		username := strings.TrimSpace(user.GetEmail())
-		if username == "" {
-			continue
-		}
-		if err := m.deleteUser(ctx, username); err != nil {
-			return err
-		}
-	}
-
-	_ = nextDesired
-	return nil
-}
-
-func (m *MTProto) upsertUser(ctx context.Context, user *runtimeUser) error {
-	_, err := m.apiClient.GetUser(ctx, user.Username)
-	if err == nil {
-		return m.apiClient.PatchUser(ctx, user.Username, user)
-	}
-
-	var apiErr *apiStatusError
-	if errors.As(err, &apiErr) && apiErr.NotFound() {
-		return m.apiClient.CreateUser(ctx, user)
-	}
-
-	return err
-}
-
-func (m *MTProto) deleteUser(ctx context.Context, username string) error {
-	err := m.apiClient.DeleteUser(ctx, username)
-	if err == nil {
-		return nil
-	}
-
-	var apiErr *apiStatusError
-	if errors.As(err, &apiErr) && apiErr.NotFound() {
-		return nil
-	}
-	return err
-}
-
-func (m *MTProto) applyFullDesiredLocked(ctx context.Context, desired map[string]*runtimeUser) error {
-	// A partial sync that failed on an expired ctx falls back here; do not
-	// rewrite the config for a caller that is gone.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	previousDesired := cloneRuntimeUserMap(m.desired)
-
-	if err := m.writeRenderedConfigLocked(desired); err != nil {
-		return err
-	}
-
-	if !m.process.Started() {
-		if err := m.startLocked(ctx); err != nil {
-			return err
-		}
-	} else if err := m.reloadLocked(ctx); err != nil {
-		return err
-	}
-
-	if err := m.waitForRuntimeUsers(ctx, previousDesired, desired); err != nil {
-		return err
-	}
-
-	m.setDesiredLocked(desired)
-	return nil
-}
-
-// reloadLocked makes the running telemt re-read the rendered config and
-// restarts it when the reload fails. A caller that gave up (ctx done) is not
-// a reload failure, so it never restarts a healthy telemt. Requires syncMu.
-func (m *MTProto) reloadLocked(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	err := m.process.Reload()
-	if err == nil {
-		err = m.waitForHealth(ctx)
-	}
-	if err == nil || errors.Is(err, errClosed) {
-		return err
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return fmt.Errorf("telemt reload not confirmed: %w", ctxErr)
-	}
-
-	log.Printf("telemt reload failed, restarting it: %v", err)
-	m.process.Stop()
-	if restartErr := m.startLocked(ctx); restartErr != nil {
-		return fmt.Errorf("telemt reload failed: %w (restart failed: %v)", err, restartErr)
-	}
-	return nil
-}
-
-// setDesiredLocked replaces the desired users. Requires syncMu.
-func (m *MTProto) setDesiredLocked(desired map[string]*runtimeUser) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.desired = cloneRuntimeUserMap(desired)
-}
-
-func (m *MTProto) writeRenderedConfigLocked(desired map[string]*runtimeUser) error {
-	var sentinel *runtimeUser
-	if len(desired) == 0 {
-		sentinel = m.sentinel
-	}
-
-	rendered, err := m.config.Render(desired, sentinel, m.apiPort, m.metricsPort, m.apiAuthHeader)
-	if err != nil {
-		return err
-	}
-
-	return writeFileAtomic(m.configPath, []byte(rendered))
-}
-
-func (m *MTProto) waitForRuntimeUsers(ctx context.Context, previousDesired, desired map[string]*runtimeUser) error {
-	waitContext := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		waitContext, cancel = context.WithTimeout(ctx, telemtStartupTimeout)
-		defer cancel()
-	}
-
-	expectedPresent := make(map[string]struct{}, len(desired))
-	for username := range desired {
-		expectedPresent[username] = struct{}{}
-	}
-	if len(expectedPresent) == 0 {
-		expectedPresent[m.sentinel.Username] = struct{}{}
-	}
-
-	expectedAbsent := make(map[string]struct{})
-	for username := range previousDesired {
-		if _, keep := desired[username]; !keep {
-			expectedAbsent[username] = struct{}{}
-		}
-	}
-	// Going from zero desired users to real users drops the sentinel, but it is
-	// not in previousDesired, so require it to be gone explicitly.
-	if len(previousDesired) == 0 && len(desired) > 0 {
-		expectedAbsent[m.sentinel.Username] = struct{}{}
-	}
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		converged := true
-
-		for username := range expectedPresent {
-			if _, err := m.apiClient.GetUser(waitContext, username); err != nil {
-				converged = false
-				break
-			}
-		}
-
-		if converged {
-			for username := range expectedAbsent {
-				_, err := m.apiClient.GetUser(waitContext, username)
-				if err == nil {
-					converged = false
-					break
-				}
-
-				var apiErr *apiStatusError
-				if !errors.As(err, &apiErr) || !apiErr.NotFound() {
-					converged = false
-					break
-				}
-			}
-		}
-
-		if converged {
-			return nil
-		}
-
-		select {
-		case <-waitContext.Done():
-			return waitContext.Err()
-		case <-m.lifetime.Done():
-			return errClosed
-		case <-ticker.C:
-		}
-	}
-}
-
 func (m *MTProto) refreshTracker(ctx context.Context) error {
-	m.mu.RLock()
+	m.stateMu.RLock()
 	activeUsers := make(map[string]struct{}, len(m.desired))
 	for username := range m.desired {
 		activeUsers[username] = struct{}{}
 	}
 	scraper := m.metricsScraper
 	tracker := m.tracker
-	m.mu.RUnlock()
+	m.stateMu.RUnlock()
 
 	snapshot, err := scraper.Scrape(ctx)
 	if err != nil {
@@ -520,8 +232,8 @@ func (m *MTProto) refreshTracker(ctx context.Context) error {
 }
 
 func (m *MTProto) isDesiredUser(username string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
 	_, exists := m.desired[username]
 	return exists
 }

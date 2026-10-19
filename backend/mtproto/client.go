@@ -9,9 +9,21 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
+
+const (
+	// reloadRetryInterval is how often a reload is requested again while
+	// telemt runs another one.
+	reloadRetryInterval = 200 * time.Millisecond
+	// reloadPollInterval is how often an accepted reload is checked.
+	reloadPollInterval = 100 * time.Millisecond
+)
+
+// errAPIUnreachable marks a reload request that got no answer from telemt.
+var errAPIUnreachable = errors.New("telemt API unreachable")
 
 type apiClient struct {
 	baseURL    string
@@ -50,6 +62,24 @@ type telemtUserInfo struct {
 	MaxTCPConns         int      `json:"max_tcp_conns"`
 	MaxUniqueIPs        int      `json:"max_unique_ips"`
 	TotalOctets         uint64   `json:"total_octets"`
+}
+
+type telemtUserActiveIPs struct {
+	Username  string   `json:"username"`
+	ActiveIPs []string `json:"active_ips"`
+}
+
+type telemtReloadRequest struct {
+	Mode          string `json:"mode"`
+	FailurePolicy string `json:"failure_policy"`
+}
+
+// telemtReloadStatus is both the 202 answer to a reload request and the
+// status of that reload.
+type telemtReloadStatus struct {
+	ReloadID uint64 `json:"reload_id"`
+	State    string `json:"state"`
+	Error    string `json:"error"`
 }
 
 type telemtHealth struct {
@@ -102,6 +132,35 @@ func (e *apiStatusError) NotFound() bool {
 	return e.StatusCode == http.StatusNotFound || e.Code == "not_found"
 }
 
+func (e *apiStatusError) UserExists() bool {
+	return e.StatusCode == http.StatusConflict && e.Code == "user_exists"
+}
+
+// ReloadInProgress reports telemt's answer to a reload request while another
+// reload runs: 409 reload_in_progress, "Reload N is already in progress".
+func (e *apiStatusError) ReloadInProgress() bool {
+	return e.StatusCode == http.StatusConflict &&
+		(strings.Contains(e.Code, "in_progress") || strings.Contains(strings.ToLower(e.Message), "already in progress"))
+}
+
+// reloadRejectedError reports a reload telemt refused, rolled back or failed.
+// telemt keeps running the config it had before.
+type reloadRejectedError struct {
+	State string // rolled_back or failed; empty when the request was refused
+	Err   error
+}
+
+func (e *reloadRejectedError) Error() string {
+	if e.State == "" {
+		return fmt.Sprintf("telemt refused the config reload: %v", e.Err)
+	}
+	return fmt.Sprintf("telemt config reload %s: %v", e.State, e.Err)
+}
+
+func (e *reloadRejectedError) Unwrap() error {
+	return e.Err
+}
+
 func newAPIClient(baseURL, authHeader string) *apiClient {
 	return &apiClient{
 		baseURL:    strings.TrimRight(baseURL, "/"),
@@ -132,13 +191,85 @@ func (c *apiClient) Ready(ctx context.Context) error {
 	return err
 }
 
-func (c *apiClient) GetUser(ctx context.Context, username string) (*telemtUserInfo, error) {
-	escapedUsername := url.PathEscape(username)
-	user, err := doAPIRequest[telemtUserInfo](ctx, c, http.MethodGet, "/v1/users/"+escapedUsername, nil)
+// ListUsers returns the users of telemt's config file; InRuntime tells
+// whether the running config has each one too. telemt loads the whole config
+// for any user read, so one list beats a read per user.
+func (c *apiClient) ListUsers(ctx context.Context) ([]telemtUserInfo, error) {
+	users, err := doAPIRequest[[]telemtUserInfo](ctx, c, http.MethodGet, "/v1/users", nil)
 	if err != nil {
 		return nil, err
 	}
-	return user, nil
+	return *users, nil
+}
+
+// ActiveIPs returns the active client IPs per username, for the users that
+// have any.
+func (c *apiClient) ActiveIPs(ctx context.Context) (map[string][]string, error) {
+	entries, err := doAPIRequest[[]telemtUserActiveIPs](ctx, c, http.MethodGet, "/v1/stats/users/active-ips", nil)
+	if err != nil {
+		return nil, err
+	}
+	activeIPs := make(map[string][]string, len(*entries))
+	for _, entry := range *entries {
+		activeIPs[entry.Username] = entry.ActiveIPs
+	}
+	return activeIPs, nil
+}
+
+// Reload makes telemt load its config file into a new runtime generation and
+// waits for the outcome. It returns nil once the reload succeeded, a
+// *reloadRejectedError when telemt refused it or ended it rolled_back or
+// failed, an error wrapping errAPIUnreachable when the request got no answer,
+// and ctx's error when ctx ends first. While telemt runs another reload it
+// answers 409, and the request is repeated until ctx ends.
+func (c *apiClient) Reload(ctx context.Context) error {
+	request := telemtReloadRequest{Mode: "instant", FailurePolicy: "rollback"}
+
+	var accepted *telemtReloadStatus
+	for {
+		var err error
+		accepted, err = doAPIRequest[telemtReloadStatus](ctx, c, http.MethodPost, "/v1/system/reload", request)
+		if err == nil {
+			break
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		var apiErr *apiStatusError
+		if !errors.As(err, &apiErr) {
+			return fmt.Errorf("%w: %w", errAPIUnreachable, err)
+		}
+		if !apiErr.ReloadInProgress() {
+			return &reloadRejectedError{Err: apiErr}
+		}
+		if err := sleepContext(ctx, reloadRetryInterval); err != nil {
+			return err
+		}
+	}
+
+	statusPath := "/v1/system/reload/" + strconv.FormatUint(accepted.ReloadID, 10)
+	for {
+		status, err := doAPIRequest[telemtReloadStatus](ctx, c, http.MethodGet, statusPath, nil)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return fmt.Errorf("failed to read the state of telemt reload %d: %w", accepted.ReloadID, err)
+		}
+		switch status.State {
+		case "succeeded":
+			return nil
+		case "rolled_back", "failed":
+			reason := status.Error
+			if reason == "" {
+				reason = "telemt gave no reason"
+			}
+			return &reloadRejectedError{State: status.State, Err: errors.New(reason)}
+		}
+		if err := sleepContext(ctx, reloadPollInterval); err != nil {
+			return err
+		}
+	}
 }
 
 func (c *apiClient) CreateUser(ctx context.Context, user *runtimeUser) error {
@@ -159,8 +290,10 @@ func (c *apiClient) PatchUser(ctx context.Context, username string, user *runtim
 	return err
 }
 
+// DeleteUser removes the user. telemt answers with the deleted username as a
+// JSON string.
 func (c *apiClient) DeleteUser(ctx context.Context, username string) error {
-	_, err := doAPIRequest[map[string]any](ctx, c, http.MethodDelete, "/v1/users/"+url.PathEscape(username), nil)
+	_, err := doAPIRequest[string](ctx, c, http.MethodDelete, "/v1/users/"+url.PathEscape(username), nil)
 	return err
 }
 
@@ -293,4 +426,16 @@ func doAPIRequest[T any](ctx context.Context, client *apiClient, method, path st
 	}
 
 	return &success.Data, nil
+}
+
+// sleepContext waits for d or until ctx ends, and returns ctx's error then.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

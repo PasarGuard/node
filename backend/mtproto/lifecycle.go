@@ -391,5 +391,6 @@ func (m *MTProto) restartIfStopped() (bool, error) {
 	if err := m.startLocked(m.lifetime); err != nil {
 		return false, err
 	}
+	m.needsFullApply = false
 	return true, nil
 }

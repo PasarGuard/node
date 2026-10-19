@@ -35,11 +35,6 @@ func killProcess(cmd *exec.Cmd) error {
 	return cmd.Process.Kill()
 }
 
-// reloadProcess sends SIGHUP, which telemt handles as a config reload.
-func reloadProcess(cmd *exec.Cmd) error {
-	return cmd.Process.Signal(syscall.SIGHUP)
-}
-
 // killOrphan SIGKILLs a stray telemt and, when it leads its own process group
 // (the node starts telemt with Setpgid), the rest of that group.
 func killOrphan(pid int) error {

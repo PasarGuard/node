@@ -2,7 +2,6 @@ package mtproto
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -49,6 +48,34 @@ func integrationMTConfig(t *testing.T) *Config {
 	return cfg
 }
 
+// waitTelemtUser waits up to 5 s until telemt's running config has username
+// (present) or lacks it. GET /v1/users lists the users in the config file;
+// in_runtime tells whether the running config has them too.
+func waitTelemtUser(ctx context.Context, t *testing.T, mt *MTProto, username string, present bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		users, err := mt.apiClient.ListUsers(ctx)
+		if err != nil {
+			t.Fatalf("ListUsers: %v", err)
+		}
+		inRuntime := false
+		for _, user := range users {
+			if user.Username == username && user.InRuntime {
+				inRuntime = true
+			}
+		}
+		if inRuntime == present {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("telemt runtime has %s = %v, want %v", username, inRuntime, present)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestIntegration_LifecycleAndUsers(t *testing.T) {
 	bin := telemtBinOrSkip(t)
 
@@ -74,31 +101,20 @@ func TestIntegration_LifecycleAndUsers(t *testing.T) {
 	}
 
 	// alice was rendered into the config; she must be present in telemt's runtime.
-	if _, err := mt.apiClient.GetUser(ctx, "alice"); err != nil {
-		t.Fatalf("alice not in telemt runtime: %v", err)
-	}
+	waitTelemtUser(ctx, t, mt, "alice", true)
 
 	// add bob at runtime via the API path
 	if err := mt.SyncUser(ctx, mtUser("bob", "mtproto", "ffeeddccbbaa00112233445566778899")); err != nil {
 		t.Fatalf("SyncUser(bob): %v", err)
 	}
-	if _, err := mt.apiClient.GetUser(ctx, "bob"); err != nil {
-		t.Fatalf("bob not added: %v", err)
-	}
+	waitTelemtUser(ctx, t, mt, "bob", true)
 
 	// remove alice (untag her)
 	aliceGone := &common.User{Email: "alice", Inbounds: []string{}, Proxies: &common.Proxy{Mtproto: &common.Mtproto{Secret: testSecret}}}
 	if err := mt.SyncUser(ctx, aliceGone); err != nil {
 		t.Fatalf("SyncUser(remove alice): %v", err)
 	}
-	if _, err := mt.apiClient.GetUser(ctx, "alice"); err == nil {
-		t.Fatal("alice should have been removed")
-	} else {
-		var apiErr *apiStatusError
-		if !errors.As(err, &apiErr) || !apiErr.NotFound() {
-			t.Fatalf("expected alice lookup to return not found, got %v", err)
-		}
-	}
+	waitTelemtUser(ctx, t, mt, "alice", false)
 
 	// Traffic + online-count stats come from telemt's Prometheus endpoint, which
 	// only binds once the data plane is up (needs Telegram connectivity). A miss

@@ -3,7 +3,6 @@
 package mtproto
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -27,12 +26,6 @@ func killProcess(cmd *exec.Cmd) error {
 		return nil
 	}
 	return cmd.Process.Kill()
-}
-
-// reloadProcess fails on Windows, which has no SIGHUP; the caller falls back
-// to a restart.
-func reloadProcess(_ *exec.Cmd) error {
-	return errors.New("reloading telemt by signal is not supported on Windows")
 }
 
 func killOrphan(pid int) error {

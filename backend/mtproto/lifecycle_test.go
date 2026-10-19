@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -362,6 +363,25 @@ func TestCancelledSyncKeepsTelemtRunning(t *testing.T) {
 
 	if !mt.Started() || mt.process.Generation() != 1 {
 		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+}
+
+// TestReloadUnreachableRestartsTelemt: a reload request that cannot reach
+// telemt's API restarts telemt on the new config, and that start confirms it.
+func TestReloadUnreachableRestartsTelemt(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{DropReload: true})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 2 {
+		t.Errorf("telemt was not restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
 	}
 }
 

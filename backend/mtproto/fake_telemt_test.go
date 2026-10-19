@@ -9,11 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -31,8 +29,8 @@ const fakeTelemtEnv = "MTPROTO_FAKE_TELEMT_MODE"
 // the node starts, signals and reaps.
 type fakeTelemt struct {
 	Version string `json:"version"` // --version output, default 3.5.14
-	// RecordFile receives the fake's argv, cwd and pid once its signal
-	// handlers are installed, so a test can wait for it to be ready.
+	// RecordFile receives the fake's argv, cwd and pid once it runs, so a
+	// test can wait for it.
 	RecordFile string   `json:"record_file"`
 	Stdout     []string `json:"stdout"`
 	Stderr     []string `json:"stderr"`
@@ -45,8 +43,9 @@ type fakeTelemt struct {
 	HealthDelay time.Duration `json:"health_delay"`
 	NoAPI       bool          `json:"no_api"`
 	ReadyStatus int           `json:"ready_status"` // default 200
-	// SignalFile gets one line per SIGHUP received.
-	SignalFile string `json:"signal_file"`
+	// DropReload closes reload requests without an answer, like an API that
+	// cannot be reached.
+	DropReload bool `json:"drop_reload"`
 	// Lifetime bounds the fake so a broken test never leaves it running.
 	Lifetime time.Duration `json:"lifetime"`
 }
@@ -86,9 +85,6 @@ func runFakeTelemt(optionsPath string, args []string) int {
 		fmt.Println("telemt " + version)
 		return 0
 	}
-
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
 
 	if f.RecordFile != "" {
 		cwd, _ := os.Getwd()
@@ -131,22 +127,12 @@ func runFakeTelemt(optionsPath string, args []string) int {
 	}
 	deadline := time.After(lifetime)
 
-	for {
-		select {
-		case <-hup:
-			if f.SignalFile != "" {
-				file, err := os.OpenFile(f.SignalFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-				if err == nil {
-					_, _ = file.WriteString("SIGHUP\n")
-					_ = file.Close()
-				}
-			}
-		case <-exit:
-			fmt.Fprintln(os.Stderr, "fake telemt exiting")
-			return f.ExitCode
-		case <-deadline:
-			return 0
-		}
+	select {
+	case <-exit:
+		fmt.Fprintln(os.Stderr, "fake telemt exiting")
+		return f.ExitCode
+	case <-deadline:
+		return 0
 	}
 }
 
@@ -178,6 +164,13 @@ func serveFakeTelemtAPI(f fakeTelemt, configPath string) {
 		}
 		_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":false,"status":"not_ready","reason":"no_healthy_upstreams"},"revision":"r"}`))
 	})
+	if f.DropReload {
+		mux.HandleFunc("/v1/system/reload", func(w http.ResponseWriter, _ *http.Request) {
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		})
+	}
 
 	if err := http.ListenAndServe(listen, mux); err != nil {
 		fmt.Fprintln(os.Stderr, "fake telemt: api:", err)

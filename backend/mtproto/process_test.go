@@ -5,7 +5,6 @@ package mtproto
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -244,32 +243,6 @@ func TestProcessLongLineKeepsReading(t *testing.T) {
 	}
 	if want := strings.Repeat("y", maxTelemtLogLine) + " [truncated]"; tail[1] != want {
 		t.Errorf("the long line was kept as %d bytes, want %d", len(tail[1]), len(want))
-	}
-}
-
-func TestProcessReloadSendsSIGHUP(t *testing.T) {
-	dir := t.TempDir()
-	record := filepath.Join(dir, "record.json")
-	signals := filepath.Join(dir, "signals")
-	manager := newTestProcessManager(t, fakeTelemt{NoAPI: true, RecordFile: record, SignalFile: signals})
-
-	if err := manager.Reload(); err == nil {
-		t.Error("Reload without a running telemt must fail")
-	}
-	if err := manager.Start(filepath.Join(dir, "config.toml")); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	readFakeTelemtRecord(t, record)
-
-	if err := manager.Reload(); err != nil {
-		t.Fatalf("Reload: %v", err)
-	}
-	waitFor(t, 10*time.Second, "the fake telemt to receive SIGHUP", func() bool {
-		data, _ := os.ReadFile(signals)
-		return string(data) == "SIGHUP\n"
-	})
-	if !manager.Started() {
-		t.Error("telemt must keep running after a reload")
 	}
 }
 
