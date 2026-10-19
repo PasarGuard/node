@@ -23,10 +23,14 @@ import (
 var telemtStartupTimeout = 90 * time.Second
 
 const (
-	// telemtReadyTimeout bounds the wait for /v1/health/ready once the API is
-	// up. Not being ready (no reachable Telegram upstream yet) is only logged:
-	// Telegram egress problems must not fail a start.
+	// telemtReadyTimeout is how long the background readiness watcher waits
+	// for /v1/health/ready before it warns. Not being ready (no reachable
+	// Telegram upstream yet) is only logged: Telegram egress problems must
+	// not fail or delay a start.
 	telemtReadyTimeout = 30 * time.Second
+	// readyRecheckInterval is how often the watcher checks again after the
+	// warning, to log when telemt becomes ready.
+	readyRecheckInterval = 10 * time.Second
 	// telemtStartupTailSize is how many lines of telemt output are kept for a
 	// startup error.
 	telemtStartupTailSize = 50
@@ -94,10 +98,16 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		cancel:         cancel,
 	}
 
+	// The panel's Start call has a short deadline (10 s by default) while
+	// telemt may need far longer to bind its API. Let a slow start finish
+	// anyway: the panel's retry then attaches to the running backend.
+	startCtx, cancelStart := context.WithTimeout(context.WithoutCancel(ctx), telemtStartupTimeout)
+	defer cancelStart()
+
 	mt.syncMu.Lock()
 	err = mt.writeRenderedConfigLocked(mt.desired)
 	if err == nil {
-		err = mt.startLocked(ctx)
+		err = mt.startLocked(startCtx)
 	}
 	mt.syncMu.Unlock()
 	if err != nil {
@@ -105,8 +115,7 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		return nil, err
 	}
 
-	mt.supervisorDone = make(chan struct{})
-	go mt.supervise()
+	mt.background.Go(mt.supervise)
 	return mt, nil
 }
 
@@ -126,9 +135,9 @@ func (m *MTProto) Shutdown() {
 	}
 	m.syncMu.Unlock()
 
-	if m.supervisorDone != nil {
-		<-m.supervisorDone
-	}
+	// The supervisor and readiness watchers end on the lifetime cancel. They
+	// are only added under syncMu before closed is set, so no Add races this.
+	m.background.Wait()
 }
 
 // prepareTelemtDir creates <generated>/telemt with owner-only permissions and
@@ -178,19 +187,63 @@ func pickInternalPorts(listenPorts []int, findFreePort func() int) (apiPort, met
 }
 
 // startLocked starts telemt on the rendered config and waits for its API.
-// A failure stops telemt and carries its last output. Requires syncMu.
+// A failure stops telemt and carries its last output. Readiness is watched in
+// the background. Requires syncMu.
 func (m *MTProto) startLocked(ctx context.Context) error {
+	if m.lifetime.Err() != nil {
+		return errClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := m.process.Start(m.configPath); err != nil {
 		return err
 	}
-	if err := m.waitForHealth(ctx); err != nil {
+	// Once telemt runs, only telemtStartupTimeout and Shutdown bound its
+	// startup: a caller that gives up must not kill a telemt still binding.
+	if err := m.waitForHealth(context.WithoutCancel(ctx)); err != nil {
 		m.process.Stop()
 		return m.startupError(err)
 	}
-	if err := m.waitForReady(ctx, telemtReadyTimeout); err != nil && m.lifetime.Err() == nil {
-		log.Printf("warning: telemt is running but not ready to serve clients yet: %v", err)
-	}
+
+	exited := m.process.Exited()
+	m.background.Go(func() { m.watchReadiness(exited) })
 	return nil
+}
+
+// watchReadiness logs whether a started telemt gets ready to serve clients:
+// a warning after telemtReadyTimeout, then a line once it is ready. It stops
+// when exited (that telemt's Exited channel) closes or on Shutdown.
+func (m *MTProto) watchReadiness(exited <-chan struct{}) {
+	ctx, cancel := context.WithCancel(m.lifetime)
+	defer cancel()
+	go func() {
+		select {
+		case <-exited:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	err := m.waitForReady(ctx, telemtReadyTimeout)
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	log.Printf("warning: telemt is running but not ready to serve clients yet: %v", err)
+
+	ticker := time.NewTicker(readyRecheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if m.apiClient.Ready(ctx) == nil {
+			log.Println("telemt is now ready to serve clients")
+			return
+		}
+	}
 }
 
 func (m *MTProto) startupError(err error) error {
@@ -266,8 +319,6 @@ func (m *MTProto) waitForReady(ctx context.Context, budget time.Duration) error 
 // Shutdown. The delay starts at supervisorInitialBackoff and doubles up to
 // supervisorMaxBackoff; it resets once a telemt has stayed up that long.
 func (m *MTProto) supervise() {
-	defer close(m.supervisorDone)
-
 	backoff := supervisorInitialBackoff
 	for {
 		if exited := m.process.Exited(); exited != nil {

@@ -43,9 +43,10 @@ type MTProto struct {
 	desired map[string]*runtimeUser
 
 	// lifetime is cancelled by Shutdown so waits for telemt stop early.
-	lifetime       context.Context
-	cancel         context.CancelFunc
-	supervisorDone chan struct{}
+	lifetime context.Context
+	cancel   context.CancelFunc
+	// background tracks the supervisor and readiness watchers.
+	background sync.WaitGroup
 }
 
 func (m *MTProto) Started() bool {
@@ -90,6 +91,10 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 	if m.closed {
 		return errClosed
 	}
+	// The call may have queued on syncMu past its deadline.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
 
 	return m.applyFullDesiredLocked(ctx, desired)
@@ -105,6 +110,9 @@ func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.Use
 
 	if m.closed {
 		return errClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	nextDesired := m.buildNextDesiredLocked(users)
 
@@ -250,6 +258,9 @@ func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) 
 	if m.closed {
 		return errClosed
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	nextDesired := m.buildNextDesiredLocked(users)
 
 	if len(m.desired) == 0 || len(nextDesired) == 0 {
@@ -344,6 +355,11 @@ func (m *MTProto) deleteUser(ctx context.Context, username string) error {
 }
 
 func (m *MTProto) applyFullDesiredLocked(ctx context.Context, desired map[string]*runtimeUser) error {
+	// A partial sync that failed on an expired ctx falls back here; do not
+	// rewrite the config for a caller that is gone.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	previousDesired := cloneRuntimeUserMap(m.desired)
 
 	if err := m.writeRenderedConfigLocked(desired); err != nil {
@@ -367,14 +383,21 @@ func (m *MTProto) applyFullDesiredLocked(ctx context.Context, desired map[string
 }
 
 // reloadLocked makes the running telemt re-read the rendered config and
-// restarts it when the reload fails. Requires syncMu.
+// restarts it when the reload fails. A caller that gave up (ctx done) is not
+// a reload failure, so it never restarts a healthy telemt. Requires syncMu.
 func (m *MTProto) reloadLocked(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	err := m.process.Reload()
 	if err == nil {
 		err = m.waitForHealth(ctx)
 	}
 	if err == nil || errors.Is(err, errClosed) {
 		return err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("telemt reload not confirmed: %w", ctxErr)
 	}
 
 	log.Printf("telemt reload failed, restarting it: %v", err)

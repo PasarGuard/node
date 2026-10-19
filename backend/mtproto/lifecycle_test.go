@@ -302,3 +302,93 @@ func TestWaitForReadyGivesUp(t *testing.T) {
 		t.Errorf("waitForReady = %v, want an error naming the reason", err)
 	}
 }
+
+// TestStartOutlivesRequestDeadline models the panel's 10 s Start call against
+// a telemt that binds its API later: the start must complete anyway, so the
+// panel's retry attaches to a running backend.
+func TestStartOutlivesRequestDeadline(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{HealthDelay: 1500 * time.Millisecond})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	mt, err := New(ctx, testNodeConfig(t, exe), testMTConfig(t), nil)
+	if err != nil {
+		t.Fatalf("New failed once the request deadline passed: %v", err)
+	}
+	t.Cleanup(mt.Shutdown)
+
+	if ctx.Err() == nil {
+		t.Fatal("the request deadline had not passed yet; the test proves nothing")
+	}
+	if !mt.Started() {
+		t.Error("backend not started")
+	}
+}
+
+// TestStartDoesNotWaitForReadiness: telemt is healthy but not ready (no
+// Telegram upstream); New must return right after health, not after the
+// readiness budget.
+func TestStartDoesNotWaitForReadiness(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{ReadyStatus: http.StatusServiceUnavailable})
+
+	started := time.Now()
+	mt := newTestBackend(t, testNodeConfig(t, exe), nil)
+	if elapsed := time.Since(started); elapsed >= 10*time.Second {
+		t.Errorf("New took %s with /v1/health/ready answering 503; readiness must not block start", elapsed)
+	}
+	if !mt.Started() {
+		t.Error("backend not started")
+	}
+}
+
+// TestCancelledSyncKeepsTelemtRunning: a sync whose request already expired
+// (it queued on syncMu) must not restart a healthy telemt.
+func TestCancelledSyncKeepsTelemtRunning(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	users := []*common.User{mtUser("alice", "mtproto", testSecret)}
+	for name, call := range map[string]func() error{
+		"SyncUsers":             func() error { return mt.SyncUsers(ctx, users) },
+		"UpdateUsers":           func() error { return mt.UpdateUsers(ctx, users) },
+		"SyncUser":              func() error { return mt.SyncUser(ctx, users[0]) },
+		"UpdateUsersAndRestart": func() error { return mt.UpdateUsersAndRestart(ctx, users) },
+	} {
+		if err := call(); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s with a cancelled ctx = %v, want context.Canceled", name, err)
+		}
+	}
+
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+}
+
+// TestCancelledContextNeverRestartsTelemt covers the paths below the entry
+// check: a reload whose caller is gone keeps telemt, and a start with a done
+// context spawns nothing.
+func TestCancelledContextNeverRestartsTelemt(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mt.syncMu.Lock()
+	defer mt.syncMu.Unlock()
+
+	if err := mt.reloadLocked(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("reloadLocked with a cancelled ctx = %v, want context.Canceled", err)
+	}
+	if !mt.process.Started() || mt.process.Generation() != 1 {
+		t.Fatalf("reloadLocked restarted telemt (started %v, generation %d)", mt.process.Started(), mt.process.Generation())
+	}
+
+	mt.process.Stop()
+	if err := mt.startLocked(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("startLocked with a cancelled ctx = %v, want context.Canceled", err)
+	}
+	if mt.process.Generation() != 1 {
+		t.Errorf("startLocked spawned telemt for a cancelled ctx (generation %d)", mt.process.Generation())
+	}
+}
