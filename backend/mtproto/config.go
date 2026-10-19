@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,6 +17,8 @@ const (
 	defaultInboundTag = "mtproto"
 	loopbackV4CIDR    = "127.0.0.1/32"
 	loopbackV6CIDR    = "::1/128"
+	// telemtDefaultPort is the server.port telemt uses when the config omits it.
+	telemtDefaultPort = 443
 )
 
 var (
@@ -29,7 +32,32 @@ var (
 		"user_max_unique_ips",
 		"user_enabled",
 	}
+	// rejectedConfigKeys are telemt config paths the panel JSON must not set:
+	// the node manages them, or they would reach past the node.
+	rejectedConfigKeys = []rejectedConfigKey{
+		{path: []string{"include"}, reason: "telemt would read other files on the node host"},
+		{path: []string{"web"}, reason: "the web transport can serve files from the node host"},
+		{path: []string{"server", "api"}, reason: "the node manages the telemt control API"},
+		{path: []string{"server", "admin_api"}, reason: "it is an alias of server.api, which the node manages"},
+		{path: []string{"server", "metrics_port"}, reason: "the node manages the metrics endpoint"},
+		{path: []string{"server", "metrics_listen"}, reason: "the node manages the metrics endpoint"},
+		{path: []string{"server", "metrics_whitelist"}, reason: "the node manages the metrics endpoint"},
+		{path: []string{"access", "user_rate_limits"}, reason: "per-user maps are keyed by node-managed usernames"},
+		{path: []string{"access", "user_source_deny"}, reason: "per-user maps are keyed by node-managed usernames"},
+	}
+	// objectConfigPaths must hold a JSON object when present.
+	objectConfigPaths = [][]string{
+		{"general"},
+		{"general", "telemetry"},
+		{"server"},
+		{"access"},
+	}
 )
+
+type rejectedConfigKey struct {
+	path   []string
+	reason string
+}
 
 type Config struct {
 	base       map[string]any
@@ -92,30 +120,115 @@ func NewConfig(raw string) (*Config, error) {
 	return cfg, nil
 }
 
+// validateConfigRoot checks the panel JSON. A JSON null counts as not set,
+// matching the renderer, which drops null fields.
 func validateConfigRoot(root map[string]any) error {
 	if root == nil {
 		return errors.New("mtproto config must be a JSON object")
 	}
 
-	if accessRaw, exists := root["access"]; exists {
-		access, ok := accessRaw.(map[string]any)
-		if !ok {
-			return errors.New("mtproto config field access must be an object")
-		}
-		for _, key := range restrictedAccessKeys {
-			if _, forbidden := access[key]; forbidden {
-				return fmt.Errorf("mtproto config must not define access.%s; node derives per-user access data", key)
-			}
+	for _, path := range objectConfigPaths {
+		if _, err := objectAt(root, path...); err != nil {
+			return err
 		}
 	}
 
-	if serverRaw, exists := root["server"]; exists {
-		if _, ok := serverRaw.(map[string]any); !ok {
-			return errors.New("mtproto config field server must be an object")
+	access, _ := objectAt(root, "access")
+	for _, key := range restrictedAccessKeys {
+		if isSet(access, key) {
+			return fmt.Errorf("mtproto config must not define access.%s; node derives per-user access data", key)
 		}
+	}
+
+	for _, rejected := range rejectedConfigKeys {
+		last := len(rejected.path) - 1
+		parent, err := objectAt(root, rejected.path[:last]...)
+		if err != nil {
+			return err
+		}
+		if isSet(parent, rejected.path[last]) {
+			return fmt.Errorf("mtproto config must not define %s: %s", strings.Join(rejected.path, "."), rejected.reason)
+		}
+	}
+
+	if _, err := listenPorts(root); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+// ListenPorts returns the client-facing TCP ports of the config, sorted and
+// without duplicates: server.port (telemt's default 443 when unset) and every
+// server.listeners[].port.
+func (c *Config) ListenPorts() []int {
+	if c == nil {
+		return nil
+	}
+	ports, _ := listenPorts(c.base)
+	return ports
+}
+
+func listenPorts(root map[string]any) ([]int, error) {
+	server, err := objectAt(root, "server")
+	if err != nil {
+		return nil, err
+	}
+
+	serverPort := telemtDefaultPort
+	if isSet(server, "port") {
+		if serverPort, err = portValue("server.port", server["port"]); err != nil {
+			return nil, err
+		}
+	}
+	ports := []int{serverPort}
+
+	if isSet(server, "listeners") {
+		listeners, ok := server["listeners"].([]any)
+		if !ok {
+			return nil, errors.New("mtproto config field server.listeners must be an array of objects")
+		}
+		for index, rawListener := range listeners {
+			listener, ok := rawListener.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("mtproto config field server.listeners[%d] must be an object", index)
+			}
+			// A listener without a port uses server.port, already listed.
+			if !isSet(listener, "port") {
+				continue
+			}
+			port, err := portValue(fmt.Sprintf("server.listeners[%d].port", index), listener["port"])
+			if err != nil {
+				return nil, err
+			}
+			ports = append(ports, port)
+		}
+	}
+
+	slices.Sort(ports)
+	return slices.Compact(ports), nil
+}
+
+func portValue(field string, value any) (int, error) {
+	var port int64
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("mtproto config field %s must be an integer port, got %s", field, typed)
+		}
+		port = parsed
+	case int:
+		port = int64(typed)
+	case int64:
+		port = typed
+	default:
+		return 0, fmt.Errorf("mtproto config field %s must be an integer port", field)
+	}
+	if port < 1 || port > 65535 {
+		return 0, fmt.Errorf("mtproto config field %s must be between 1 and 65535, got %d", field, port)
+	}
+	return int(port), nil
 }
 
 func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, apiPort, metricsPort int, apiAuthHeader string) (string, error) {
@@ -123,10 +236,31 @@ func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, ap
 		return "", errors.New("mtproto config is nil")
 	}
 
+	ports, err := listenPorts(c.base)
+	if err != nil {
+		return "", err
+	}
+	for _, port := range ports {
+		switch port {
+		case apiPort:
+			return "", fmt.Errorf("mtproto config listen port %d conflicts with the node's telemt API port", port)
+		case metricsPort:
+			return "", fmt.Errorf("mtproto config listen port %d conflicts with the node's telemt metrics port", port)
+		}
+	}
+
 	root := cloneMap(c.base)
+	general := ensureObject(root, "general")
+	telemetry := ensureObject(general, "telemetry")
 	server := ensureObject(root, "server")
 	api := ensureObject(server, "api")
 	access := ensureObject(root, "access")
+
+	// telemt's output is streamed to the panel log viewer, where ANSI colours
+	// are noise. Per-user counters feed traffic accounting; with user
+	// telemetry off telemt reports zero for every user.
+	general["disable_colors"] = true
+	telemetry["user_enabled"] = true
 
 	// metrics_port enables the Prometheus endpoint; metrics_listen pins it to
 	// loopback. telemt treats metrics_port as the enable flag, so both are set.
@@ -135,6 +269,7 @@ func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, ap
 	server["metrics_whitelist"] = []any{loopbackV4CIDR, loopbackV6CIDR}
 
 	api["enabled"] = true
+	api["read_only"] = false
 	api["listen"] = fmt.Sprintf("127.0.0.1:%d", apiPort)
 	api["auth_header"] = apiAuthHeader
 	api["whitelist"] = []any{loopbackV4CIDR, loopbackV6CIDR}
@@ -201,18 +336,36 @@ func writeOptionalMap(target map[string]any, key string, values map[string]any) 
 	target[key] = values
 }
 
-func ActiveUsersFromCommon(users []*common.User, inboundTag string) (map[string]*runtimeUser, error) {
+// ActiveUsersFromCommon returns the users that carry inboundTag, keyed by
+// username. A tagged user that fails validation is logged and left out, so one
+// bad record cannot fail a whole sync; the second value lists their emails.
+func ActiveUsersFromCommon(users []*common.User, inboundTag string) (map[string]*runtimeUser, []string) {
 	active := make(map[string]*runtimeUser)
+	var skipped []string
+	seenSkipped := make(map[string]struct{})
 	for _, user := range users {
+		if user == nil {
+			continue
+		}
 		runtimeUser, include, err := activeUserFromCommon(user, inboundTag)
 		if err != nil {
-			return nil, err
+			email := strings.TrimSpace(user.GetEmail())
+			if _, seen := seenSkipped[email]; !seen {
+				seenSkipped[email] = struct{}{}
+				skipped = append(skipped, email)
+				logSkippedUser(email, err)
+			}
+			continue
 		}
 		if include {
 			active[runtimeUser.Username] = runtimeUser
 		}
 	}
-	return active, nil
+	return active, skipped
+}
+
+func logSkippedUser(email string, err error) {
+	log.Printf("mtproto: skipping user %s: %v", email, err)
 }
 
 func activeUserFromCommon(user *common.User, inboundTag string) (*runtimeUser, bool, error) {
@@ -251,6 +404,31 @@ func activeUserFromCommon(user *common.User, inboundTag string) (*runtimeUser, b
 		MaxTCPConns:  proxy.GetMaxTcpConns(),
 		MaxUniqueIPs: proxy.GetMaxUniqueIps(),
 	}, true, nil
+}
+
+// objectAt returns the object at path, or nil when any part of the path is
+// absent or null. A part that holds something other than an object is an error.
+func objectAt(root map[string]any, path ...string) (map[string]any, error) {
+	current := root
+	for index, key := range path {
+		if current == nil {
+			return nil, nil
+		}
+		raw := current[key]
+		if raw == nil {
+			return nil, nil
+		}
+		child, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("mtproto config field %s must be an object", strings.Join(path[:index+1], "."))
+		}
+		current = child
+	}
+	return current, nil
+}
+
+func isSet(object map[string]any, key string) bool {
+	return object != nil && object[key] != nil
 }
 
 func ensureObject(target map[string]any, key string) map[string]any {

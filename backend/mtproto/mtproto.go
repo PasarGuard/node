@@ -75,10 +75,7 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		return nil, err
 	}
 
-	activeUsers, err := ActiveUsersFromCommon(users, mtConfig.InboundTag)
-	if err != nil {
-		return nil, err
-	}
+	activeUsers, _ := ActiveUsersFromCommon(users, mtConfig.InboundTag)
 
 	sentinel, err := newSentinelUser()
 	if err != nil {
@@ -147,6 +144,11 @@ func (m *MTProto) Shutdown() {
 }
 
 func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
+	// The batch paths skip a user that fails validation; a single-user sync
+	// reports it to the caller instead.
+	if _, _, err := activeUserFromCommon(user, m.config.InboundTag); err != nil {
+		return err
+	}
 	return m.updateUsersPartial(ctx, []*common.User{user})
 }
 
@@ -154,10 +156,7 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	desired, err := ActiveUsersFromCommon(users, m.config.InboundTag)
-	if err != nil {
-		return err
-	}
+	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
 
 	return m.applyFullDesiredLocked(ctx, desired)
 }
@@ -170,10 +169,7 @@ func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.Use
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	nextDesired, err := m.buildNextDesiredLocked(users)
-	if err != nil {
-		return err
-	}
+	nextDesired := m.buildNextDesiredLocked(users)
 
 	return m.applyFullDesiredLocked(ctx, nextDesired)
 }
@@ -313,10 +309,7 @@ func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	nextDesired, err := m.buildNextDesiredLocked(users)
-	if err != nil {
-		return err
-	}
+	nextDesired := m.buildNextDesiredLocked(users)
 
 	if len(m.desired) == 0 || len(nextDesired) == 0 {
 		return m.applyFullDesiredLocked(ctx, nextDesired)
@@ -330,32 +323,39 @@ func (m *MTProto) updateUsersPartial(ctx context.Context, users []*common.User) 
 	return nil
 }
 
-func (m *MTProto) buildNextDesiredLocked(users []*common.User) (map[string]*runtimeUser, error) {
+// buildNextDesiredLocked applies users on top of m.desired. A user that fails
+// validation is logged and treated as not included, like an untagged one.
+func (m *MTProto) buildNextDesiredLocked(users []*common.User) map[string]*runtimeUser {
 	nextDesired := cloneRuntimeUserMap(m.desired)
 	for _, user := range users {
-		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
-		if err != nil {
-			return nil, err
+		if user == nil {
+			continue
 		}
 
 		username := strings.TrimSpace(user.GetEmail())
+		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
+		if err != nil {
+			logSkippedUser(username, err)
+		}
 		if include {
 			nextDesired[runtimeUser.Username] = runtimeUser
 			continue
 		}
 		delete(nextDesired, username)
 	}
-	return nextDesired, nil
+	return nextDesired
 }
 
 func (m *MTProto) applyPartialDesiredLocked(ctx context.Context, users []*common.User, nextDesired map[string]*runtimeUser) error {
 	for _, user := range users {
-		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
-		if err != nil {
-			return err
+		if user == nil {
+			continue
 		}
 
-		if include {
+		// An invalid user (already logged by buildNextDesiredLocked) is
+		// removed like an untagged one.
+		runtimeUser, include, err := activeUserFromCommon(user, m.config.InboundTag)
+		if err == nil && include {
 			if err := m.upsertUser(ctx, runtimeUser); err != nil {
 				return err
 			}

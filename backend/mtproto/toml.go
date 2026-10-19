@@ -95,6 +95,9 @@ func classifyTOMLSection(section map[string]any) ([]string, []string, []string, 
 
 	for _, key := range keys {
 		switch value := section[key].(type) {
+		case nil:
+			// JSON null means "not set"; TOML has no null.
+			continue
 		case map[string]any:
 			tableKeys = append(tableKeys, key)
 		case []any:
@@ -126,11 +129,11 @@ func isArrayOfObjects(values []any) bool {
 func renderInlineValue(value any) (string, error) {
 	switch typed := value.(type) {
 	case nil:
-		return "", fmt.Errorf("nil values are not valid in TOML")
+		return "", fmt.Errorf("null array elements are not valid in TOML")
 	case tomlLiteral:
 		return string(typed), nil
 	case string:
-		return strconv.Quote(typed), nil
+		return quoteTOMLString(typed), nil
 	case bool:
 		return strconv.FormatBool(typed), nil
 	case json.Number:
@@ -154,6 +157,9 @@ func renderInlineValue(value any) (string, error) {
 
 		parts := make([]string, 0, len(keys))
 		for _, key := range keys {
+			if typed[key] == nil {
+				continue
+			}
 			inline, err := renderInlineValue(typed[key])
 			if err != nil {
 				return "", err
@@ -183,10 +189,47 @@ func renderPrimitiveValue(value any) (string, error) {
 }
 
 func renderKey(key string) string {
-	if isBareKey(key) {
+	// telemt expands any line of the form `include = "<path>"` as a file
+	// include before it parses TOML, in every table. A quoted key is not
+	// matched, so a key named include is always quoted.
+	if isBareKey(key) && key != "include" {
 		return key
 	}
-	return strconv.Quote(key)
+	return quoteTOMLString(key)
+}
+
+// quoteTOMLString renders value as a TOML basic string. strconv.Quote does not
+// fit: it emits Go escapes such as \a, \v and \x01 that TOML rejects.
+func quoteTOMLString(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value) + 2)
+	builder.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			builder.WriteString(`\"`)
+		case '\\':
+			builder.WriteString(`\\`)
+		case '\b':
+			builder.WriteString(`\b`)
+		case '\t':
+			builder.WriteString(`\t`)
+		case '\n':
+			builder.WriteString(`\n`)
+		case '\f':
+			builder.WriteString(`\f`)
+		case '\r':
+			builder.WriteString(`\r`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&builder, `\u%04X`, r)
+				continue
+			}
+			builder.WriteRune(r)
+		}
+	}
+	builder.WriteByte('"')
+	return builder.String()
 }
 
 func isBareKey(key string) bool {
