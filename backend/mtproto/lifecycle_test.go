@@ -391,9 +391,10 @@ func TestFullSyncSignalsTelemt(t *testing.T) {
 	}
 }
 
-// telemt installs its SIGHUP handler with its config watcher, after its API
-// is up, and a SIGHUP before that ends it. A sync right after the start must
-// leave the reload to the watcher instead of killing telemt.
+// telemt installs its SIGHUP handler at the end of its config watcher's
+// setup, which can finish after its API first answers, and a SIGHUP before
+// that ends it. A sync right after the start must leave the reload to the
+// watcher instead of killing telemt.
 func TestSyncRightAfterStartDoesNotSignalTelemt(t *testing.T) {
 	signals := filepath.Join(t.TempDir(), "signals")
 	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, WatchConfig: true, SignalDelay: time.Second, SignalFile: signals})
@@ -416,16 +417,19 @@ func TestSyncRightAfterStartDoesNotSignalTelemt(t *testing.T) {
 }
 
 // telemt's config watcher misses a render written while it sets itself up
-// right after the start, and only SIGHUP makes telemt load it then. The
-// node sends it once telemtSignalGrace has passed.
+// right after the start, and only SIGHUP makes telemt load it then. Where
+// the node cannot read telemt's signal handlers, it sends SIGHUP once
+// telemtSignalGrace has passed. The watcher's setup outlasts the grace, so
+// the render is missed whenever the sync lands.
 func TestRenderMissedByWatcherGetsSIGHUPAfterGrace(t *testing.T) {
+	withoutSIGHUPProbe(t)
 	lowerSignalGrace(t, 1500*time.Millisecond)
 	lowerMarkerConfirmTimeout(t, 10*time.Second)
 	signals := filepath.Join(t.TempDir(), "signals")
 	exe := writeFakeTelemt(t, fakeTelemt{
 		ServeUsers:  true,
 		WatchConfig: true,
-		WatchSetup:  600 * time.Millisecond,
+		WatchSetup:  2 * time.Second,
 		SignalDelay: 700 * time.Millisecond,
 		SignalFile:  signals,
 	})

@@ -255,15 +255,17 @@ func (l *liveTelemt) expectPID(want int) {
 	}
 }
 
-// passSignalGrace waits until telemtSignalGrace has passed since telemt's
-// API first answered, so the next reload sends SIGHUP instead of leaving
-// the change to telemt's config watcher.
-func (l *liveTelemt) passSignalGrace() {
+// waitHandlesSIGHUP waits until the node may send telemt SIGHUP (telemt
+// installed its handler, or telemtSignalGrace passed where the node cannot
+// tell), so the next reload sends SIGHUP instead of leaving the change to
+// telemt's config watcher.
+func (l *liveTelemt) waitHandlesSIGHUP() {
 	l.t.Helper()
-	l.mt.syncMu.Lock()
-	healthyAt := l.mt.healthyAt
-	l.mt.syncMu.Unlock()
-	time.Sleep(time.Until(healthyAt.Add(telemtSignalGrace)))
+	waitFor(l.t, telemtSignalGrace+liveWait, "telemt to handle SIGHUP", func() bool {
+		l.mt.syncMu.Lock()
+		defer l.mt.syncMu.Unlock()
+		return l.mt.telemtHandlesSIGHUPLocked()
+	})
 }
 
 // sighups counts the SIGHUP reloads telemt logged.
@@ -402,9 +404,9 @@ func TestIntegrationUpdateUsersThroughAPI(t *testing.T) {
 
 // Full syncs hot-reload the same telemt process, down to zero real users
 // (marker only) and back, and telemt confirms each render's marker. The
-// first syncs come right after the start, when the node leaves the reload
-// to telemt's config watcher; the last one comes after telemtSignalGrace
-// and sends SIGHUP.
+// first syncs come right after the start, when telemt may not handle SIGHUP
+// yet and its config watcher reloads; the last one comes once telemt
+// handles SIGHUP and sends it.
 func TestIntegrationFullSyncKeepsProcess(t *testing.T) {
 	l := startLiveTelemt(t, "", mtUser("alice", "mtproto", secretAlice))
 	pid := l.mt.process.PID()
@@ -435,14 +437,14 @@ func TestIntegrationFullSyncKeepsProcess(t *testing.T) {
 	}
 	l.expectRefused("dave", secretDave)
 
-	l.passSignalGrace()
+	l.waitHandlesSIGHUP()
 	sighups := l.sighups()
 	if err := l.mt.SyncUsers(l.ctx, []*common.User{mtUser("erin", "mtproto", secretErin)}); err != nil {
 		t.Fatalf("SyncUsers(erin): %v", err)
 	}
 	l.expectNewMarker(marker)
 	if l.sighups() <= sighups {
-		t.Error("telemt logged no SIGHUP for a sync after telemtSignalGrace")
+		t.Error("telemt logged no SIGHUP for a sync once it handled SIGHUP")
 	}
 	l.expectPID(pid)
 	l.expectAdmitted("erin", secretErin)
@@ -450,7 +452,8 @@ func TestIntegrationFullSyncKeepsProcess(t *testing.T) {
 
 // A hot reload keeps the sessions of users it does not change and cuts the
 // sessions of users it removes, right after the start (telemt's config
-// watcher reloads) and after telemtSignalGrace (SIGHUP reloads).
+// watcher reloads, or SIGHUP if telemt handles it already) and once telemt
+// handles SIGHUP (SIGHUP reloads).
 func TestIntegrationHotReloadKeepsUnchangedSessions(t *testing.T) {
 	alice := mtUser("alice", "mtproto", secretAlice)
 	carol := mtUser("carol", "mtproto", secretCarol)
@@ -467,13 +470,13 @@ func TestIntegrationHotReloadKeepsUnchangedSessions(t *testing.T) {
 	l.expectPID(pid)
 
 	carolSession := l.expectAdmitted("carol", secretCarol)
-	l.passSignalGrace()
+	l.waitHandlesSIGHUP()
 	sighups := l.sighups()
 	if err := l.mt.SyncUsers(l.ctx, []*common.User{alice, mtUser("dave", "mtproto", secretDave)}); err != nil {
 		t.Fatalf("SyncUsers without carol: %v", err)
 	}
 	if l.sighups() <= sighups {
-		t.Error("telemt logged no SIGHUP for a sync after telemtSignalGrace")
+		t.Error("telemt logged no SIGHUP for a sync once it handled SIGHUP")
 	}
 	l.expectCut(carolSession, "carol")
 	l.expectOpen(aliceSession, "alice", 1)

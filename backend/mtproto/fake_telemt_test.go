@@ -55,8 +55,9 @@ type fakeTelemt struct {
 	// SignalFile gets one line per SIGHUP received.
 	SignalFile string `json:"signal_file"`
 	// SignalDelay makes the fake handle SIGHUP only this long after it binds
-	// its API, like telemt, whose config watcher installs the handler after
-	// the API is up; a SIGHUP before that ends the fake.
+	// its API, like telemt, whose config watcher installs the handler at the
+	// end of its setup; a SIGHUP before that ends the fake, and on Linux its
+	// SigCgt mask shows the handler only from then on.
 	SignalDelay time.Duration `json:"signal_delay"`
 	// WatchConfig plays telemt's config watcher. Once the API is up it reads
 	// the config file, spends WatchSetup setting up its watches, then loads
@@ -107,6 +108,7 @@ func runFakeTelemt(optionsPath string, args []string) int {
 
 	hup := make(chan os.Signal, 1)
 	if f.SignalDelay > 0 {
+		defaultSIGHUP()
 		go func() {
 			time.Sleep(f.HealthDelay + f.SignalDelay)
 			signal.Notify(hup, syscall.SIGHUP)
@@ -170,19 +172,25 @@ func runFakeTelemt(optionsPath string, args []string) int {
 		select {
 		case <-hup:
 			runtime.load(configPath)
-			if f.SignalFile != "" {
-				file, err := os.OpenFile(f.SignalFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-				if err == nil {
-					_, _ = file.WriteString("SIGHUP\n")
-					_ = file.Close()
-				}
-			}
+			appendFakeLine(f.SignalFile, "SIGHUP")
 		case <-exit:
 			fmt.Fprintln(os.Stderr, "fake telemt exiting")
 			return f.ExitCode
 		case <-deadline:
 			return 0
 		}
+	}
+}
+
+// appendFakeLine appends line to path, unless path is empty.
+func appendFakeLine(path, line string) {
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, _ = file.WriteString(line + "\n")
+		_ = file.Close()
 	}
 }
 
@@ -415,11 +423,22 @@ func lowerStartupTimeout(t *testing.T, timeout time.Duration) {
 }
 
 // lowerSignalGrace sets telemtSignalGrace for one test, so a fake telemt
-// without a config watcher gets the SIGHUP of a sync right after its start.
-// Register it before the backend's Shutdown cleanup.
+// without a config watcher gets the SIGHUP of a sync right after its start
+// where the node cannot read signal handlers. Register it before the
+// backend's Shutdown cleanup.
 func lowerSignalGrace(t *testing.T, grace time.Duration) {
 	t.Helper()
 	previous := telemtSignalGrace
 	telemtSignalGrace = grace
 	t.Cleanup(func() { telemtSignalGrace = previous })
+}
+
+// withoutSIGHUPProbe makes the node unable to read telemt's signal
+// handlers for one test, so it falls back to telemtSignalGrace on every
+// platform. Register it before the backend's Shutdown cleanup.
+func withoutSIGHUPProbe(t *testing.T) {
+	t.Helper()
+	previous := readSIGHUPCaught
+	readSIGHUPCaught = func(int) (bool, error) { return false, errors.ErrUnsupported }
+	t.Cleanup(func() { readSIGHUPCaught = previous })
 }

@@ -22,12 +22,13 @@ const (
 )
 
 // telemtSignalGrace is how long after telemt's API first answers the node
-// does not send SIGHUP. telemt's config watcher installs the SIGHUP handler
-// only after the API is up and the watcher has read the config and set up
-// its watches, and a SIGHUP before that ends telemt. The watcher loads most
-// renders of that time on its own, but misses one written while it sets up.
-// It is a variable so tests can lower it.
+// does not send SIGHUP where it cannot see telemt's signal handlers (see
+// telemtHandlesSIGHUPLocked). It is a variable so tests can lower it.
 var telemtSignalGrace = 5 * time.Second
+
+// readSIGHUPCaught is sighupCaught; tests replace it to make the node fall
+// back to telemtSignalGrace.
+var readSIGHUPCaught = sighupCaught
 
 // markerConfirmTimeout bounds the wait for telemt to load a rendered config;
 // a config it did not load by then counts as rejected. It is a variable so
@@ -66,7 +67,7 @@ func newMarkerUser() (*runtimeUser, error) {
 // reloadLocked makes the running telemt hot-reload the rendered config and
 // waits until the render's marker user is in telemt's running config.
 // telemt's config watcher sees the file change, and SIGHUP makes sure once
-// telemtSignalGrace allows it (see waitForMarker). A hot reload replaces
+// telemt handles it (see waitForMarkerLocked). A hot reload replaces
 // only the users that changed; an API reload would cut every session. Only
 // an API that stays unreachable, or a telemt that exited or cannot be
 // signalled, restarts telemt, on the rendered config; a rejected config
@@ -77,7 +78,7 @@ func (m *MTProto) reloadLocked(ctx context.Context) error {
 	}
 	// Should telemt not handle the signal after all, SIGHUP ends it and the
 	// restart below recovers it.
-	err := m.waitForMarker(ctx, m.marker.Username, m.healthyAt.Add(telemtSignalGrace))
+	err := m.waitForMarkerLocked(ctx, m.marker.Username)
 	switch {
 	case err == nil || errors.Is(err, errClosed) || errors.Is(err, errReloadRejected):
 		return err
@@ -94,25 +95,41 @@ func (m *MTProto) reloadLocked(ctx context.Context) error {
 	return nil
 }
 
-// signalReloadLocked sends telemt SIGHUP, unless its API first answered
-// less than telemtSignalGrace ago; telemt's config watcher sees the change
-// then. Requires syncMu.
+// signalReloadLocked sends telemt SIGHUP if it handles the signal yet (see
+// telemtHandlesSIGHUPLocked); before that, telemt's config watcher sees the
+// change. Requires syncMu.
 func (m *MTProto) signalReloadLocked() error {
-	if time.Since(m.healthyAt) < telemtSignalGrace {
+	if !m.telemtHandlesSIGHUPLocked() {
 		return nil
 	}
 	return m.process.Reload()
 }
 
-// waitForMarker polls GET /v1/users until telemt's running config has the
-// marker user, for up to markerConfirmTimeout, and sends telemt SIGHUP once
-// signalAt has passed: at once in steady state, or when telemtSignalGrace
-// ends if the watcher has not loaded the render by then. It returns an
-// errReloadRejected error when telemt cannot read the rendered file or the
-// time is up, errClosed on Shutdown, ctx's error when ctx ends, and the
-// signal or request error when telemt cannot be signalled, the API stays
-// unreachable or telemt exited.
-func (m *MTProto) waitForMarker(ctx context.Context, marker string, signalAt time.Time) error {
+// telemtHandlesSIGHUPLocked reports whether the running telemt can take
+// SIGHUP. telemt's config watcher installs its SIGHUP handler at the end of
+// its own setup, which runs concurrently with the API coming up and can
+// finish after the API first answers; a SIGHUP before that ends telemt.
+// Once installed, the handler stays for the process lifetime. The watcher
+// loads most renders of that window on its own, but misses one written
+// while it sets up. On Linux the node reads the handler from telemt's
+// SigCgt mask (sighupCaught); elsewhere, or when that read fails, it waits
+// telemtSignalGrace after the API first answered. Requires syncMu.
+func (m *MTProto) telemtHandlesSIGHUPLocked() bool {
+	if caught, err := readSIGHUPCaught(m.process.PID()); err == nil {
+		return caught
+	}
+	return time.Since(m.healthyAt) >= telemtSignalGrace
+}
+
+// waitForMarkerLocked polls GET /v1/users until telemt's running config has
+// the marker user, for up to markerConfirmTimeout, and sends telemt SIGHUP
+// once telemt handles it: at once in steady state, or once the config
+// watcher installed the handler if it has not loaded the render by then.
+// It returns an errReloadRejected error when telemt cannot read the
+// rendered file or the time is up, errClosed on Shutdown, ctx's error when
+// ctx ends, and the signal or request error when telemt cannot be
+// signalled, the API stays unreachable or telemt exited. Requires syncMu.
+func (m *MTProto) waitForMarkerLocked(ctx context.Context, marker string) error {
 	waitCtx, cancel := context.WithTimeout(ctx, markerConfirmTimeout)
 	defer cancel()
 	stop := context.AfterFunc(m.lifetime, cancel)
@@ -125,7 +142,7 @@ func (m *MTProto) waitForMarker(ctx context.Context, marker string, signalAt tim
 	signalled := false
 	unanswered := 0
 	for {
-		if !signalled && !time.Now().Before(signalAt) {
+		if !signalled && m.telemtHandlesSIGHUPLocked() {
 			signalled = true
 			if err := m.process.Reload(); err != nil {
 				return err
