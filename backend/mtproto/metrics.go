@@ -3,36 +3,41 @@ package mtproto
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// telemt 3.5.14 metric names (src/metrics/render/users.rs). The octet
+// counters were renamed with a _total suffix in 3.5.4.
 const (
-	telemtMetricFromClient        = "telemt_user_octets_from_client"
-	telemtMetricToClient          = "telemt_user_octets_to_client"
-	telemtMetricConnectionsCurrnt = "telemt_user_connections_current"
-	telemtMetricUniqueIPsCurrent  = "telemt_user_unique_ips_current"
+	// metricOctetsFromClient counts bytes received from the client: uplink.
+	metricOctetsFromClient = "telemt_user_octets_from_client_total"
+	// metricOctetsToClient counts bytes sent to the client: downlink.
+	metricOctetsToClient     = "telemt_user_octets_to_client_total"
+	metricConnectionsCurrent = "telemt_user_connections_current"
+	metricUniqueIPsCurrent   = "telemt_user_unique_ips_current"
+	// metricUserSeriesSuppressed is above 0 when telemt left users out of
+	// the per-user series: it exports them for at most 4096 users.
+	metricUserSeriesSuppressed = "telemt_telemetry_user_series_suppressed"
 )
 
-// userMetrics holds the per-user counters/gauges scraped from telemt's
-// Prometheus endpoint. Octets are monotonic counters (delta-tracked by
-// trafficTracker); connections/unique-ips are point-in-time gauges.
+// maxMetricsLine bounds one line of telemt's metrics output.
+const maxMetricsLine = 1 << 20
+
+// userMetrics holds one user's telemt counters and gauges. Octets are
+// cumulative counters (the tracker turns them into deltas); connections and
+// unique IPs are point-in-time gauges.
 type userMetrics struct {
 	Uplink             int64
 	Downlink           int64
 	ConnectionsCurrent int64
 	UniqueIPsCurrent   int64
-}
-
-var perUserMetricNames = map[string]struct{}{
-	telemtMetricFromClient:        {},
-	telemtMetricToClient:          {},
-	telemtMetricConnectionsCurrnt: {},
-	telemtMetricUniqueIPsCurrent:  {},
 }
 
 type metricsScraper struct {
@@ -49,33 +54,41 @@ func newMetricsScraper(url string) *metricsScraper {
 	}
 }
 
-func (s *metricsScraper) Scrape(ctx context.Context) (map[string]userMetrics, error) {
+// Scrape reads telemt's metrics endpoint; see parseMetrics.
+func (s *metricsScraper) Scrape(ctx context.Context) (map[string]userMetrics, int64, error) {
 	if s == nil {
-		return nil, fmt.Errorf("mtproto metrics scraper is nil")
+		return nil, 0, errors.New("mtproto metrics scraper is nil")
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("mtproto metrics scrape failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+		return nil, 0, fmt.Errorf("mtproto metrics scrape failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
 	}
 
 	return parseMetrics(response.Body)
 }
 
-func parseMetrics(reader io.Reader) (map[string]userMetrics, error) {
-	counters := make(map[string]userMetrics)
+// parseMetrics reads telemt's Prometheus text output and returns the
+// per-user metrics by username and the value of the series suppression
+// gauge. Other metrics are skipped before their labels are read, so an odd
+// label elsewhere cannot fail the scrape. A per-user line it cannot read
+// fails the whole parse: skipping it would read as a counter reset.
+func parseMetrics(reader io.Reader) (map[string]userMetrics, int64, error) {
+	users := make(map[string]userMetrics)
+	var suppressed int64
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxMetricsLine)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -83,80 +96,117 @@ func parseMetrics(reader io.Reader) (map[string]userMetrics, error) {
 			continue
 		}
 
-		metricName, labels, value, ok, err := parseMetricLine(line)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+		name, rest := splitMetricName(line)
+		switch name {
+		case metricOctetsFromClient, metricOctetsToClient, metricConnectionsCurrent, metricUniqueIPsCurrent:
+		case metricUserSeriesSuppressed:
+			_, value, err := parseSample(rest)
+			if err != nil {
+				return nil, 0, fmt.Errorf("invalid prometheus line %q: %w", line, err)
+			}
+			suppressed = value
 			continue
-		}
-
-		username, exists := labels["user"]
-		if !exists || username == "" {
-			continue
-		}
-
-		entry := counters[username]
-		switch metricName {
-		case telemtMetricFromClient:
-			entry.Uplink = value
-		case telemtMetricToClient:
-			entry.Downlink = value
-		case telemtMetricConnectionsCurrnt:
-			entry.ConnectionsCurrent = value
-		case telemtMetricUniqueIPsCurrent:
-			entry.UniqueIPsCurrent = value
 		default:
 			continue
 		}
-		counters[username] = entry
+
+		labels, value, err := parseSample(rest)
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid prometheus line %q: %w", line, err)
+		}
+		username := labels["user"]
+		if username == "" {
+			continue
+		}
+
+		entry := users[username]
+		switch name {
+		case metricOctetsFromClient:
+			entry.Uplink = value
+		case metricOctetsToClient:
+			entry.Downlink = value
+		case metricConnectionsCurrent:
+			entry.ConnectionsCurrent = value
+		case metricUniqueIPsCurrent:
+			entry.UniqueIPsCurrent = value
+		}
+		users[username] = entry
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-
-	return counters, nil
+	return users, suppressed, nil
 }
 
-func parseMetricLine(line string) (string, map[string]string, int64, bool, error) {
-	splitIndex := strings.IndexAny(line, " \t")
-	if splitIndex <= 0 {
-		return "", nil, 0, false, nil
+// splitMetricName splits a sample line into the metric name and the rest:
+// labels, if any, then the value.
+func splitMetricName(line string) (name, rest string) {
+	end := strings.IndexAny(line, "{ \t")
+	if end < 0 {
+		return line, ""
 	}
+	return line[:end], line[end:]
+}
 
-	metricWithLabels := strings.TrimSpace(line[:splitIndex])
-	valueText := strings.TrimSpace(line[splitIndex+1:])
-	if valueText == "" {
-		return "", nil, 0, false, nil
-	}
-
-	metricName := metricWithLabels
-	labels := make(map[string]string)
-
-	if braceIndex := strings.IndexByte(metricWithLabels, '{'); braceIndex >= 0 {
-		if !strings.HasSuffix(metricWithLabels, "}") {
-			return "", nil, 0, false, fmt.Errorf("invalid prometheus metric line %q", line)
+// parseSample reads `{labels} value [timestamp]` or `value [timestamp]`.
+func parseSample(rest string) (map[string]string, int64, error) {
+	labels := map[string]string{}
+	if strings.HasPrefix(rest, "{") {
+		end := labelsEnd(rest)
+		if end < 0 {
+			return nil, 0, errors.New("unterminated label set")
 		}
-
-		metricName = metricWithLabels[:braceIndex]
-		parsedLabels, err := parsePrometheusLabels(metricWithLabels[braceIndex+1 : len(metricWithLabels)-1])
+		parsed, err := parsePrometheusLabels(rest[1:end])
 		if err != nil {
-			return "", nil, 0, false, err
+			return nil, 0, err
 		}
-		labels = parsedLabels
+		labels = parsed
+		rest = rest[end+1:]
 	}
 
-	if _, tracked := perUserMetricNames[metricName]; !tracked {
-		return "", nil, 0, false, nil
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return nil, 0, errors.New("missing value")
 	}
-
-	metricValue, err := strconv.ParseFloat(strings.Fields(valueText)[0], 64)
+	value, err := parseMetricValue(fields[0])
 	if err != nil {
-		return "", nil, 0, false, fmt.Errorf("invalid prometheus metric value %q: %w", valueText, err)
+		return nil, 0, err
 	}
+	return labels, value, nil
+}
 
-	return metricName, labels, int64(metricValue), true, nil
+// labelsEnd returns the index of the brace closing the label set that s
+// starts with, or -1.
+func labelsEnd(s string) int {
+	inQuotes := false
+	escapeNext := false
+	for index := 1; index < len(s); index++ {
+		switch c := s[index]; {
+		case escapeNext:
+			escapeNext = false
+		case c == '\\':
+			escapeNext = true
+		case c == '"':
+			inQuotes = !inQuotes
+		case c == '}' && !inQuotes:
+			return index
+		}
+	}
+	return -1
+}
+
+// parseMetricValue reads a sample value as an integer. telemt writes
+// counters and gauges as integers; a float form is accepted too.
+func parseMetricValue(text string) (int64, error) {
+	if value, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return value, nil
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(value) || math.Abs(value) >= math.MaxInt64 {
+		return 0, fmt.Errorf("invalid prometheus metric value %q", text)
+	}
+	return int64(value), nil
 }
 
 func parsePrometheusLabels(raw string) (map[string]string, error) {
@@ -167,6 +217,10 @@ func parsePrometheusLabels(raw string) (map[string]string, error) {
 
 	parts := splitLabelPairs(raw)
 	for _, part := range parts {
+		if part == "" {
+			// A trailing comma is valid.
+			continue
+		}
 		key, value, found := strings.Cut(part, "=")
 		if !found {
 			return nil, fmt.Errorf("invalid prometheus label pair %q", part)
