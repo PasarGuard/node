@@ -98,6 +98,7 @@ func TestNewConfigValidatesShapes(t *testing.T) {
 		"telemetry not object":  `{"general": {"telemetry": true}}`,
 		"server not object":     `{"server": []}`,
 		"access not object":     `{"access": "x"}`,
+		"logging not object":    `{"logging": "file"}`,
 		"port zero":             `{"server": {"port": 0}}`,
 		"port too large":        `{"server": {"port": 65536}}`,
 		"port string":           `{"server": {"port": "443"}}`,
@@ -117,6 +118,36 @@ func TestNewConfigValidatesShapes(t *testing.T) {
 	// JSON null means "not set" for objects and ports.
 	if _, err := NewConfig(`{"general": null, "server": {"port": null, "api": null}, "access": null}`); err != nil {
 		t.Errorf("null sections must be treated as absent, got %v", err)
+	}
+}
+
+// telemt WEB listeners need [[web.vhosts]], which the node rejects, so a web
+// listener would only crash telemt at startup.
+func TestNewConfigRejectsNonMTProxyListeners(t *testing.T) {
+	cases := map[string]string{
+		"web":        `{"server": {"listeners": [{"ip": "::", "transport": "web"}]}}`,
+		"upper case": `{"server": {"listeners": [{"ip": "::"}, {"ip": "0.0.0.0", "transport": "WEB"}]}}`,
+		"not string": `{"server": {"listeners": [{"ip": "::", "transport": 1}]}}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewConfig(raw)
+			if err == nil {
+				t.Fatalf("NewConfig(%s) succeeded, want an error", raw)
+			}
+			if !strings.Contains(err.Error(), "server.listeners[") || !strings.Contains(err.Error(), "].transport") {
+				t.Errorf("error %q does not name the listener transport key", err)
+			}
+		})
+	}
+
+	for _, raw := range []string{
+		`{"server": {"listeners": [{"ip": "::", "transport": "mtproxy"}]}}`,
+		`{"server": {"listeners": [{"ip": "::", "transport": null}, {"ip": "0.0.0.0"}]}}`,
+	} {
+		if _, err := NewConfig(raw); err != nil {
+			t.Errorf("NewConfig(%s) failed: %v", raw, err)
+		}
 	}
 }
 
@@ -159,13 +190,17 @@ func TestRenderForcesNodeKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	logToFile, err := NewConfig(`{"logging": {"destination": "file", "path": "/tmp/x"}, "server": {"port": 2222}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// NewConfig rejects server.api; Render must still force it if a base
 	// carries it some other way.
 	direct := &Config{InboundTag: defaultInboundTag, base: map[string]any{
 		"server": map[string]any{"api": map[string]any{"read_only": true, "enabled": false}},
 	}}
 
-	for name, cfg := range map[string]*Config{"panel overrides": fromPanel, "minimal": minimal, "direct base": direct} {
+	for name, cfg := range map[string]*Config{"panel overrides": fromPanel, "minimal": minimal, "log to file": logToFile, "direct base": direct} {
 		t.Run(name, func(t *testing.T) {
 			out, err := cfg.Render(users, nil, apiPort, metricsPort, "Bearer testtoken")
 			if err != nil {
@@ -175,6 +210,7 @@ func TestRenderForcesNodeKeys(t *testing.T) {
 			expect := map[string]any{
 				"general.disable_colors":         true,
 				"general.telemetry.user_enabled": true,
+				"logging.destination":            "stderr",
 				"server.api.enabled":             true,
 				"server.api.read_only":           false,
 				"server.api.listen":              "127.0.0.1:" + strconv.Itoa(apiPort),

@@ -51,6 +51,7 @@ var (
 		{"general", "telemetry"},
 		{"server"},
 		{"access"},
+		{"logging"},
 	}
 )
 
@@ -155,6 +156,25 @@ func validateConfigRoot(root map[string]any) error {
 		return err
 	}
 
+	return validateListenerTransports(root)
+}
+
+// validateListenerTransports allows only MTProxy listeners. telemt WEB
+// listeners need [[web.vhosts]], and the node rejects the web section, so a
+// web listener would only make telemt exit at startup. Call it after
+// listenPorts, which checks the listener shapes.
+func validateListenerTransports(root map[string]any) error {
+	server, _ := objectAt(root, "server")
+	listeners, _ := server["listeners"].([]any)
+	for index, rawListener := range listeners {
+		listener, _ := rawListener.(map[string]any)
+		if !isSet(listener, "transport") {
+			continue
+		}
+		if transport, ok := listener["transport"].(string); !ok || transport != "mtproxy" {
+			return fmt.Errorf("mtproto config field server.listeners[%d].transport must be \"mtproxy\"; the node supports only MTProxy listeners", index)
+		}
+	}
 	return nil
 }
 
@@ -255,10 +275,13 @@ func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, ap
 	server := ensureObject(root, "server")
 	api := ensureObject(server, "api")
 	access := ensureObject(root, "access")
+	logging := ensureObject(root, "logging")
 
-	// telemt's output is streamed to the panel log viewer, where ANSI colours
-	// are noise. Per-user counters feed traffic accounting; with user
-	// telemetry off telemt reports zero for every user.
+	// The node reads telemt's stderr for its log stream and startup errors,
+	// and streams it to the panel log viewer, where ANSI colours are noise.
+	// Per-user counters feed traffic accounting; with user telemetry off
+	// telemt reports zero for every user.
+	logging["destination"] = "stderr"
 	general["disable_colors"] = true
 	telemetry["user_enabled"] = true
 
