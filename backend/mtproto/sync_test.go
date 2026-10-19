@@ -61,8 +61,8 @@ type fakeTelemtAPI struct {
 	// rejectedConfig is the last changed config file rejectReload kept out.
 	rejectedConfig string
 
-	// loadError makes reads of the config file fail like a file telemt
-	// cannot parse: 500 "failed to load config: <loadError>".
+	// loadError makes every users route fail like telemt when it cannot
+	// read or parse the config file: 500 with this message.
 	loadError string
 	// dropUsersRequests closes this many GET /v1/users requests without an
 	// answer.
@@ -313,7 +313,11 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 	// Every users route loads the config file first.
 	data, err := os.ReadFile(f.configPath)
 	if f.loadError != "" || err != nil {
-		writeFakeError(w, http.StatusInternalServerError, "internal_error", "failed to load config: "+f.loadError)
+		message := f.loadError
+		if message == "" {
+			message = "failed to load config: " + err.Error()
+		}
+		writeFakeError(w, http.StatusInternalServerError, "internal_error", message)
 		return
 	}
 	disk := parseConfigUsers(string(data))
@@ -744,26 +748,36 @@ func TestRejectedHotReloadRestoresPreviousUsers(t *testing.T) {
 }
 
 // TestLoadFailureRejectsAtOnce: telemt cannot load the rendered file, so GET
-// /v1/users answers 500 "failed to load config"; that is a rejection with
-// telemt's message, without waiting out markerConfirmTimeout.
+// /v1/users answers 500 when telemt cannot read or parse the rendered file;
+// that is a rejection with telemt's message, without waiting out
+// markerConfirmTimeout.
 func TestLoadFailureRejectsAtOnce(t *testing.T) {
-	api := newFakeTelemtAPI(t)
-	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
-	api.set(func(f *fakeTelemtAPI) { f.loadError = "TOML parse error at line 3" })
+	for name, message := range map[string]string{
+		"parse": "failed to load config: TOML parse error at line 3",
+		// telemt 3.5.14 checks its 8 MiB source limit while it reads the
+		// config graph, before it parses anything.
+		"read": "failed to read config graph: Config error: file exceeds configured size limit",
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := newFakeTelemtAPI(t)
+			m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+			api.set(func(f *fakeTelemtAPI) { f.loadError = message })
 
-	started := time.Now()
-	err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)})
-	if !errors.Is(err, errReloadRejected) || !strings.Contains(err.Error(), "TOML parse error at line 3") {
-		t.Fatalf("SyncUsers = %v, want a rejection with telemt's message", err)
-	}
-	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Errorf("the rejection took %s", elapsed)
-	}
-	if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
-		t.Errorf("desired = %q, want u1", got)
-	}
-	if users := parseConfigUsers(readConfig(t, api.configPath)); users["u1"] == "" || users["u2"] != "" {
-		t.Errorf("the previous users were not rendered again: %v", users)
+			started := time.Now()
+			err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)})
+			if !errors.Is(err, errReloadRejected) || !strings.Contains(err.Error(), message) {
+				t.Fatalf("SyncUsers = %v, want a rejection with telemt's message", err)
+			}
+			if elapsed := time.Since(started); elapsed > 5*time.Second {
+				t.Errorf("the rejection took %s", elapsed)
+			}
+			if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
+				t.Errorf("desired = %q, want u1", got)
+			}
+			if users := parseConfigUsers(readConfig(t, api.configPath)); users["u1"] == "" || users["u2"] != "" {
+				t.Errorf("the previous users were not rendered again: %v", users)
+			}
+		})
 	}
 }
 

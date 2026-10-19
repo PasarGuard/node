@@ -90,9 +90,9 @@ func (m *MTProto) waitForMarker(ctx context.Context, marker string) error {
 			}
 		case errors.As(err, &apiErr):
 			unanswered = 0
-			// telemt reads the config file for this list: it cannot parse
-			// the render.
-			if apiErr.StatusCode >= http.StatusInternalServerError && strings.Contains(apiErr.Message, "failed to load config") {
+			// telemt reads the config file for this list: it cannot read or
+			// parse the render.
+			if cannotLoadConfig(apiErr) {
 				return fmt.Errorf("%w: %s", errReloadRejected, apiErr.Message)
 			}
 		case waitCtx.Err() == nil:
@@ -125,6 +125,18 @@ func (m *MTProto) reloadRejectedError() error {
 		return fmt.Errorf("%w within %s", errReloadRejected, markerConfirmTimeout)
 	}
 	return fmt.Errorf("%w within %s; recent telemt output:\n%s", errReloadRejected, markerConfirmTimeout, strings.Join(tail, "\n"))
+}
+
+// cannotLoadConfig reports whether telemt answered that it cannot use its
+// config file: it reads the file and its includes first ("failed to read
+// config graph", which also enforces telemt's 8 MiB limit per file), then
+// parses them ("failed to load config").
+func cannotLoadConfig(apiErr *apiStatusError) bool {
+	if apiErr.StatusCode < http.StatusInternalServerError {
+		return false
+	}
+	return strings.Contains(apiErr.Message, "failed to read config graph") ||
+		strings.Contains(apiErr.Message, "failed to load config")
 }
 
 func userInRuntime(users []telemtUserInfo, username string) bool {
