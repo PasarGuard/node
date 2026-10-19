@@ -28,6 +28,12 @@ func killProcess(cmd *exec.Cmd) error {
 	return cmd.Process.Kill()
 }
 
+// reloadProcess does nothing: Windows has no SIGHUP, and telemt's config
+// file watcher (it polls every 3 s) loads the new config.
+func reloadProcess(_ *exec.Cmd) error {
+	return nil
+}
+
 func killOrphan(pid int) error {
 	process, err := os.FindProcess(pid)
 	if err != nil {

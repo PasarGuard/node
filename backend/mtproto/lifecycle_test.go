@@ -366,10 +366,35 @@ func TestCancelledSyncKeepsTelemtRunning(t *testing.T) {
 	}
 }
 
-// TestReloadUnreachableRestartsTelemt: a reload request that cannot reach
-// telemt's API restarts telemt on the new config, and that start confirms it.
-func TestReloadUnreachableRestartsTelemt(t *testing.T) {
-	exe := writeFakeTelemt(t, fakeTelemt{DropReload: true})
+// TestFullSyncSignalsTelemt: a full apply makes telemt reload with SIGHUP
+// and returns once the render's marker user is in telemt's running config.
+// This fake has no config watcher, so only the signal can confirm it.
+func TestFullSyncSignalsTelemt(t *testing.T) {
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, SignalFile: signals})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if data, _ := os.ReadFile(signals); !strings.Contains(string(data), "SIGHUP") {
+		t.Errorf("telemt got no SIGHUP (signal log %q)", data)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// TestUsersAPIUnreachableRestartsTelemt: when telemt's API gets no answer
+// while the node waits for a reload, the node restarts telemt on the new
+// config, and that start confirms it.
+func TestUsersAPIUnreachableRestartsTelemt(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{DropUsers: true})
 	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

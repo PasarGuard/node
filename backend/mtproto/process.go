@@ -163,8 +163,8 @@ func (p *processManager) Start(configPath string) error {
 	cleanupOrphanedTelemt(configPath)
 
 	// No --pid-file: a pid file that survives a hard kill can name a live
-	// process later and make telemt refuse to start. The node reloads
-	// through telemt's API, which needs no pid.
+	// process later and make telemt refuse to start. The node reloads by
+	// signalling its own child instead.
 	cmd := exec.Command(p.executablePath, "run", configPath)
 	// telemt writes relative-path artifacts (the tls_front cache, for one)
 	// into its working directory; keep them in the generated config dir.
@@ -310,6 +310,21 @@ func (p *processManager) Generation() uint64 {
 // wrote since the latest Start, including the exit message after a crash.
 func (p *processManager) StartupTail(n int) []string {
 	return p.startupTail.tail(n)
+}
+
+// Reload asks the running telemt to re-read its config: SIGHUP on Unix. On
+// Windows it does nothing, and telemt's config file watcher picks the change
+// up.
+func (p *processManager) Reload() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.startedLocked() {
+		return errors.New("telemt process is not running")
+	}
+	if err := reloadProcess(p.run.cmd); err != nil {
+		return fmt.Errorf("failed to signal telemt to reload: %w", err)
+	}
+	return nil
 }
 
 // Stop terminates telemt and waits for it to exit, killing it after

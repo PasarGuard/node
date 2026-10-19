@@ -25,7 +25,6 @@ type MTProto struct {
 	apiClient      *apiClient
 	metricsScraper *metricsScraper
 	tracker        *trafficTracker
-	sentinel       *runtimeUser
 
 	apiPort       int
 	metricsPort   int
@@ -40,10 +39,12 @@ type MTProto struct {
 	// The next sync then renders and reloads every user. Guarded by syncMu.
 	needsFullApply bool
 
-	// stateMu guards desired for readers; writers also hold syncMu. desired
-	// holds only users telemt confirmed it runs.
+	// stateMu guards desired and marker for readers; writers also hold
+	// syncMu. desired holds only users telemt confirmed it runs. marker is
+	// the disabled user of the latest render, never a real user.
 	stateMu sync.RWMutex
 	desired map[string]*runtimeUser
+	marker  *runtimeUser
 
 	// lifetime is cancelled by Shutdown so waits for telemt stop early.
 	lifetime context.Context
@@ -238,18 +239,36 @@ func (m *MTProto) isDesiredUser(username string) bool {
 	return exists
 }
 
-func newSentinelUser() (*runtimeUser, error) {
+// markerUsernamePrefix starts every marker username. Panel usernames are
+// numeric user ids, so no real user has it.
+const markerUsernamePrefix = "pgm_"
+
+// markerUsername returns the marker user of the latest render. Stats must
+// never report it; older markers share markerUsernamePrefix.
+func (m *MTProto) markerUsername() string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	if m.marker == nil {
+		return ""
+	}
+	return m.marker.Username
+}
+
+// newMarkerUser returns a marker user with a fresh random name and secret.
+// Every render carries one, disabled: once telemt's running config has it,
+// telemt runs that render. It also keeps telemt's user list non-empty.
+func newMarkerUser() (*runtimeUser, error) {
 	secret := make([]byte, 16)
-	usernameSuffix := make([]byte, 4)
+	usernameSuffix := make([]byte, 8)
 	if _, err := rand.Read(secret); err != nil {
-		return nil, fmt.Errorf("failed to generate mtproto sentinel secret: %w", err)
+		return nil, fmt.Errorf("failed to generate the mtproto marker secret: %w", err)
 	}
 	if _, err := rand.Read(usernameSuffix); err != nil {
-		return nil, fmt.Errorf("failed to generate mtproto sentinel username: %w", err)
+		return nil, fmt.Errorf("failed to generate the mtproto marker username: %w", err)
 	}
 
 	return &runtimeUser{
-		Username: "pg-node-internal-" + hex.EncodeToString(usernameSuffix),
+		Username: markerUsernamePrefix + hex.EncodeToString(usernameSuffix),
 		Secret:   hex.EncodeToString(secret),
 	}, nil
 }

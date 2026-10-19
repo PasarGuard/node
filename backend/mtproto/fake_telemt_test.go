@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -43,9 +46,14 @@ type fakeTelemt struct {
 	HealthDelay time.Duration `json:"health_delay"`
 	NoAPI       bool          `json:"no_api"`
 	ReadyStatus int           `json:"ready_status"` // default 200
-	// DropReload closes reload requests without an answer, like an API that
-	// cannot be reached.
-	DropReload bool `json:"drop_reload"`
+	// ServeUsers serves GET /v1/users like telemt: the users of the config
+	// file, in_runtime for those loaded at start or on the latest SIGHUP.
+	ServeUsers bool `json:"serve_users"`
+	// DropUsers closes GET /v1/users requests without an answer, like an API
+	// that cannot be reached.
+	DropUsers bool `json:"drop_users"`
+	// SignalFile gets one line per SIGHUP received.
+	SignalFile string `json:"signal_file"`
 	// Lifetime bounds the fake so a broken test never leaves it running.
 	Lifetime time.Duration `json:"lifetime"`
 }
@@ -86,6 +94,16 @@ func runFakeTelemt(optionsPath string, args []string) int {
 		return 0
 	}
 
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+
+	var configPath string
+	if len(args) > 0 {
+		configPath = args[len(args)-1]
+	}
+	runtime := &fakeTelemtRuntime{}
+	runtime.load(configPath)
+
 	if f.RecordFile != "" {
 		cwd, _ := os.Getwd()
 		payload, _ := json.Marshal(fakeTelemtRecord{Args: args, Cwd: cwd, PID: os.Getpid()})
@@ -117,8 +135,8 @@ func runFakeTelemt(optionsPath string, args []string) int {
 		}
 	}
 
-	if !f.NoAPI && len(args) > 0 {
-		go serveFakeTelemtAPI(f, args[len(args)-1])
+	if !f.NoAPI && configPath != "" {
+		go serveFakeTelemtAPI(f, configPath, runtime)
 	}
 
 	lifetime := f.Lifetime
@@ -127,16 +145,52 @@ func runFakeTelemt(optionsPath string, args []string) int {
 	}
 	deadline := time.After(lifetime)
 
-	select {
-	case <-exit:
-		fmt.Fprintln(os.Stderr, "fake telemt exiting")
-		return f.ExitCode
-	case <-deadline:
-		return 0
+	for {
+		select {
+		case <-hup:
+			runtime.load(configPath)
+			if f.SignalFile != "" {
+				file, err := os.OpenFile(f.SignalFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+				if err == nil {
+					_, _ = file.WriteString("SIGHUP\n")
+					_ = file.Close()
+				}
+			}
+		case <-exit:
+			fmt.Fprintln(os.Stderr, "fake telemt exiting")
+			return f.ExitCode
+		case <-deadline:
+			return 0
+		}
 	}
 }
 
-func serveFakeTelemtAPI(f fakeTelemt, configPath string) {
+// fakeTelemtRuntime holds the users of the fake's running config.
+type fakeTelemtRuntime struct {
+	mu    sync.Mutex
+	users map[string]string
+}
+
+// load reads the users of the config file into the running config, as a
+// telemt start or SIGHUP reload does.
+func (r *fakeTelemtRuntime) load(configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.users = parseConfigUsers(string(data))
+}
+
+func (r *fakeTelemtRuntime) has(username string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.users[username]
+	return ok
+}
+
+func serveFakeTelemtAPI(f fakeTelemt, configPath string, runtime *fakeTelemtRuntime) {
 	if f.HealthDelay > 0 {
 		time.Sleep(f.HealthDelay)
 	}
@@ -164,13 +218,29 @@ func serveFakeTelemtAPI(f fakeTelemt, configPath string) {
 		}
 		_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":false,"status":"not_ready","reason":"no_healthy_upstreams"},"revision":"r"}`))
 	})
-	if f.DropReload {
-		mux.HandleFunc("/v1/system/reload", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, _ *http.Request) {
+		if f.DropUsers {
 			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
 				_ = conn.Close()
 			}
-		})
-	}
+			return
+		}
+		if !f.ServeUsers {
+			http.NotFound(w, nil)
+			return
+		}
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		users := []map[string]any{}
+		for name := range parseConfigUsers(string(data)) {
+			users = append(users, map[string]any{"username": name, "in_runtime": runtime.has(name)})
+		}
+		payload, _ := json.Marshal(map[string]any{"ok": true, "data": users, "revision": "r"})
+		_, _ = w.Write(payload)
+	})
 
 	if err := http.ListenAndServe(listen, mux); err != nil {
 		fmt.Fprintln(os.Stderr, "fake telemt: api:", err)

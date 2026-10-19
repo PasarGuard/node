@@ -14,7 +14,7 @@ import (
 
 // Gated integration test: runs only when MTPROTO_TELEMT_BIN points at a real
 // telemt binary. Exercises the full lifecycle (start, health, users, stats,
-// sentinel/empty-users) against the actual proxy.
+// marker user/empty-users) against the actual proxy.
 //
 //	MTPROTO_TELEMT_BIN=/path/to/telemt go test ./backend/mtproto/ -run Integration -v
 func telemtBinOrSkip(t *testing.T) string {
@@ -140,7 +140,7 @@ func TestIntegration_LifecycleAndUsers(t *testing.T) {
 	}
 }
 
-func TestIntegration_EmptyUsersSentinel(t *testing.T) {
+func TestIntegration_EmptyUsersMarker(t *testing.T) {
 	bin := telemtBinOrSkip(t)
 
 	// telemt binds its API only after the Telegram DC check (up to about 60 s
@@ -148,15 +148,15 @@ func TestIntegration_EmptyUsersSentinel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 
-	// Zero real users: telemt rejects an empty [access.users], so the sentinel
+	// Zero real users: telemt rejects an empty [access.users], so the marker
 	// user must keep it alive.
 	mt, err := New(ctx, integrationConfig(t, bin), integrationMTConfig(t), nil)
 	if err != nil {
-		t.Fatalf("New with zero users (sentinel path): %v", err)
+		t.Fatalf("New with zero users (marker only): %v", err)
 	}
 	defer mt.Shutdown()
 
 	if !mt.Started() {
-		t.Fatal("backend not started with sentinel user")
+		t.Fatal("backend not started with the marker user only")
 	}
 }

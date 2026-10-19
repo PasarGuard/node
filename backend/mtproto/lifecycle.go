@@ -64,11 +64,6 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 	if err != nil {
 		return nil, err
 	}
-	sentinel, err := newSentinelUser()
-	if err != nil {
-		return nil, err
-	}
-
 	telemtDir, err := prepareTelemtDir(cfg.GeneratedConfigPath)
 	if err != nil {
 		return nil, err
@@ -89,7 +84,6 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		apiClient:      newAPIClient(fmt.Sprintf("http://127.0.0.1:%d", apiPort), authHeader),
 		metricsScraper: newMetricsScraper(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort)),
 		tracker:        newTrafficTracker(),
-		sentinel:       sentinel,
 		apiPort:        apiPort,
 		metricsPort:    metricsPort,
 		apiAuthHeader:  authHeader,

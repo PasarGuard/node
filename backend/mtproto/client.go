@@ -9,21 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
-
-const (
-	// reloadRetryInterval is how often a reload is requested again while
-	// telemt runs another one.
-	reloadRetryInterval = 200 * time.Millisecond
-	// reloadPollInterval is how often an accepted reload is checked.
-	reloadPollInterval = 100 * time.Millisecond
-)
-
-// errAPIUnreachable marks a reload request that got no answer from telemt.
-var errAPIUnreachable = errors.New("telemt API unreachable")
 
 type apiClient struct {
 	baseURL    string
@@ -67,19 +55,6 @@ type telemtUserInfo struct {
 type telemtUserActiveIPs struct {
 	Username  string   `json:"username"`
 	ActiveIPs []string `json:"active_ips"`
-}
-
-type telemtReloadRequest struct {
-	Mode          string `json:"mode"`
-	FailurePolicy string `json:"failure_policy"`
-}
-
-// telemtReloadStatus is both the 202 answer to a reload request and the
-// status of that reload.
-type telemtReloadStatus struct {
-	ReloadID uint64 `json:"reload_id"`
-	State    string `json:"state"`
-	Error    string `json:"error"`
 }
 
 type telemtHealth struct {
@@ -136,31 +111,6 @@ func (e *apiStatusError) UserExists() bool {
 	return e.StatusCode == http.StatusConflict && e.Code == "user_exists"
 }
 
-// ReloadInProgress reports telemt's answer to a reload request while another
-// reload runs: 409 reload_in_progress, "Reload N is already in progress".
-func (e *apiStatusError) ReloadInProgress() bool {
-	return e.StatusCode == http.StatusConflict &&
-		(strings.Contains(e.Code, "in_progress") || strings.Contains(strings.ToLower(e.Message), "already in progress"))
-}
-
-// reloadRejectedError reports a reload telemt refused, rolled back or failed.
-// telemt keeps running the config it had before.
-type reloadRejectedError struct {
-	State string // rolled_back or failed; empty when the request was refused
-	Err   error
-}
-
-func (e *reloadRejectedError) Error() string {
-	if e.State == "" {
-		return fmt.Sprintf("telemt refused the config reload: %v", e.Err)
-	}
-	return fmt.Sprintf("telemt config reload %s: %v", e.State, e.Err)
-}
-
-func (e *reloadRejectedError) Unwrap() error {
-	return e.Err
-}
-
 func newAPIClient(baseURL, authHeader string) *apiClient {
 	return &apiClient{
 		baseURL:    strings.TrimRight(baseURL, "/"),
@@ -214,62 +164,6 @@ func (c *apiClient) ActiveIPs(ctx context.Context) (map[string][]string, error) 
 		activeIPs[entry.Username] = entry.ActiveIPs
 	}
 	return activeIPs, nil
-}
-
-// Reload makes telemt load its config file into a new runtime generation and
-// waits for the outcome. It returns nil once the reload succeeded, a
-// *reloadRejectedError when telemt refused it or ended it rolled_back or
-// failed, an error wrapping errAPIUnreachable when the request got no answer,
-// and ctx's error when ctx ends first. While telemt runs another reload it
-// answers 409, and the request is repeated until ctx ends.
-func (c *apiClient) Reload(ctx context.Context) error {
-	request := telemtReloadRequest{Mode: "instant", FailurePolicy: "rollback"}
-
-	var accepted *telemtReloadStatus
-	for {
-		var err error
-		accepted, err = doAPIRequest[telemtReloadStatus](ctx, c, http.MethodPost, "/v1/system/reload", request)
-		if err == nil {
-			break
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		var apiErr *apiStatusError
-		if !errors.As(err, &apiErr) {
-			return fmt.Errorf("%w: %w", errAPIUnreachable, err)
-		}
-		if !apiErr.ReloadInProgress() {
-			return &reloadRejectedError{Err: apiErr}
-		}
-		if err := sleepContext(ctx, reloadRetryInterval); err != nil {
-			return err
-		}
-	}
-
-	statusPath := "/v1/system/reload/" + strconv.FormatUint(accepted.ReloadID, 10)
-	for {
-		status, err := doAPIRequest[telemtReloadStatus](ctx, c, http.MethodGet, statusPath, nil)
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			return fmt.Errorf("failed to read the state of telemt reload %d: %w", accepted.ReloadID, err)
-		}
-		switch status.State {
-		case "succeeded":
-			return nil
-		case "rolled_back", "failed":
-			reason := status.Error
-			if reason == "" {
-				reason = "telemt gave no reason"
-			}
-			return &reloadRejectedError{State: status.State, Err: errors.New(reason)}
-		}
-		if err := sleepContext(ctx, reloadPollInterval); err != nil {
-			return err
-		}
-	}
 }
 
 func (c *apiClient) CreateUser(ctx context.Context, user *runtimeUser) error {
@@ -426,16 +320,4 @@ func doAPIRequest[T any](ctx context.Context, client *apiClient, method, path st
 	}
 
 	return &success.Data, nil
-}
-
-// sleepContext waits for d or until ctx ends, and returns ctx's error then.
-func sleepContext(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }

@@ -297,22 +297,22 @@ func TestConfigRender_InjectsManagedSections(t *testing.T) {
 		t.Errorf("real users must not disable anyone via access.user_enabled")
 	}
 
-	// empty users + sentinel keeps telemt happy (telemt rejects empty [access.users])
-	sentinel := &runtimeUser{Username: "pg-node-internal-x", Secret: testSecret}
-	out, err = cfg.Render(map[string]*runtimeUser{}, sentinel, 1, 2, "")
+	// empty users + marker keeps telemt happy (telemt rejects empty [access.users])
+	marker := &runtimeUser{Username: "pgm_0123456789abcdef", Secret: testSecret}
+	out, err = cfg.Render(map[string]*runtimeUser{}, marker, 1, 2, "")
 	if err != nil {
-		t.Fatalf("render with sentinel failed: %v", err)
+		t.Fatalf("render with marker failed: %v", err)
 	}
-	if !strings.Contains(out, "pg-node-internal-x") {
-		t.Errorf("sentinel user missing from rendered config")
+	if !strings.Contains(out, "pgm_0123456789abcdef") {
+		t.Errorf("marker user missing from rendered config")
 	}
-	if !strings.Contains(out, "[access.user_enabled]") || !strings.Contains(out, "pg-node-internal-x = false") {
-		t.Errorf("sentinel must be rendered disabled, got:\n%s", out)
+	if !strings.Contains(out, "[access.user_enabled]") || !strings.Contains(out, "pgm_0123456789abcdef = false") {
+		t.Errorf("marker must be rendered disabled, got:\n%s", out)
 	}
 
-	// empty users + no sentinel -> error (would crash telemt)
+	// empty users + no marker -> error (would crash telemt)
 	if _, err := cfg.Render(map[string]*runtimeUser{}, nil, 1, 2, ""); err == nil {
-		t.Errorf("expected error rendering with zero users and no sentinel")
+		t.Errorf("expected error rendering with zero users and no marker")
 	}
 }
 

@@ -251,7 +251,7 @@ func portValue(field string, value any) (int, error) {
 	return int(port), nil
 }
 
-func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, apiPort, metricsPort int, apiAuthHeader string) (string, error) {
+func (c *Config) Render(users map[string]*runtimeUser, marker *runtimeUser, apiPort, metricsPort int, apiAuthHeader string) (string, error) {
 	if c == nil {
 		return "", errors.New("mtproto config is nil")
 	}
@@ -297,16 +297,16 @@ func (c *Config) Render(users map[string]*runtimeUser, sentinel *runtimeUser, ap
 	api["auth_header"] = apiAuthHeader
 	api["whitelist"] = []any{loopbackV4CIDR, loopbackV6CIDR}
 
-	if err := applyUsersToAccess(access, users, sentinel); err != nil {
+	if err := applyUsersToAccess(access, users, marker); err != nil {
 		return "", err
 	}
 
 	return renderTOML(root)
 }
 
-func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, sentinel *runtimeUser) error {
-	if len(users) == 0 && sentinel == nil {
-		return errors.New("mtproto config requires at least one user or sentinel")
+func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, marker *runtimeUser) error {
+	if len(users) == 0 && marker == nil {
+		return errors.New("mtproto config requires at least one user or a marker user")
 	}
 
 	userSecrets := make(map[string]any, len(users)+1)
@@ -335,11 +335,11 @@ func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, se
 		}
 	}
 
-	if sentinel != nil {
-		// Keep [access.users] non-empty so telemt will start, but disable the
-		// sentinel so it cannot authenticate as a real MTProto client.
-		userSecrets[sentinel.Username] = sentinel.Secret
-		userEnabled[sentinel.Username] = false
+	if marker != nil {
+		// The marker keeps [access.users] non-empty so telemt will start; it
+		// is disabled so it cannot authenticate as a real MTProto client.
+		userSecrets[marker.Username] = marker.Secret
+		userEnabled[marker.Username] = false
 	}
 
 	access["users"] = userSecrets

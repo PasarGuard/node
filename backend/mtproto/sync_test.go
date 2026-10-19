@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,44 +24,43 @@ import (
 
 const otherSecret = "ffeeddccbbaa00112233445566778899"
 
-// fakeTelemtAPI stands in for telemt's control API. It keeps the runtime
-// user set, records every call, and runs reloads through telemt's states:
-// accepted, then preparing for reloadPending polls, then a terminal state.
+var markerUsernamePattern = regexp.MustCompile(`^pgm_[0-9a-f]{16}$`)
+
+// fakeTelemtAPI stands in for telemt's control API. It keeps the users of
+// the config file (disk) and of the running config (runtime), records every
+// call, and plays telemt's config watcher: a changed config file reaches the
+// running config when GET /v1/users is polled, after reloadDelayPolls polls,
+// unless rejectReload is set.
 type fakeTelemtAPI struct {
 	t          *testing.T
 	server     *httptest.Server
 	configPath string
 
-	mu    sync.Mutex
-	users map[string]string // runtime users: username to secret
-	calls []string          // "METHOD /path" per request
-	// reloadBodies holds the body of every reload request.
-	reloadBodies []string
+	mu      sync.Mutex
+	disk    map[string]string // username to secret
+	runtime map[string]string
+	calls   []string // "METHOD /path" per request
 
-	// reloadInProgress answers this many reload requests with telemt's 409.
-	reloadInProgress int
-	// reloadRejectStatus, when set, answers reload requests with this status
-	// and a bad_request error, like telemt for a config it cannot load.
-	reloadRejectStatus int
-	reloadPending      int  // status polls that report preparing first
-	reloadHang         bool // the reload never finishes
-	reloadState        string
-	reloadError        string
-	nextReloadID       int
-	pendingPolls       map[int]int
-	// failPatch answers PATCH requests with a 500.
-	failPatch bool
+	rejectReload     bool
+	reloadDelayPolls int
+	appliedConfig    string // the config file content runtime was loaded from
+	pendingConfig    string // a changed config file waiting to be applied
+	pendingPolls     int
+	// rejectedConfig is the last changed config file rejectReload kept out.
+	rejectedConfig string
+
+	failPatch bool // PATCH answers 500
 	activeIPs map[string][]string
 }
 
 func newFakeTelemtAPI(t *testing.T) *fakeTelemtAPI {
 	t.Helper()
 	f := &fakeTelemtAPI{
-		t:            t,
-		configPath:   filepath.Join(t.TempDir(), "config.toml"),
-		users:        make(map[string]string),
-		pendingPolls: make(map[int]int),
-		activeIPs:    make(map[string][]string),
+		t:          t,
+		configPath: filepath.Join(t.TempDir(), "config.toml"),
+		disk:       make(map[string]string),
+		runtime:    make(map[string]string),
+		activeIPs:  make(map[string][]string),
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
@@ -75,14 +76,30 @@ func (f *fakeTelemtAPI) takeCalls() []string {
 	return calls
 }
 
-func (f *fakeTelemtAPI) runtimeUsers() map[string]string {
+// realRuntimeUsers returns the running users without marker users.
+func (f *fakeTelemtAPI) realRuntimeUsers() map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	users := make(map[string]string, len(f.users))
-	for name, secret := range f.users {
-		users[name] = secret
+	users := make(map[string]string)
+	for name, secret := range f.runtime {
+		if !strings.HasPrefix(name, markerUsernamePrefix) {
+			users[name] = secret
+		}
 	}
 	return users
+}
+
+// runtimeMarkers lists the marker users in the running config.
+func (f *fakeTelemtAPI) runtimeMarkers() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var markers []string
+	for name := range f.runtime {
+		if strings.HasPrefix(name, markerUsernamePrefix) {
+			markers = append(markers, name)
+		}
+	}
+	return markers
 }
 
 func (f *fakeTelemtAPI) set(apply func(f *fakeTelemtAPI)) {
@@ -91,17 +108,50 @@ func (f *fakeTelemtAPI) set(apply func(f *fakeTelemtAPI)) {
 	apply(f)
 }
 
-// loadUsersLocked reads [access.users] from the rendered config, as a
-// telemt (re)start or a successful reload does.
-func (f *fakeTelemtAPI) loadUsersLocked() {
+// startLocked loads the config file into disk and runtime, as a telemt start.
+func (f *fakeTelemtAPI) startLocked() {
 	data, err := os.ReadFile(f.configPath)
 	if err != nil {
 		f.t.Errorf("fake telemt: reading the config: %v", err)
 		return
 	}
+	f.disk = parseConfigUsers(string(data))
+	f.runtime = maps.Clone(f.disk)
+	f.appliedConfig = string(data)
+}
+
+// watchConfigLocked plays telemt's config watcher.
+func (f *fakeTelemtAPI) watchConfigLocked() {
+	data, err := os.ReadFile(f.configPath)
+	if err != nil {
+		return // no config file: the test set the users directly
+	}
+	content := string(data)
+	f.disk = parseConfigUsers(content)
+	if content == f.appliedConfig {
+		return
+	}
+	if f.rejectReload {
+		f.rejectedConfig = content
+		return
+	}
+	if content != f.pendingConfig {
+		f.pendingConfig = content
+		f.pendingPolls = f.reloadDelayPolls
+	}
+	if f.pendingPolls > 0 {
+		f.pendingPolls--
+		return
+	}
+	f.runtime = maps.Clone(f.disk)
+	f.appliedConfig = content
+}
+
+// parseConfigUsers reads [access.users] from a rendered config.
+func parseConfigUsers(config string) map[string]string {
 	users := make(map[string]string)
 	section := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(config, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
 			section = strings.Trim(line, "[]")
@@ -113,12 +163,22 @@ func (f *fakeTelemtAPI) loadUsersLocked() {
 		}
 		secret, err := strconv.Unquote(strings.TrimSpace(value))
 		if err != nil {
-			f.t.Errorf("fake telemt: bad user line %q", line)
 			continue
 		}
 		users[strings.Trim(strings.TrimSpace(key), `"`)] = secret
 	}
-	f.users = users
+	return users
+}
+
+// configMarkers lists the marker users of a rendered config.
+func configMarkers(config string) []string {
+	var markers []string
+	for name := range parseConfigUsers(config) {
+		if strings.HasPrefix(name, markerUsernamePrefix) {
+			markers = append(markers, name)
+		}
+	}
+	return markers
 }
 
 func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
@@ -142,9 +202,13 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 		writeFakeSuccess(w, http.StatusOK, data)
 
 	case r.Method == http.MethodGet && path == "/v1/users":
+		// telemt lists the users of the config file and computes in_runtime
+		// from the running config.
+		f.watchConfigLocked()
 		data := []map[string]any{}
-		for name := range f.users {
-			data = append(data, map[string]any{"username": name, "in_runtime": true})
+		for name := range f.disk {
+			_, inRuntime := f.runtime[name]
+			data = append(data, map[string]any{"username": name, "in_runtime": inRuntime})
 		}
 		writeFakeSuccess(w, http.StatusOK, data)
 
@@ -154,16 +218,17 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 			writeFakeError(w, http.StatusBadRequest, "bad_request", err.Error())
 			return
 		}
-		if _, exists := f.users[request.Username]; exists {
+		if _, exists := f.runtime[request.Username]; exists {
 			writeFakeError(w, http.StatusConflict, "user_exists", "User already exists")
 			return
 		}
-		f.users[request.Username] = request.Secret
+		f.runtime[request.Username] = request.Secret
+		f.disk[request.Username] = request.Secret
 		writeFakeSuccess(w, http.StatusCreated, map[string]any{"user": map[string]any{"username": request.Username}})
 
 	case strings.HasPrefix(path, "/v1/users/"):
 		name := strings.TrimPrefix(path, "/v1/users/")
-		if _, exists := f.users[name]; !exists {
+		if _, exists := f.runtime[name]; !exists {
 			writeFakeError(w, http.StatusNotFound, "not_found", "User not found")
 			return
 		}
@@ -179,59 +244,23 @@ func (f *fakeTelemtAPI) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if request.Secret != "" {
-				f.users[name] = request.Secret
+				f.runtime[name] = request.Secret
+				f.disk[name] = request.Secret
 			}
 			writeFakeSuccess(w, http.StatusOK, map[string]any{"username": name})
 		case http.MethodDelete:
-			if len(f.users) == 1 {
+			if len(f.runtime) == 1 {
 				writeFakeError(w, http.StatusConflict, "last_user_forbidden", "Cannot delete the last user")
 				return
 			}
-			delete(f.users, name)
+			delete(f.runtime, name)
+			delete(f.disk, name)
 			writeFakeSuccess(w, http.StatusOK, name)
 		default:
 			// A GET of one user loads the whole config in telemt; the node
 			// must not need it.
 			writeFakeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "unexpected "+r.Method)
 		}
-
-	case r.Method == http.MethodPost && path == "/v1/system/reload":
-		f.reloadBodies = append(f.reloadBodies, string(body))
-		if f.reloadInProgress > 0 {
-			f.reloadInProgress--
-			writeFakeError(w, http.StatusConflict, "reload_in_progress", "Reload 7 is already in progress")
-			return
-		}
-		if f.reloadRejectStatus != 0 {
-			writeFakeError(w, f.reloadRejectStatus, "bad_request", "invalid runtime config: bad listener")
-			return
-		}
-		f.nextReloadID++
-		f.pendingPolls[f.nextReloadID] = f.reloadPending
-		writeFakeSuccess(w, http.StatusAccepted, map[string]any{
-			"reload_id": f.nextReloadID, "target_generation": f.nextReloadID + 1,
-			"config_revision": "r", "state": "accepted", "mode": "instant", "failure_policy": "rollback",
-		})
-
-	case r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/system/reload/"):
-		id, err := strconv.Atoi(strings.TrimPrefix(path, "/v1/system/reload/"))
-		if _, known := f.pendingPolls[id]; err != nil || !known {
-			writeFakeError(w, http.StatusNotFound, "reload_not_found", "Reload was not found")
-			return
-		}
-		status := map[string]any{"reload_id": id, "mode": "instant", "failure_policy": "rollback"}
-		switch {
-		case f.reloadHang || f.pendingPolls[id] > 0:
-			f.pendingPolls[id]--
-			status["state"] = "preparing"
-		case f.reloadState == "" || f.reloadState == "succeeded":
-			f.loadUsersLocked()
-			status["state"] = "succeeded"
-		default:
-			status["state"] = f.reloadState
-			status["error"] = f.reloadError
-		}
-		writeFakeSuccess(w, http.StatusOK, status)
 
 	default:
 		writeFakeError(w, http.StatusNotFound, "not_found", "Route not found")
@@ -257,16 +286,13 @@ func writeFakeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // newSyncTestBackend returns a backend whose telemt "runs" on api: the
-// process is a stand-in that counts as started, and the fake's runtime users
-// are loaded from the initial render, as a telemt start would.
+// process is a stand-in that counts as started (signalling it does nothing,
+// like telemt on Windows, where its config watcher picks the file up), and
+// the fake is started on the initial render.
 func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) *MTProto {
 	t.Helper()
 
 	mtConfig, err := NewConfig(`{"inbound_tag": "mtproto", "server": {"port": 8443}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sentinel, err := newSentinelUser()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,13 +301,15 @@ func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) 
 	lifetime, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	m := &MTProto{
-		config:         mtConfig,
-		process:        &processManager{run: &telemtRun{pid: 1, waitDone: make(chan struct{})}},
+		config: mtConfig,
+		process: &processManager{
+			run:         &telemtRun{pid: 1, waitDone: make(chan struct{})},
+			startupTail: newLineRing(telemtStartupTailSize),
+		},
 		configPath:     api.configPath,
 		apiClient:      newAPIClient(api.server.URL, "Bearer test"),
 		metricsScraper: newMetricsScraper("http://127.0.0.1:1/metrics"),
 		tracker:        newTrafficTracker(),
-		sentinel:       sentinel,
 		apiPort:        20001,
 		metricsPort:    20002,
 		apiAuthHeader:  "Bearer test",
@@ -292,8 +320,16 @@ func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) 
 	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
 		t.Fatal(err)
 	}
-	api.set(func(f *fakeTelemtAPI) { f.loadUsersLocked() })
+	api.set(func(f *fakeTelemtAPI) { f.startLocked() })
 	return m
+}
+
+// lowerMarkerConfirmTimeout sets markerConfirmTimeout for one test.
+func lowerMarkerConfirmTimeout(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	previous := markerConfirmTimeout
+	markerConfirmTimeout = timeout
+	t.Cleanup(func() { markerConfirmTimeout = previous })
 }
 
 func desiredNames(m *MTProto) []string {
@@ -314,6 +350,15 @@ func desiredSecret(m *MTProto, name string) string {
 		return user.Secret
 	}
 	return ""
+}
+
+func readConfig(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func assertCalls(t *testing.T, got []string, want ...string) {
@@ -349,7 +394,7 @@ func TestPartialSkipsUnchangedUsers(t *testing.T) {
 	if got := desiredSecret(m, "u2"); got != otherSecret {
 		t.Errorf("desired u2 secret = %q, want %q", got, otherSecret)
 	}
-	if got := api.runtimeUsers()["u2"]; got != otherSecret {
+	if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
 		t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
 	}
 
@@ -377,29 +422,29 @@ func TestPartialCreatesAndDeletesWithoutGet(t *testing.T) {
 	}
 
 	t.Run("patch of a user telemt lacks creates it", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { delete(f.users, "u2") })
+		api.set(func(f *fakeTelemtAPI) { delete(f.runtime, "u2") })
 		if err := m.SyncUser(ctx, mtUser("u2", "mtproto", otherSecret)); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
 		assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "POST /v1/users")
-		if got := api.runtimeUsers()["u2"]; got != otherSecret {
+		if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
 			t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
 		}
 	})
 
 	t.Run("create of a user telemt has patches it", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { f.users["u4"] = testSecret })
+		api.set(func(f *fakeTelemtAPI) { f.runtime["u4"] = testSecret })
 		if err := m.SyncUser(ctx, mtUser("u4", "mtproto", otherSecret)); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
 		assertCalls(t, api.takeCalls(), "POST /v1/users", "PATCH /v1/users/u4")
-		if got := api.runtimeUsers()["u4"]; got != otherSecret {
+		if got := api.realRuntimeUsers()["u4"]; got != otherSecret {
 			t.Errorf("telemt u4 secret = %q, want %q", got, otherSecret)
 		}
 	})
 
 	t.Run("delete of a user telemt lacks succeeds", func(t *testing.T) {
-		api.set(func(f *fakeTelemtAPI) { delete(f.users, "u3") })
+		api.set(func(f *fakeTelemtAPI) { delete(f.runtime, "u3") })
 		if err := m.SyncUser(ctx, untagged("u3")); err != nil {
 			t.Fatalf("SyncUser: %v", err)
 		}
@@ -426,7 +471,8 @@ func TestLargeBatchUsesFullRenderAndReload(t *testing.T) {
 		t.Fatalf("UpdateUsers: %v", err)
 	}
 
-	assertCalls(t, api.takeCalls(), "POST /v1/system/reload", "GET /v1/system/reload/1")
+	// No per-user call: one render, then one poll that finds the marker.
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
 	after, err := os.Stat(api.configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +480,7 @@ func TestLargeBatchUsesFullRenderAndReload(t *testing.T) {
 	if os.SameFile(before, after) {
 		t.Error("the config was not rendered again before the reload")
 	}
-	runtime := api.runtimeUsers()
+	runtime := api.realRuntimeUsers()
 	if len(runtime) != partialApplyMaxUsers+2 || runtime["u33"] != numberedSecret(33) || runtime["u0"] != testSecret {
 		t.Errorf("telemt users after the reload = %v, want u0 to u33", runtime)
 	}
@@ -443,82 +489,101 @@ func TestLargeBatchUsesFullRenderAndReload(t *testing.T) {
 	}
 }
 
-func TestFullSyncReportsRejectedReload(t *testing.T) {
-	cases := map[string]func(f *fakeTelemtAPI) string{
-		"rolled back": func(f *fakeTelemtAPI) string {
-			f.reloadState, f.reloadError = "rolled_back", "bad config"
-			return "bad config"
-		},
-		"failed": func(f *fakeTelemtAPI) string {
-			f.reloadState, f.reloadError = "failed", "listener bind failed"
-			return "listener bind failed"
-		},
-		"refused": func(f *fakeTelemtAPI) string {
-			f.reloadRejectStatus = http.StatusBadRequest
-			return "bad listener"
-		},
-	}
-	for name, setup := range cases {
-		t.Run(name, func(t *testing.T) {
-			api := newFakeTelemtAPI(t)
-			m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
-			var want string
-			api.set(func(f *fakeTelemtAPI) { want = setup(f) })
+// TestMarkerUserPerRender: every render carries exactly one disabled marker
+// user with a fresh name, the backend reports the current one, and the
+// marker never becomes a desired user.
+func TestMarkerUserPerRender(t *testing.T) {
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
 
-			err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)})
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("SyncUsers = %v, want an error containing %q", err, want)
-			}
-			if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
-				t.Errorf("desired = %q after a rejected reload, want u1", got)
-			}
-			if !m.process.Started() {
-				t.Error("a rejected reload stopped telemt")
-			}
-			// telemt watches the file: it must hold the confirmed users again.
-			data, err := os.ReadFile(api.configPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(data), "u1 = ") || strings.Contains(string(data), "u2 = ") {
-				t.Errorf("config after a rejected reload is not the previous user set:\n%s", data)
-			}
-		})
+	seen := map[string]bool{}
+	for _, users := range [][]*common.User{
+		{mtUser("u2", "mtproto", testSecret)},
+		{mtUser("u3", "mtproto", testSecret)},
+	} {
+		if err := m.SyncUsers(context.Background(), users); err != nil {
+			t.Fatalf("SyncUsers: %v", err)
+		}
+		config := readConfig(t, api.configPath)
+		markers := configMarkers(config)
+		if len(markers) != 1 || !markerUsernamePattern.MatchString(markers[0]) {
+			t.Fatalf("config markers = %q, want one pgm_<16 hex>", markers)
+		}
+		marker := markers[0]
+		if seen[marker] {
+			t.Errorf("marker %s was reused", marker)
+		}
+		seen[marker] = true
+		if got := m.markerUsername(); got != marker {
+			t.Errorf("markerUsername() = %q, want %q", got, marker)
+		}
+		if !strings.Contains(config, "[access.user_enabled]\n"+marker+" = false") {
+			t.Errorf("marker %s is not rendered disabled:\n%s", marker, config)
+		}
+		if slices.Contains(desiredNames(m), marker) {
+			t.Errorf("marker %s is in desired", marker)
+		}
+		if got := api.runtimeMarkers(); !slices.Equal(got, []string{marker}) {
+			t.Errorf("telemt markers = %q, want %q", got, marker)
+		}
 	}
 }
 
-func TestFullSyncRetriesReloadInProgress(t *testing.T) {
+// TestHotReloadWaitsForMarker: telemt applies a config some polls after the
+// write (its watcher or an earlier reload is still busy); the sync waits for
+// the marker instead of failing.
+func TestHotReloadWaitsForMarker(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
-	api.set(func(f *fakeTelemtAPI) {
-		f.reloadInProgress = 1
-		f.reloadPending = 2
-	})
+	api.set(func(f *fakeTelemtAPI) { f.reloadDelayPolls = 3 })
 
 	if err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", testSecret)}); err != nil {
 		t.Fatalf("SyncUsers: %v", err)
 	}
-	assertCalls(t, api.takeCalls(),
-		"POST /v1/system/reload", "POST /v1/system/reload",
-		"GET /v1/system/reload/1", "GET /v1/system/reload/1", "GET /v1/system/reload/1")
-	api.set(func(f *fakeTelemtAPI) {
-		for _, body := range f.reloadBodies {
-			if body != `{"mode":"instant","failure_policy":"rollback"}` {
-				t.Errorf("reload body = %s", body)
-			}
-		}
-	})
+	assertCalls(t, api.takeCalls(), "GET /v1/users", "GET /v1/users", "GET /v1/users", "GET /v1/users")
 	if got := desiredNames(m); !slices.Equal(got, []string{"u2"}) {
 		t.Errorf("desired = %q, want u2", got)
 	}
-	if runtime := api.runtimeUsers(); len(runtime) != 1 || runtime["u2"] == "" {
+	if runtime := api.realRuntimeUsers(); len(runtime) != 1 || runtime["u2"] == "" {
 		t.Errorf("telemt users = %v, want u2", runtime)
 	}
 }
 
-// TestFullSyncWithoutChangesSkipsReload: a reload cuts every telemt session,
-// so a full sync of the confirmed users sends nothing; once the state is
-// unconfirmed, the same sync reloads.
+// TestRejectedHotReloadRestoresPreviousUsers: telemt never loads the new
+// config (it rejected it), so the marker never reaches its running config.
+// The sync fails with telemt's last output, desired is unchanged, and the
+// previous users are rendered again with a new marker.
+func TestRejectedHotReloadRestoresPreviousUsers(t *testing.T) {
+	lowerMarkerConfirmTimeout(t, 600*time.Millisecond)
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+	m.process.startupTail.add("config reload rejected: bad listener")
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
+
+	err := m.SyncUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)})
+	if err == nil || !strings.Contains(err.Error(), "bad listener") {
+		t.Fatalf("SyncUsers = %v, want an error with telemt's last output", err)
+	}
+	if got := desiredNames(m); !slices.Equal(got, []string{"u1"}) {
+		t.Errorf("desired = %q after a rejected reload, want u1", got)
+	}
+	if !m.process.Started() {
+		t.Error("a rejected reload stopped telemt")
+	}
+
+	config := readConfig(t, api.configPath)
+	users := parseConfigUsers(config)
+	if users["u1"] != testSecret || users["u2"] != "" {
+		t.Errorf("config after a rejected reload is not the previous user set:\n%s", config)
+	}
+	var rejected string
+	api.set(func(f *fakeTelemtAPI) { rejected = f.rejectedConfig })
+	rejectedMarkers, restoredMarkers := configMarkers(rejected), configMarkers(config)
+	if len(rejectedMarkers) != 1 || len(restoredMarkers) != 1 || rejectedMarkers[0] == restoredMarkers[0] {
+		t.Errorf("markers: rejected %q, restored %q; want one each and a new one for the restore", rejectedMarkers, restoredMarkers)
+	}
+}
+
 func TestFullSyncWithoutChangesSkipsReload(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	users := []*common.User{mtUser("u1", "mtproto", testSecret), mtUser("u2", "mtproto", testSecret)}
@@ -535,10 +600,13 @@ func TestFullSyncWithoutChangesSkipsReload(t *testing.T) {
 	if err := m.SyncUsers(context.Background(), users); err != nil {
 		t.Fatalf("SyncUsers (unconfirmed): %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "POST /v1/system/reload", "GET /v1/system/reload/1")
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
 }
 
-func TestZeroUsersUsesSentinelPath(t *testing.T) {
+// TestLastRealUserGoesThroughAPI: the marker keeps telemt's user list
+// non-empty, so the last real user is deleted, and the first one created,
+// through the user API.
+func TestLastRealUserGoesThroughAPI(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
 	ctx := context.Background()
@@ -546,20 +614,32 @@ func TestZeroUsersUsesSentinelPath(t *testing.T) {
 	if err := m.UpdateUsers(ctx, []*common.User{untagged("u1")}); err != nil {
 		t.Fatalf("UpdateUsers to zero users: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "POST /v1/system/reload", "GET /v1/system/reload/1")
+	assertCalls(t, api.takeCalls(), "DELETE /v1/users/u1")
 	if got := desiredNames(m); len(got) != 0 {
 		t.Errorf("desired = %q, want none", got)
 	}
-	if runtime := api.runtimeUsers(); len(runtime) != 1 || runtime[m.sentinel.Username] == "" {
-		t.Errorf("telemt users = %v, want only the sentinel", runtime)
+	if runtime := api.realRuntimeUsers(); len(runtime) != 0 {
+		t.Errorf("telemt users = %v, want only the marker", runtime)
 	}
 
 	if err := m.SyncUser(ctx, mtUser("u2", "mtproto", testSecret)); err != nil {
 		t.Fatalf("SyncUser from zero users: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "POST /v1/system/reload", "GET /v1/system/reload/2")
-	if runtime := api.runtimeUsers(); len(runtime) != 1 || runtime["u2"] == "" {
-		t.Errorf("telemt users = %v, want only u2", runtime)
+	assertCalls(t, api.takeCalls(), "POST /v1/users")
+	if runtime := api.realRuntimeUsers(); len(runtime) != 1 || runtime["u2"] == "" {
+		t.Errorf("telemt users = %v, want u2", runtime)
+	}
+
+	// A full sync to zero users renders the marker alone.
+	if err := m.SyncUsers(ctx, nil); err != nil {
+		t.Fatalf("SyncUsers to zero users: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
+	if runtime := api.realRuntimeUsers(); len(runtime) != 0 {
+		t.Errorf("telemt users = %v, want only the marker", runtime)
+	}
+	if markers := api.runtimeMarkers(); len(markers) != 1 {
+		t.Errorf("telemt markers = %q, want one", markers)
 	}
 }
 
@@ -603,16 +683,16 @@ func TestOnlineIPListUsesBulkEndpoint(t *testing.T) {
 	}
 }
 
-// TestUnconfirmedReloadForcesFullApply: the caller gives up while telemt is
-// still reloading. telemt keeps running, desired keeps the confirmed users,
-// and the next sync renders and reloads everything instead of a diff.
+// TestUnconfirmedReloadForcesFullApply: the caller gives up before telemt
+// loaded the config. telemt keeps running, desired keeps the confirmed
+// users, and the next sync renders and reloads everything instead of a diff.
 func TestUnconfirmedReloadForcesFullApply(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	m := newSyncTestBackend(t, api, []*common.User{
 		mtUser("u1", "mtproto", testSecret),
 		mtUser("u2", "mtproto", testSecret),
 	})
-	api.set(func(f *fakeTelemtAPI) { f.reloadHang = true })
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
@@ -628,13 +708,16 @@ func TestUnconfirmedReloadForcesFullApply(t *testing.T) {
 	}
 	api.takeCalls()
 
-	api.set(func(f *fakeTelemtAPI) { f.reloadHang = false })
+	api.set(func(f *fakeTelemtAPI) { f.rejectReload = false })
 	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)}); err != nil {
 		t.Fatalf("UpdateUsers: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "POST /v1/system/reload", "GET /v1/system/reload/2")
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
 	if got := desiredNames(m); !slices.Equal(got, []string{"u1", "u2"}) {
 		t.Errorf("desired = %q, want u1, u2", got)
+	}
+	if runtime := api.realRuntimeUsers(); len(runtime) != 2 || runtime["u2"] != otherSecret {
+		t.Errorf("telemt users = %v, want u1 and the new u2", runtime)
 	}
 
 	// Confirmed again: the next small change is a diff.
@@ -655,8 +738,8 @@ func TestPartialFailureFallsBackToFullApply(t *testing.T) {
 	if err := m.UpdateUsers(context.Background(), []*common.User{mtUser("u2", "mtproto", otherSecret)}); err != nil {
 		t.Fatalf("UpdateUsers: %v", err)
 	}
-	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "POST /v1/system/reload", "GET /v1/system/reload/1")
-	if got := api.runtimeUsers()["u2"]; got != otherSecret {
+	assertCalls(t, api.takeCalls(), "PATCH /v1/users/u2", "GET /v1/users")
+	if got := api.realRuntimeUsers()["u2"]; got != otherSecret {
 		t.Errorf("telemt u2 secret = %q, want %q", got, otherSecret)
 	}
 	if got := desiredSecret(m, "u2"); got != otherSecret {
@@ -690,7 +773,8 @@ func TestRuntimeUserEqual(t *testing.T) {
 func TestAPIClientListUsersAndActiveIPs(t *testing.T) {
 	api := newFakeTelemtAPI(t)
 	api.set(func(f *fakeTelemtAPI) {
-		f.users = map[string]string{"u1": testSecret}
+		f.disk = map[string]string{"u1": testSecret, "u2": testSecret}
+		f.runtime = map[string]string{"u1": testSecret}
 		f.activeIPs = map[string][]string{"u1": {"203.0.113.7"}}
 	})
 	client := newAPIClient(api.server.URL, "Bearer test")
@@ -699,8 +783,12 @@ func TestAPIClientListUsersAndActiveIPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
-	if len(users) != 1 || users[0].Username != "u1" || !users[0].InRuntime {
-		t.Errorf("ListUsers = %+v", users)
+	inRuntime := map[string]bool{}
+	for _, user := range users {
+		inRuntime[user.Username] = user.InRuntime
+	}
+	if len(users) != 2 || !inRuntime["u1"] || inRuntime["u2"] {
+		t.Errorf("ListUsers = %+v, want u1 in runtime and u2 only on disk", users)
 	}
 
 	ips, err := client.ActiveIPs(context.Background())
