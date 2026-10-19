@@ -199,6 +199,7 @@ func (m *MTProto) startLocked(ctx context.Context) error {
 		m.process.Stop()
 		return m.startupError(err)
 	}
+	m.healthyAt = time.Now()
 
 	// A new telemt has fresh user admission state: no API write is pending.
 	m.apiSent = nil

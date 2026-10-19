@@ -54,6 +54,17 @@ type fakeTelemt struct {
 	DropUsers bool `json:"drop_users"`
 	// SignalFile gets one line per SIGHUP received.
 	SignalFile string `json:"signal_file"`
+	// SignalDelay makes the fake handle SIGHUP only this long after it binds
+	// its API, like telemt, whose config watcher installs the handler after
+	// the API is up; a SIGHUP before that ends the fake.
+	SignalDelay time.Duration `json:"signal_delay"`
+	// WatchConfig plays telemt's config watcher. Once the API is up it reads
+	// the config file, spends WatchSetup setting up its watches, then loads
+	// the file if that first read differed from the running config, and
+	// every later change. Like telemt's, it misses a change made while it
+	// sets up: the watches start from the file as it is then.
+	WatchConfig bool          `json:"watch_config"`
+	WatchSetup  time.Duration `json:"watch_setup"`
 	// Lifetime bounds the fake so a broken test never leaves it running.
 	Lifetime time.Duration `json:"lifetime"`
 }
@@ -95,7 +106,14 @@ func runFakeTelemt(optionsPath string, args []string) int {
 	}
 
 	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
+	if f.SignalDelay > 0 {
+		go func() {
+			time.Sleep(f.HealthDelay + f.SignalDelay)
+			signal.Notify(hup, syscall.SIGHUP)
+		}()
+	} else {
+		signal.Notify(hup, syscall.SIGHUP)
+	}
 
 	var configPath string
 	if len(args) > 0 {
@@ -138,6 +156,9 @@ func runFakeTelemt(optionsPath string, args []string) int {
 	if !f.NoAPI && configPath != "" {
 		go serveFakeTelemtAPI(f, configPath, runtime)
 	}
+	if f.WatchConfig && configPath != "" {
+		go watchFakeTelemtConfig(f, configPath, runtime)
+	}
 
 	lifetime := f.Lifetime
 	if lifetime <= 0 {
@@ -167,8 +188,9 @@ func runFakeTelemt(optionsPath string, args []string) int {
 
 // fakeTelemtRuntime holds the users of the fake's running config.
 type fakeTelemtRuntime struct {
-	mu    sync.Mutex
-	users map[string]string
+	mu      sync.Mutex
+	users   map[string]string
+	content string // the config file content users were loaded from
 }
 
 // load reads the users of the config file into the running config, as a
@@ -181,6 +203,33 @@ func (r *fakeTelemtRuntime) load(configPath string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.users = parseConfigUsers(string(data))
+	r.content = string(data)
+}
+
+func (r *fakeTelemtRuntime) loaded() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.content
+}
+
+// watchFakeTelemtConfig plays telemt's config watcher; see
+// fakeTelemt.WatchConfig.
+func watchFakeTelemtConfig(f fakeTelemt, configPath string, runtime *fakeTelemtRuntime) {
+	time.Sleep(f.HealthDelay)
+	first, _ := os.ReadFile(configPath)
+	time.Sleep(f.WatchSetup)
+	watched, _ := os.ReadFile(configPath)
+	if string(first) != runtime.loaded() {
+		runtime.load(configPath)
+	}
+	for {
+		time.Sleep(50 * time.Millisecond)
+		current, err := os.ReadFile(configPath)
+		if err == nil && string(current) != string(watched) {
+			watched = current
+			runtime.load(configPath)
+		}
+	}
 }
 
 func (r *fakeTelemtRuntime) has(username string) bool {
@@ -363,4 +412,14 @@ func lowerStartupTimeout(t *testing.T, timeout time.Duration) {
 	previous := telemtStartupTimeout
 	telemtStartupTimeout = timeout
 	t.Cleanup(func() { telemtStartupTimeout = previous })
+}
+
+// lowerSignalGrace sets telemtSignalGrace for one test, so a fake telemt
+// without a config watcher gets the SIGHUP of a sync right after its start.
+// Register it before the backend's Shutdown cleanup.
+func lowerSignalGrace(t *testing.T, grace time.Duration) {
+	t.Helper()
+	previous := telemtSignalGrace
+	telemtSignalGrace = grace
+	t.Cleanup(func() { telemtSignalGrace = previous })
 }

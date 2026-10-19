@@ -370,6 +370,7 @@ func TestCancelledSyncKeepsTelemtRunning(t *testing.T) {
 // and returns once the render's marker user is in telemt's running config.
 // This fake has no config watcher, so only the signal can confirm it.
 func TestFullSyncSignalsTelemt(t *testing.T) {
+	lowerSignalGrace(t, 0)
 	signals := filepath.Join(t.TempDir(), "signals")
 	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, SignalFile: signals})
 	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
@@ -394,6 +395,62 @@ func TestFullSyncSignalsTelemt(t *testing.T) {
 // answer (markerUnreachablePolls polls in a row) while the node waits for a
 // reload, the node restarts telemt on the new config, and that start
 // confirms it.
+// telemt installs its SIGHUP handler with its config watcher, after its API
+// is up, and a SIGHUP before that ends it. A sync right after the start must
+// leave the reload to the watcher instead of killing telemt.
+func TestSyncRightAfterStartDoesNotSignalTelemt(t *testing.T) {
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, WatchConfig: true, SignalDelay: time.Second, SignalFile: signals})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if data, _ := os.ReadFile(signals); len(data) != 0 {
+		t.Errorf("telemt got a SIGHUP right after its start (signal log %q)", data)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// telemt's config watcher misses a render written while it sets itself up
+// right after the start, and only SIGHUP makes telemt load it then. The
+// node sends it once telemtSignalGrace has passed.
+func TestRenderMissedByWatcherGetsSIGHUPAfterGrace(t *testing.T) {
+	lowerSignalGrace(t, 1500*time.Millisecond)
+	lowerMarkerConfirmTimeout(t, 10*time.Second)
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{
+		ServeUsers:  true,
+		WatchConfig: true,
+		WatchSetup:  600 * time.Millisecond,
+		SignalDelay: 700 * time.Millisecond,
+		SignalFile:  signals,
+	})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if data, _ := os.ReadFile(signals); strings.Count(string(data), "SIGHUP") != 1 {
+		t.Errorf("signal log %q, want one SIGHUP", data)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
 func TestUsersAPIUnreachableRestartsTelemt(t *testing.T) {
 	exe := writeFakeTelemt(t, fakeTelemt{DropUsers: true})
 	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})

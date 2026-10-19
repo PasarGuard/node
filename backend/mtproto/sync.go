@@ -288,7 +288,7 @@ func (m *MTProto) restoreLocked(ctx context.Context) error {
 	if err := m.writeRenderedConfigLocked(m.desired); err != nil {
 		return err
 	}
-	if err := m.process.Reload(); err != nil {
+	if err := m.signalReloadLocked(); err != nil {
 		log.Printf("warning: %v", err)
 	}
 	return nil

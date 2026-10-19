@@ -38,6 +38,9 @@ type MTProto struct {
 	// apiSent holds the users written through telemt's user API since the
 	// last confirmed render or telemt start. Guarded by syncMu.
 	apiSent map[string]apiWrite
+	// healthyAt is when the running telemt's API first answered. Guarded by
+	// syncMu.
+	healthyAt time.Time
 
 	// stateMu guards desired and marker for readers; writers also hold
 	// syncMu. desired holds only users telemt confirmed it runs. marker is
