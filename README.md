@@ -32,6 +32,9 @@ The MTProto backend runs [telemt](https://github.com/telemt/telemt) as a separat
 - Set `TELEMT_EXECUTABLE_PATH` to use another binary.
 - Outside Docker, `make install_telemt` installs the pinned release after checking it against the SHA256 pinned in the `Makefile`.
 - telemt needs outbound access to Telegram. On start it checks the Telegram data centers, which can take up to a minute.
+- Start can take up to 90 s while telemt probes Telegram, and the panel's retry attaches to the backend that is starting or running.
+- Above 4096 users with stats or configured users, telemt stops its per-user series and the node bills from telemt's API totals, reported as downlink (no uplink and downlink split).
+- telemt refuses a config file above 8 MiB, which is roughly 150k to 190k users on one node.
 
 ## Xray and MTProto on one host
 One node runs one backend, so serving Xray (or WireGuard) and MTProto from one server takes two node instances, each added to the panel as its own node:

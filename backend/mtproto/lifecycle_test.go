@@ -391,10 +391,6 @@ func TestFullSyncSignalsTelemt(t *testing.T) {
 	}
 }
 
-// TestUsersAPIUnreachableRestartsTelemt: when telemt's API keeps getting no
-// answer (markerUnreachablePolls polls in a row) while the node waits for a
-// reload, the node restarts telemt on the new config, and that start
-// confirms it.
 // telemt installs its SIGHUP handler with its config watcher, after its API
 // is up, and a SIGHUP before that ends it. A sync right after the start must
 // leave the reload to the watcher instead of killing telemt.
@@ -451,6 +447,10 @@ func TestRenderMissedByWatcherGetsSIGHUPAfterGrace(t *testing.T) {
 	}
 }
 
+// TestUsersAPIUnreachableRestartsTelemt: when telemt's API keeps getting no
+// answer (markerUnreachablePolls polls in a row) while the node waits for a
+// reload, the node restarts telemt on the new config, and that start
+// confirms it.
 func TestUsersAPIUnreachableRestartsTelemt(t *testing.T) {
 	exe := writeFakeTelemt(t, fakeTelemt{DropUsers: true})
 	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
