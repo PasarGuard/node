@@ -23,7 +23,8 @@ const (
 	metricConnectionsCurrent = "telemt_user_connections_current"
 	metricUniqueIPsCurrent   = "telemt_user_unique_ips_current"
 	// metricUserSeriesSuppressed is above 0 when telemt left users out of
-	// the per-user series: it exports them for at most 4096 users.
+	// the per-user series: it exports them for at most 4096 users with
+	// stats, and unique-IP series for at most 4096 configured users.
 	metricUserSeriesSuppressed = "telemt_telemetry_user_series_suppressed"
 )
 

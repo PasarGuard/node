@@ -330,40 +330,42 @@ func TestSuppressedSeriesSwitchToAPITotals(t *testing.T) {
 	}
 
 	// More users than telemt exports series for: u1's series are gone (or
-	// stale), and its total comes from the user list.
+	// stale), and its total comes from the user list. u1 moved 50 more
+	// bytes since the last scrape; they count as downlink.
 	server.set(func(f *fakeStatsServer) {
 		f.suppressed = 3
 		f.metrics = map[string]userMetrics{"u9": traffic(1, 1)}
 		f.apiUsers = []telemtUserInfo{
-			{Username: "u1", TotalOctets: 400},
+			{Username: "u1", TotalOctets: 450},
 			{Username: testMarker, TotalOctets: 999},
 		}
 	})
-	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {50, 50}})
+	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {50, 100}})
 
 	server.set(func(f *fakeStatsServer) { f.apiUsers[0].TotalOctets = 500 })
-	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {0, 100}})
+	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {0, 50}})
 	poll(common.StatType_Outbounds, &outbound, map[string]counters{"mtproto": {0, 100}})
 	usersCalls := server.callCount("/v1/users")
 	if usersCalls != 3 {
 		t.Errorf("%d user list calls in API-totals mode, want 3", usersCalls)
 	}
 
+	// Back to per-user metrics, 30 bytes past the last total of 500.
 	server.set(func(f *fakeStatsServer) {
 		f.suppressed = 0
-		f.metrics = map[string]userMetrics{"u1": traffic(200, 300)}
+		f.metrics = map[string]userMetrics{"u1": traffic(210, 320)}
 	})
-	poll(common.StatType_UsersStat, &users, map[string]counters{})
-	server.set(func(f *fakeStatsServer) { f.metrics["u1"] = traffic(210, 320) })
+	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {0, 30}})
+	server.set(func(f *fakeStatsServer) { f.metrics["u1"] = traffic(220, 340) })
 	poll(common.StatType_UsersStat, &users, map[string]counters{"u1": {10, 20}})
-	poll(common.StatType_Outbounds, &outbound, map[string]counters{"mtproto": {10, 20}})
+	poll(common.StatType_Outbounds, &outbound, map[string]counters{"mtproto": {10, 50}})
 	if got := server.callCount("/v1/users"); got != usersCalls {
 		t.Errorf("%d user list calls after per-user metrics came back, want %d", got, usersCalls)
 	}
 
-	// Every byte telemt counted (210+320) is billed once per family.
-	if users.Up+users.Down != 530 || outbound.Up+outbound.Down != 530 {
-		t.Errorf("billed users %v, outbound %v; want 530 bytes each", users, outbound)
+	// Every byte telemt counted (220+340) is billed once per family.
+	if users != (counters{160, 400}) || outbound != (counters{160, 400}) {
+		t.Errorf("billed users %v, outbound %v; want {160 400} each", users, outbound)
 	}
 }
 

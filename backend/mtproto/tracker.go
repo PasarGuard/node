@@ -29,8 +29,9 @@ const (
 	// direction.
 	sourceMetrics counterSource = iota
 	// sourceAPITotals is total_octets from GET /v1/users, used while telemt
-	// suppresses per-user series (more than 4096 users with stats). It sums
-	// both directions, so it is reported as downlink with uplink 0.
+	// suppresses per-user series (more than 4096 users with stats or
+	// configured users). It sums both directions, so it is reported as
+	// downlink with uplink 0.
 	sourceAPITotals
 )
 
@@ -115,9 +116,7 @@ func (t *trafficTracker) Apply(s trafficSnapshot) {
 			// A new telemt process counts from zero, whichever source.
 			entry.carryPending(counters{})
 		case entry.Source != s.Source:
-			// The new source counts the same traffic differently: keep only
-			// what was pending.
-			entry.carryPending(sample)
+			entry.carryAcrossSource(sample)
 		case sample.Up < entry.Current.Up || sample.Down < entry.Current.Down:
 			// telemt dropped the user's stats after 24 h idle and counts
 			// from zero again.
@@ -151,11 +150,26 @@ func (t *trafficTracker) Apply(s trafficSnapshot) {
 
 func logSourceChange(source counterSource) {
 	if source == sourceAPITotals {
-		log.Println("mtproto: telemt suppresses per-user metrics (more than 4096 users with stats); " +
+		log.Println("mtproto: telemt suppresses per-user metrics (more than 4096 users with stats or configured users); " +
 			"counting traffic from its user API totals, reported as downlink")
 		return
 	}
 	log.Println("mtproto: telemt exports per-user metrics again; counting traffic from them")
+}
+
+// carryAcrossSource rebases every family onto sample from the other source.
+// Both sources count the same telemt stats entry (total_octets is
+// octets_from_client + octets_to_client), so the bytes counted since the
+// last sample are known as a total: they are credited as downlink.
+func (e *trafficEntry) carryAcrossSource(sample counters) {
+	increment := sample.Up + sample.Down - (e.Current.Up + e.Current.Down)
+	if increment < 0 {
+		// telemt dropped the stats entry in between and counts from zero
+		// again.
+		e.carryPending(counters{})
+		return
+	}
+	e.carryPending(counters{Up: sample.Up, Down: sample.Down - increment})
 }
 
 // carryPending rebases every family onto a counter that now stands at start,

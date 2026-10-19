@@ -135,26 +135,74 @@ func TestCounterDecreaseCarriesPending(t *testing.T) {
 	assertTraffic(t, tr.UsersStats("mtproto", false), map[string]counters{"alice": {10, 7}})
 }
 
-// TestSourceChangeReseeds: API totals sum both directions, so switching
-// sources must neither bill a counter twice nor lose what was pending.
-func TestSourceChangeReseeds(t *testing.T) {
+// TestSourceSwitchCarriesBoundaryTraffic: both sources count the same telemt
+// stats entry (total_octets is from + to), so the bytes counted between the
+// last sample of one source and the first of the other are billed once, as
+// downlink, in every family.
+func TestSourceSwitchCarriesBoundaryTraffic(t *testing.T) {
+	tr := newTrafficTracker()
+	var users, outbound counters
+	poll := func(resp *common.StatResponse, total *counters, want map[string]counters) {
+		t.Helper()
+		assertTraffic(t, resp, want)
+		for _, got := range trafficByName(t, resp) {
+			*total = total.plus(got)
+		}
+	}
+
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(100, 200)}))
+	poll(tr.UsersStats("mtproto", true), &users, map[string]counters{"u1": {100, 200}})
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(150, 250)}))
+	poll(tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), &outbound, map[string]counters{"mtproto": {150, 250}})
+
+	// Metrics to API totals, 50 bytes past 150+250.
+	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 450)}))
+	poll(tr.UsersStats("mtproto", true), &users, map[string]counters{"u1": {50, 100}})
+
+	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 500)}))
+	poll(tr.UsersStats("mtproto", true), &users, map[string]counters{"u1": {0, 50}})
+	poll(tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), &outbound, map[string]counters{"mtproto": {0, 100}})
+
+	// API totals to metrics, 30 bytes past 500.
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(210, 320)}))
+	poll(tr.UsersStats("mtproto", true), &users, map[string]counters{"u1": {0, 30}})
+
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(220, 340)}))
+	poll(tr.UsersStats("mtproto", true), &users, map[string]counters{"u1": {10, 20}})
+	poll(tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), &outbound, map[string]counters{"mtproto": {10, 50}})
+
+	if users != (counters{160, 400}) || outbound != (counters{160, 400}) {
+		t.Errorf("billed users %v, outbound %v; want {160 400} (220+340 bytes) each", users, outbound)
+	}
+}
+
+// TestSourceSwitchAfterEvictionCountsFromZero: a total below the last
+// sample means telemt dropped the stats entry in between and counts from
+// zero again.
+func TestSourceSwitchAfterEvictionCountsFromZero(t *testing.T) {
 	tr := newTrafficTracker()
 	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(100, 200)}))
 	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {100, 200}})
-	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(150, 250)}))
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(120, 230)}))
 
-	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 400)}))
-	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {50, 50}})
+	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 40)}))
+	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {20, 70}})
+	assertTraffic(t, tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), map[string]counters{"mtproto": {120, 270}})
 
-	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 500)}))
-	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {0, 100}})
+	// The other direction: metrics below the last API total.
+	tr.Apply(apiSnapshot(1, map[string]userMetrics{"u1": traffic(0, 90)}))
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(5, 15)}))
+	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {5, 65}})
+	assertTraffic(t, tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), map[string]counters{"mtproto": {5, 65}})
+}
 
-	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(200, 300)}))
-	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{})
-
-	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(210, 320)}))
-	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {10, 20}})
-	assertTraffic(t, tr.AggregateStats(familyOutbound, "mtproto", "mtproto", true), map[string]counters{"mtproto": {160, 370}})
+// TestGenerationChangeBeatsSourceChange: a new telemt counts from zero, so
+// the whole first sample is new traffic, whatever the source.
+func TestGenerationChangeBeatsSourceChange(t *testing.T) {
+	tr := newTrafficTracker()
+	tr.Apply(metricsSnapshot(1, map[string]userMetrics{"u1": traffic(100, 200)}))
+	tr.Apply(apiSnapshot(2, map[string]userMetrics{"u1": traffic(0, 400)}))
+	assertTraffic(t, tr.UsersStats("mtproto", true), map[string]counters{"u1": {100, 600}})
 }
 
 // TestAbsentEntryIsKeptUntilTelemtForgetsIt: telemt keeps a removed user's
