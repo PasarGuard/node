@@ -4,21 +4,26 @@ package xray
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	statsCommand "github.com/xtls/xray-core/app/stats/command"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/pasarguard/node/backend/xray/api"
+	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/logstream"
+	"github.com/pasarguard/node/pkg/netutil"
 )
 
 // fakeStatsService stands in for xray's StatsService. GetSysStats fails like a
@@ -94,6 +99,12 @@ func newFakeCoreXray(t *testing.T, stats *fakeStatsService) *Xray {
 	return &Xray{config: cfg, cfg: &config.Config{}, core: core, handler: handler, cancelFunc: cancel}
 }
 
+func corePID(x *Xray) int {
+	x.core.mu.Lock()
+	defer x.core.mu.Unlock()
+	return x.core.processPID
+}
+
 func waitUntil(t *testing.T, what string, condition func() bool) {
 	t.Helper()
 
@@ -159,5 +170,155 @@ func TestHealthLoopStopsWhenCancelledDuringAProbe(t *testing.T) {
 	}
 	if x.core.Started() {
 		t.Fatal("the health loop restarted xray after its context was cancelled")
+	}
+}
+
+func TestHealthRestartLeavesACoreThatAFullSyncReplaced(t *testing.T) {
+	stats := &fakeStatsService{probes: make(chan struct{}, 1)}
+	x := newFakeCoreXray(t, stats)
+
+	// A full sync holds syncMu while its candidate core boots.
+	x.syncMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go x.checkXrayHealth(ctx)
+
+	select {
+	case <-stats.probes:
+	case <-time.After(5 * time.Second):
+		x.syncMu.Unlock()
+		t.Fatal("the health loop sent no probe")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if x.core.Started() {
+		x.syncMu.Unlock()
+		t.Fatal("the health loop restarted xray while a full sync held syncMu")
+	}
+
+	// The sync's core comes up and answers, then the sync releases syncMu.
+	if err := x.restartCoreWithConfig(x.config); err != nil {
+		x.syncMu.Unlock()
+		t.Fatal(err)
+	}
+	pid := corePID(x)
+	stats.healthy.Store(true)
+	x.syncMu.Unlock()
+
+	time.Sleep(500 * time.Millisecond)
+	if got := corePID(x); got != pid {
+		t.Fatalf("the health loop restarted the core the full sync had just started (pid %d, now %d)", pid, got)
+	}
+}
+
+func realXrayUsers(n int, inbounds []string) []*common.User {
+	users := make([]*common.User, 0, n)
+	for i := range n {
+		users = append(users, &common.User{
+			Email:    strconv.Itoa(i + 1),
+			Inbounds: inbounds,
+			Proxies: &common.Proxy{
+				Vmess:  &common.Vmess{Id: uuid.NewString()},
+				Vless:  &common.Vless{Id: uuid.NewString()},
+				Trojan: &common.Trojan{Password: "trojan-" + strconv.Itoa(i)},
+			},
+		})
+	}
+	return users
+}
+
+func realXrayConfig(t *testing.T, tags []string) *Config {
+	t.Helper()
+
+	inbounds := make([]map[string]any, 0, len(tags))
+	for _, tag := range tags {
+		settings := map[string]any{"clients": []any{}}
+		if tag == Vless {
+			settings["decryption"] = "none"
+		}
+		inbounds = append(inbounds, map[string]any{
+			"tag":      tag,
+			"listen":   "127.0.0.1",
+			"port":     netutil.FindFreePort(),
+			"protocol": tag,
+			"settings": settings,
+		})
+	}
+	raw, err := json.Marshal(map[string]any{
+		"log":       map[string]any{"loglevel": "warning"},
+		"inbounds":  inbounds,
+		"outbounds": []any{map[string]any{"protocol": "freedom", "tag": "DIRECT"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := NewConfig(string(raw), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// Removals sent while xray boots after a restart used to fail against the
+// booting core and be dropped, while the new core, built from the user list
+// before the removal, kept the users live.
+func TestRestartHoldsUserSyncsUntilTheXrayAPIIsUp(t *testing.T) {
+	executable := resolveXrayBinary(t)
+	tags := []string{Vless, Vmess, Trojan}
+	users := realXrayUsers(1000, tags)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	nodeCfg := &config.Config{
+		XrayExecutablePath:  executable,
+		XrayAssetsPath:      assetsPath,
+		GeneratedConfigPath: t.TempDir(),
+		LogBufferSize:       1000,
+	}
+	x, err := New(ctx, realXrayConfig(t, tags), users, netutil.FindFreePort(), netutil.FindFreePort(), nodeCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(x.Shutdown)
+
+	pid := corePID(x)
+	restartErr := make(chan error, 1)
+	go func() { restartErr <- x.Restart() }()
+	waitUntil(t, "the restart spawns a new xray", func() bool {
+		current := corePID(x)
+		return current != 0 && current != pid
+	})
+
+	// The panel disables users while the new core boots: they are sent with no inbounds.
+	removed := make([]*common.User, 0, 51)
+	for _, user := range users[:51] {
+		removed = append(removed, &common.User{Email: user.Email, Proxies: user.Proxies})
+	}
+	if err := x.UpdateUsers(ctx, removed[:50]); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.SyncUser(ctx, removed[50]); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-restartErr; err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the xray API answers", func() bool {
+		probeCtx, probeCancel := context.WithTimeout(ctx, time.Second)
+		defer probeCancel()
+		_, err := x.GetSysStats(probeCtx)
+		return err == nil
+	})
+
+	// Xray's RemoveUser returns nil only for a user it still has.
+	live := 0
+	for _, user := range removed {
+		for _, tag := range tags {
+			if x.handler.RemoveInboundUser(ctx, tag, user.GetEmail()) == nil {
+				live++
+			}
+		}
+	}
+	if live > 0 {
+		t.Fatalf("%d of %d removed user-inbound pairs are still accepted by xray", live, len(removed)*len(tags))
 	}
 }

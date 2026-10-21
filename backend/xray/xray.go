@@ -3,6 +3,7 @@ package xray
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	"github.com/pasarguard/node/config"
 )
 
+// Lock order: syncMu, then mu, then core.mu. syncMu serializes user syncs and
+// restarts; Shutdown takes only mu, so it never waits for a sync.
 type Xray struct {
 	config     *Config
 	cfg        *config.Config
@@ -26,6 +29,10 @@ type Xray struct {
 }
 
 var errXrayShutdown = errors.New("xray backend is shut down")
+
+// restartReadyTimeout bounds how long a restart holds syncMu waiting for the
+// new core's API.
+const restartReadyTimeout = 30 * time.Second
 
 func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort, metricPort int, cfg *config.Config) (*Xray, error) {
 	executableAbsolutePath, err := filepath.Abs(cfg.XrayExecutablePath)
@@ -134,8 +141,31 @@ func (x *Xray) Started() bool {
 	return x.core.Started()
 }
 
+// Restart restarts the core from the current config and waits until its API
+// answers.
 func (x *Xray) Restart() error {
-	return x.restartCoreWithConfig(x.config)
+	x.syncMu.Lock()
+	defer x.syncMu.Unlock()
+
+	return x.restartLocked(context.Background())
+}
+
+// restartLocked restarts the core from x.config and waits until its API
+// answers. The caller holds syncMu for the whole restart, so a user sync sent
+// meanwhile waits for the new core. Against a core that is still booting, a
+// removal fails, while the new core, built from x.config before the removal,
+// keeps the user.
+func (x *Xray) restartLocked(ctx context.Context) error {
+	if err := x.restartCoreWithConfig(x.config); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, restartReadyTimeout)
+	defer cancel()
+	if err := x.checkXrayStatus(ctx); err != nil {
+		return fmt.Errorf("xray API not ready within %s after restart: %w", restartReadyTimeout, err)
+	}
+	return nil
 }
 
 func (x *Xray) restartCoreWithConfig(config *Config) error {

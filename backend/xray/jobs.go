@@ -87,16 +87,39 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 	maxFailures := 10 // Give Xray API time to recover under load before restarting.
 	checkInterval := 2 * time.Second
 
+	probe := func() error {
+		ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
+		defer cancel()
+		_, err := x.GetSysStats(ctx)
+		return err
+	}
+
 	restart := func(reason string) {
+		// Lock order: syncMu, then mu, then core.mu, as in the user syncs.
+		// syncMu keeps user syncs off the new core until its API answers.
+		x.syncMu.Lock()
+		defer x.syncMu.Unlock()
+
+		// A full sync may have replaced the core while this restart waited
+		// for syncMu: leave a core that answers alone.
+		if x.Started() && probe() == nil {
+			log.Println("xray answers again, health restart skipped")
+			consecutiveFailures = 0
+			return
+		}
+
 		log.Println(reason)
 		if tail := x.core.RuntimeLogTail(10); len(tail) > 0 {
 			log.Printf("last %d xray log lines before restart:\n%s", len(tail), strings.Join(tail, "\n"))
 		}
-		if err := x.Restart(); err != nil {
+		// Count from zero for the new core even if it is not ready yet, so a
+		// core still booting after restartReadyTimeout gets maxFailures more
+		// probes before the next restart.
+		consecutiveFailures = 0
+		if err := x.restartLocked(baseCtx); err != nil {
 			log.Println(err.Error())
 		} else {
 			log.Println("xray restarted")
-			consecutiveFailures = 0
 		}
 	}
 
@@ -111,11 +134,7 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 				continue
 			}
 
-			ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
-			_, err := x.GetSysStats(ctx)
-			cancel()
-
-			if err != nil {
+			if err := probe(); err != nil {
 				// Shutdown cancels baseCtx. Check it directly: GetSysStats
 				// re-wraps the cancelled call as a gRPC status, which
 				// errors.Is(err, context.Canceled) does not match.

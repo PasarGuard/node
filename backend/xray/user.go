@@ -224,6 +224,12 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	proxySetting, err := setupUserAccount(user)
 	if err != nil {
 		return err
@@ -275,6 +281,12 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 func (x *Xray) SyncUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	candidate, err := x.config.Clone()
 	if err != nil {
@@ -330,6 +342,12 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
 	var errMessage strings.Builder
@@ -381,6 +399,12 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 func (x *Xray) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	candidate, err := x.config.Clone()
 	if err != nil {
