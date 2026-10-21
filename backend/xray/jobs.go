@@ -116,7 +116,10 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 			cancel()
 
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
+				// Shutdown cancels baseCtx. Check it directly: GetSysStats
+				// re-wraps the cancelled call as a gRPC status, which
+				// errors.Is(err, context.Canceled) does not match.
+				if baseCtx.Err() != nil {
 					return
 				}
 

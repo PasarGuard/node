@@ -131,3 +131,33 @@ func TestSyncUsersDoesNotStartXrayAfterShutdown(t *testing.T) {
 		t.Fatal("SyncUsers still running 10s after Shutdown")
 	}
 }
+
+func TestHealthLoopStopsWhenCancelledDuringAProbe(t *testing.T) {
+	stats := &fakeStatsService{block: true, probes: make(chan struct{}, 1)}
+	x := newFakeCoreXray(t, stats)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		x.checkXrayHealth(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-stats.probes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the health loop sent no probe")
+	}
+	// Shutdown cancels the health context while the probe is in flight.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("the health loop still runs 1s after its context was cancelled (xray restarted: %v)", x.core.Started())
+	}
+	if x.core.Started() {
+		t.Fatal("the health loop restarted xray after its context was cancelled")
+	}
+}
