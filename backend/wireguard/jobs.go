@@ -43,6 +43,12 @@ func (wg *WireGuard) updateConnectedPeers(ctx context.Context) {
 	default:
 	}
 
+	// A sync that re-creates peers marks their counter reset in the tracker. Holding syncMu
+	// from the device read to the tracker update keeps a sample read before such a reset
+	// from being applied after the mark, which would count the old counter twice.
+	wg.syncMu.Lock()
+	defer wg.syncMu.Unlock()
+
 	wg.mu.RLock()
 	mgr := wg.manager
 	cfg := wg.config

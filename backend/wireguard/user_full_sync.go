@@ -40,9 +40,11 @@ func (wg *WireGuard) syncUsersFull(users []*common.User) error {
 	}
 
 	var validTargetPeers []*PeerInfo
+	resetKeys := make([]string, 0, len(appliedKeys))
 	for key, peer := range diff.TargetPeers {
 		if _, ok := appliedKeys[key]; ok {
 			validTargetPeers = append(validTargetPeers, peer)
+			resetKeys = append(resetKeys, peer.PublicKey.String())
 		}
 	}
 
@@ -50,6 +52,8 @@ func (wg *WireGuard) syncUsersFull(users []*common.User) error {
 	for _, key := range removedKeys {
 		wg.statsTracker.RemoveStats(key)
 	}
+	// ReplacePeers re-created every applied peer, so their counters restarted at zero.
+	wg.statsTracker.MarkCounterReset(resetKeys)
 
 	return nil
 }
