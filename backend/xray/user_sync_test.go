@@ -296,3 +296,37 @@ func TestUpdateUsersRetriesAnAddThatFailed(t *testing.T) {
 	}
 	assertOperations(t, service.take(), operations(removed("vless", "vmess", "ss", "ss2022", "hysteria")...))
 }
+
+const recordingInboundsWithoutUsers = `{"inbounds":[
+	{"tag":"vless","protocol":"vless","settings":{"clients":[],"decryption":"none"}},
+	{"tag":"tunnel","protocol":"dokodemo-door","settings":{"address":"127.0.0.1","port":80}},
+	{"tag":"socks","protocol":"socks","settings":{"auth":"noauth"}},
+	{"tag":"http","protocol":"http","settings":{}}
+]}`
+
+func TestUserSyncsSkipInboundsThatCannotHoldUsers(t *testing.T) {
+	x, service := newRecordingXray(t)
+	ctx := syncContext(t)
+
+	cfg, err := NewConfig(recordingInboundsWithoutUsers, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ApplyAPI adds the node's own API_INBOUND (dokodemo-door).
+	if err := cfg.ApplyAPI(10085, 10086); err != nil {
+		t.Fatal(err)
+	}
+	x.config = cfg
+
+	alice := recordingUser("1.alice", "vless")
+	bob := recordingUser("2.bob")
+	if err := x.UpdateUsers(ctx, []*common.User{alice, bob}); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "vless:add", "vless:remove"))
+
+	if err := x.SyncUser(ctx, bob); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove"))
+}

@@ -73,10 +73,23 @@ type inboundUpdate struct {
 	removeEmailSet map[string]struct{}
 }
 
+// canHoldUsers reports whether the node manages users on this inbound. The
+// node never adds users to other protocols (dokodemo-door, socks, http, its
+// own API_INBOUND), so removing a user from them is a wasted Xray API call.
+// The list must match the protocols handled by isActiveInbound, syncUsers,
+// updateUsers and the ToBytes switch; change them together.
+func (i *Inbound) canHoldUsers() bool {
+	switch i.Protocol {
+	case Vmess, Vless, Trojan, Shadowsocks, Hysteria, Wireguard:
+		return true
+	}
+	return false
+}
+
 func (c *Config) buildInboundUpdates(users []*common.User) (map[string]*Inbound, map[string]*inboundUpdate) {
 	inboundByTag := make(map[string]*Inbound)
 	for _, inbound := range c.InboundConfigs {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
 			continue
 		}
 		inboundByTag[inbound.Tag] = inbound

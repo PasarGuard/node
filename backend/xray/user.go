@@ -243,7 +243,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	userInbounds := user.GetInbounds()
 
 	for _, inbound := range inbounds {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
 			continue
 		}
 
