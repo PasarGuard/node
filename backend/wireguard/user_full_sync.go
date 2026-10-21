@@ -1,6 +1,7 @@
 package wireguard
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pasarguard/node/common"
@@ -34,6 +35,9 @@ func (wg *WireGuard) syncUsersFull(users []*common.User) error {
 	}
 	manager := wg.manager
 	wg.mu.RUnlock()
+
+	// ReplacePeers destroys every counter: count the traffic since the last stats tick first.
+	wg.samplePeersLocked(context.Background(), true)
 
 	if err := manager.ApplyPeersReplaceAll(peerConfigs); err != nil {
 		return fmt.Errorf("failed to apply full peer snapshot: %w", err)

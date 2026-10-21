@@ -74,6 +74,23 @@ func (k *counterKernel) move(t *testing.T, publicKey string, n int64) {
 	peer.LastHandshakeTime = time.Now()
 }
 
+// ageHandshake moves a peer's last handshake into the past, as between WireGuard rekeys.
+func (k *counterKernel) ageHandshake(t *testing.T, publicKey string, age time.Duration) {
+	t.Helper()
+	key, err := wgtypes.ParseKey(publicKey)
+	if err != nil {
+		t.Fatalf("parse key: %v", err)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	peer, exists := k.peers[key]
+	if !exists {
+		t.Fatalf("peer %s is not in the kernel", publicKey)
+	}
+	peer.LastHandshakeTime = time.Now().Add(-age)
+}
+
 func newCounterTestWG(t *testing.T, client wgClient) *WireGuard {
 	t.Helper()
 	privateKey, _, err := GenerateKeyPair()
@@ -114,7 +131,8 @@ func counterTestUser(email, publicKey, peerIP string) *common.User {
 // Every way the node re-creates a kernel peer (full sync ReplacePeers, Restart, remove then
 // re-add before or after a stats pull) restarts its counters at zero. The traffic counted on
 // both sides of each reset must reach the panel exactly once, including a new counter that
-// already passed the old one when it is first sampled.
+// already passed the old one when it is first sampled, and traffic moved since the last stats
+// tick right before a ReplacePeers.
 func TestPeerCounterResetsReportEachByteOnce(t *testing.T) {
 	ctx := context.Background()
 	kernel := newCounterKernel()
@@ -169,6 +187,12 @@ func TestPeerCounterResetsReportEachByteOnce(t *testing.T) {
 	// the old one (1500) before the next sample.
 	move(keys[0], 500)
 	sample()
+	// Traffic since the last tick, on a recently active peer and on one whose last handshake is
+	// past the 45 s online cutoff (WireGuard rekeys only every ~2 minutes). The sync samples both
+	// right before ReplacePeers destroys their counters.
+	move(keys[0], 25)
+	move(keys[1], 60)
+	kernel.ageHandshake(t, keys[1], time.Minute)
 	mustSync(wg.SyncUsers(ctx, []*common.User{keep, other, third}))
 	move(keys[0], 5000)
 	sample()
@@ -177,6 +201,7 @@ func TestPeerCounterResetsReportEachByteOnce(t *testing.T) {
 	// Restart also re-applies the whole peer set with ReplacePeers.
 	move(keys[0], 100)
 	sample()
+	move(keys[0], 15) // since the last tick
 	mustSync(wg.Restart())
 	move(keys[0], 50)
 	sample()

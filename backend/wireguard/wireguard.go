@@ -279,6 +279,9 @@ func (wg *WireGuard) restartLocked() error {
 	manager := wg.manager
 	wg.mu.Unlock()
 
+	// ReplacePeers destroys every counter: count the traffic since the last stats tick first.
+	wg.samplePeersLocked(context.Background(), true)
+
 	log.Println("dynamically reconfiguring wireguard interface")
 	wg.emitInfoLogf("dynamically reconfiguring wireguard interface")
 
