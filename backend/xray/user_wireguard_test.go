@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
 )
@@ -280,4 +282,156 @@ func TestSyncUserRemovesWireguardPeerWithValidIPOutsideInbound(t *testing.T) {
 	if _, ok := x.config.InboundConfigs[0].clients[user.Email]; ok {
 		t.Fatal("peer remained cached after leaving the inbound subnet")
 	}
+}
+
+const mixedWireguardInbounds = `{"inbounds":[
+	{"tag":"vless","protocol":"vless","settings":{"clients":[],"decryption":"none"}},
+	{"tag":"wg","protocol":"wireguard","settings":{"secretKey":"","peers":[]}}
+]}`
+
+func newMixedWireguardXray(t *testing.T) (*Xray, *recordingInboundService) {
+	t.Helper()
+
+	x, service := newRecordingXray(t)
+	cfg, err := NewConfig(mixedWireguardInbounds, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.config = cfg
+	return x, service
+}
+
+func mixedUser(email string, wireguard *common.Wireguard, inbounds ...string) *common.User {
+	return &common.User{
+		Email:    email,
+		Inbounds: inbounds,
+		Proxies: &common.Proxy{
+			Vless:     &common.Vless{Id: "0b6f2a4e-6a54-4a51-9a3a-6f1e2b1f7c11"},
+			Wireguard: wireguard,
+		},
+	}
+}
+
+func cachedClient(x *Xray, tag, email string) (api.Account, bool) {
+	for _, inbound := range x.config.InboundConfigs {
+		if inbound.Tag == tag {
+			account, ok := inbound.clients[email]
+			return account, ok
+		}
+	}
+	return nil, false
+}
+
+func TestSetupUserAccountTreatsKeylessWireguardAsAbsent(t *testing.T) {
+	// Panels send this message (field 5, length 0) for every user without
+	// WireGuard keys, so it decodes to a non-nil but empty Wireguard.
+	emptyFromWire := &common.Proxy{}
+	if err := proto.Unmarshal([]byte{0x2a, 0x00}, emptyFromWire); err != nil {
+		t.Fatal(err)
+	}
+	if emptyFromWire.GetWireguard() == nil {
+		t.Fatal("expected a non-nil empty WireGuard message")
+	}
+
+	for _, tc := range []struct {
+		name      string
+		wireguard *common.Wireguard
+	}{
+		{"empty message from the wire", emptyFromWire.GetWireguard()},
+		{"peer IPs without a key", &common.Wireguard{PeerIps: []string{"10.0.0.2/32"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings, err := setupUserAccount(mixedUser("1.alice", tc.wireguard, "vless", "wg"))
+			if err != nil {
+				t.Fatalf("setupUserAccount() error = %v", err)
+			}
+			if settings.Vless == nil {
+				t.Fatal("expected the VLESS account to be set up")
+			}
+			if settings.Wireguard != nil {
+				t.Fatalf("expected no WireGuard account, got %#v", settings.Wireguard)
+			}
+		})
+	}
+}
+
+func TestSyncUserAppliesAUserWithAnEmptyWireguardMessage(t *testing.T) {
+	x, service := newMixedWireguardXray(t)
+	ctx := syncContext(t)
+
+	if err := x.SyncUser(ctx, mixedUser("1.alice", &common.Wireguard{}, "vless", "wg")); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "vless:add", "wg:remove"))
+	if _, ok := cachedClient(x, "vless", "1.alice"); !ok {
+		t.Fatal("VLESS account was not stored")
+	}
+	if _, ok := cachedClient(x, "wg", "1.alice"); ok {
+		t.Fatal("a WireGuard peer was stored without keys")
+	}
+}
+
+func TestSyncUserRemovesAUserWithAnEmptyWireguardMessage(t *testing.T) {
+	x, service := newMixedWireguardXray(t)
+	ctx := syncContext(t)
+	valid := &common.Wireguard{PublicKey: wireguardKey(0x11), PeerIps: []string{"10.0.0.2/32"}}
+
+	if err := x.SyncUser(ctx, mixedUser("1.alice", valid, "vless", "wg")); err != nil {
+		t.Fatal(err)
+	}
+	service.take()
+
+	// A disabled or deleted user arrives with no inbounds and, from panels
+	// that dropped its keys, an empty WireGuard message.
+	if err := x.SyncUser(ctx, mixedUser("1.alice", &common.Wireguard{})); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "wg:remove"))
+	for _, tag := range []string{"vless", "wg"} {
+		if _, ok := cachedClient(x, tag, "1.alice"); ok {
+			t.Fatalf("user remained cached on %s after removal", tag)
+		}
+	}
+}
+
+func TestSyncUserKeepsTheWireguardPeerOfAUserWithValidKeys(t *testing.T) {
+	x, service := newMixedWireguardXray(t)
+	ctx := syncContext(t)
+	valid := &common.Wireguard{PublicKey: wireguardKey(0x11), PeerIps: []string{"10.0.0.2/32"}}
+
+	if err := x.SyncUser(ctx, mixedUser("1.alice", valid, "vless", "wg")); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "vless:add", "wg:add"))
+	account, ok := cachedClient(x, "wg", "1.alice")
+	if !ok || account.(*api.WireguardAccount).PublicKey != strings.Repeat("11", 32) {
+		t.Fatalf("WireGuard peer = %#v, stored = %t", account, ok)
+	}
+}
+
+func TestSyncUserAppliesOtherInboundsWhenWireguardSettingsAreInvalid(t *testing.T) {
+	x, service := newMixedWireguardXray(t)
+	ctx := syncContext(t)
+	valid := &common.Wireguard{PublicKey: wireguardKey(0x11), PeerIps: []string{"10.0.0.2/32"}}
+
+	if err := x.SyncUser(ctx, mixedUser("1.alice", valid, "wg")); err != nil {
+		t.Fatal(err)
+	}
+	service.take()
+
+	invalid := &common.Wireguard{PublicKey: "invalid-key", PeerIps: []string{"10.0.0.2/32"}}
+	if err := x.SyncUser(ctx, mixedUser("1.alice", invalid, "vless", "wg")); err == nil {
+		t.Fatal("expected invalid WireGuard account error")
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "vless:add"))
+	account, ok := cachedClient(x, "wg", "1.alice")
+	if !ok || account.(*api.WireguardAccount).PublicKey != strings.Repeat("11", 32) {
+		t.Fatalf("live WireGuard peer changed after an invalid update: %#v, stored = %t", account, ok)
+	}
+
+	// Leaving every inbound removes the user, even with invalid WireGuard settings.
+	if err := x.SyncUser(ctx, mixedUser("1.alice", invalid)); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "wg:remove"))
 }
