@@ -220,7 +220,8 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	case Wireguard:
 		for _, user := range users {
-			if user.GetProxies().GetWireguard() == nil {
+			// No public key means no WireGuard account, as in setupUserAccount.
+			if user.GetProxies().GetWireguard().GetPublicKey() == "" {
 				continue
 			}
 			if slices.Contains(user.Inbounds, i.Tag) {
