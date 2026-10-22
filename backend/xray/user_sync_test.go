@@ -304,6 +304,35 @@ const recordingInboundsWithoutUsers = `{"inbounds":[
 	{"tag":"http","protocol":"http","settings":{}}
 ]}`
 
+func TestCanHoldUsersOnlyExcludesProtocolsWithoutUsers(t *testing.T) {
+	// Every inbound protocol Xray accepts, plus one it does not know yet. A
+	// protocol that is not known to lack users counts as holding them, so
+	// removals reach a protocol the node starts managing without a change here.
+	for protocol, want := range map[string]bool{
+		Vmess:               true,
+		Vless:               true,
+		Trojan:              true,
+		Shadowsocks:         true,
+		Hysteria:            true,
+		Wireguard:           true,
+		"masque":            true,
+		"some-new-protocol": true,
+		"dokodemo-door":     false,
+		"tunnel":            false,
+		"socks":             false,
+		"mixed":             false,
+		"http":              false,
+		"tun":               false,
+		"Dokodemo-Door":     false,
+		"SOCKS":             false,
+	} {
+		inbound := &Inbound{Protocol: protocol}
+		if got := inbound.canHoldUsers(); got != want {
+			t.Errorf("canHoldUsers() for protocol %q = %v, want %v", protocol, got, want)
+		}
+	}
+}
+
 func TestUserSyncsSkipInboundsThatCannotHoldUsers(t *testing.T) {
 	x, service := newRecordingXray(t)
 	ctx := syncContext(t)
