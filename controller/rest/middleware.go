@@ -61,15 +61,15 @@ func LogRequest(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Service) trackSuccessfulRequest(next http.Handler) http.Handler {
+// trackRequest refreshes keep-alive for every authenticated request when it
+// arrives and again when it ends, whatever the status: a request that fails,
+// times out on the panel side or is still running still proves the panel is
+// alive. It must run after validateApiKey.
+func (s *Service) trackRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		s.NewRequest()
+		defer s.NewRequest()
 
-		next.ServeHTTP(ww, r)
-
-		// Only track successful requests (status codes 200-299)
-		if status := ww.Status(); status >= 200 && status < 300 {
-			s.NewRequest()
-		}
+		next.ServeHTTP(w, r)
 	})
 }
