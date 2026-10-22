@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -220,7 +222,8 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	case Wireguard:
 		for _, user := range users {
-			if user.GetProxies().GetWireguard() == nil {
+			// No public key means no WireGuard account, as in setupUserAccount.
+			if user.GetProxies().GetWireguard().GetPublicKey() == "" {
 				continue
 			}
 			if slices.Contains(user.Inbounds, i.Tag) {
@@ -376,6 +379,29 @@ func (i *Inbound) removeUser(email string) {
 
 type Stats struct{}
 
+// shadowsocks2022PlaceholderKey is random per process and never leaves it.
+var shadowsocks2022PlaceholderKey = func() string {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	return base64.StdEncoding.EncodeToString(key)
+}()
+
+// shadowsocks2022Placeholder returns a client for a Shadowsocks 2022 inbound without
+// users. Xray builds such an inbound as a single-user server, which accepts the bare
+// server key (part of every Shadowsocks 2022 link) and rejects every later AddUser.
+// A client whose key nobody holds keeps the inbound multi-user. Xray has no multi-user
+// mode for chacha20, so there is no placeholder for it.
+func shadowsocks2022Placeholder(inbound *Inbound) *api.ShadowsocksAccount {
+	method, _ := inbound.Settings["method"].(string)
+	if inbound.Protocol != Shadowsocks || !strings.HasPrefix(method, "2022-blake3-aes") {
+		return nil
+	}
+	return &api.ShadowsocksAccount{
+		BaseAccount: api.BaseAccount{Email: "pasarguard-placeholder"},
+		Password:    common.EnsureBase64Password(shadowsocks2022PlaceholderKey, method),
+	}
+}
+
 func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 	inbound.mu.RLock()
 	defer inbound.mu.RUnlock()
@@ -409,6 +435,8 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 	if len(inbound.clients) == 0 {
 		if inbound.Protocol == Wireguard {
 			snap.Settings["peers"] = []any{}
+		} else if placeholder := shadowsocks2022Placeholder(inbound); placeholder != nil {
+			snap.Settings["clients"] = []*api.ShadowsocksAccount{placeholder}
 		} else {
 			snap.Settings["clients"] = []any{}
 		}

@@ -35,6 +35,12 @@ var errXrayShutdown = errors.New("xray backend is shut down")
 // new core's API.
 const restartReadyTimeout = 30 * time.Second
 
+// fullSyncReadyTimeout bounds how long applyConfigWithRestart waits for the
+// restarted core's API, for both a full user sync (SyncUsers) and
+// UpdateUsersAndRestart. The wait does not follow the caller's cancellation,
+// so it is sized for a large user list, like the controller's start timeout.
+const fullSyncReadyTimeout = 3 * time.Minute
+
 func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort, metricPort int, cfg *config.Config) (*Xray, error) {
 	executableAbsolutePath, err := filepath.Abs(cfg.XrayExecutablePath)
 	if err != nil {
