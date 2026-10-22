@@ -21,6 +21,7 @@ type Xray struct {
 	cfg        *config.Config
 	core       *Core
 	handler    *api.XrayHandler
+	apiPort    int
 	metricPort int
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
@@ -55,6 +56,7 @@ func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort,
 	xray := &Xray{
 		cancelFunc: xCancel,
 		cfg:        cfg,
+		apiPort:    apiPort,
 		metricPort: metricPort,
 	}
 
