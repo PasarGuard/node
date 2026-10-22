@@ -569,3 +569,37 @@ func TestCancelledContextNeverRestartsTelemt(t *testing.T) {
 		t.Errorf("startLocked spawned telemt for a cancelled ctx (generation %d)", mt.process.Generation())
 	}
 }
+
+// TestGetSysStatsDoesNotWaitOnTelemt: the controller treats a same-config
+// Start (the panel's retry or repair Start) as a heartbeat only when
+// GetSysStats answers within its 3 s budget, and restarts the backend
+// otherwise. GetSysStats must stay a local read of telemt's process: no
+// telemt API call and no syncMu, so a stuck telemt API or a full apply in
+// progress never turns a heartbeat into a restart that cuts every session.
+func TestGetSysStatsDoesNotWaitOnTelemt(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+	pid := mt.process.PID()
+
+	// Freeze telemt: its API cannot answer while its process still runs.
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGCONT) })
+	// A full apply in progress holds syncMu.
+	mt.syncMu.Lock()
+	defer mt.syncMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	started := time.Now()
+	stats, err := mt.GetSysStats(ctx)
+	if err != nil {
+		t.Fatalf("GetSysStats with telemt's API stuck and syncMu held = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Errorf("GetSysStats took %s with telemt's API stuck and syncMu held", elapsed)
+	}
+	if stats.GetAlloc() == 0 {
+		t.Error("GetSysStats reported no memory for the running telemt")
+	}
+}

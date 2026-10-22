@@ -810,6 +810,12 @@ func TestCallerDeadlineDoesNotStopApply(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("SyncUsers = %v, want the caller's deadline", err)
 	}
+	// The panel matches these texts to treat the sync as retry-later.
+	for _, want := range []string{"the users are still being applied", "context deadline exceeded"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("SyncUsers error %q does not contain %q", err, want)
+		}
+	}
 	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
 		t.Errorf("the caller waited %s after its 1 s deadline", elapsed)
 	}
@@ -865,6 +871,10 @@ func TestQueuedCallerGivesUpAtDeadline(t *testing.T) {
 	err := m.UpdateUsers(ctx, []*common.User{mtUser("u3", "mtproto", testSecret)})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("queued UpdateUsers = %v, want its deadline", err)
+	}
+	// The panel matches this text to treat the sync as retry-later.
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("queued UpdateUsers error %q does not contain %q", err, "context deadline exceeded")
 	}
 	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
 		t.Errorf("the queued caller waited %s with a 500 ms deadline", elapsed)

@@ -334,3 +334,24 @@ func TestMTProtoConfigChangeRestartsTelemt(t *testing.T) {
 		t.Errorf("the old telemt %d still runs after the config change (kill 0: %v)", oldPID, err)
 	}
 }
+
+// The panel tells an old node from a broken one by the exact error text
+// "invalid backend type", which nodes without the MTProto backend answer to
+// an MTProto Start. The start runs detached from the request now (#116),
+// and only a start that runs out of startTimeout gets its error wrapped, so
+// that text must reach the caller unchanged, even when the request is gone.
+func TestUnknownBackendTypeKeepsItsError(t *testing.T) {
+	c := New(config.NewTestConfig(t.TempDir(), uuid.New()))
+	t.Cleanup(c.Disconnect)
+
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, ctx := range map[string]context.Context{"live request": context.Background(), "request gone": gone} {
+		c.LockControl()
+		err := c.StartOrAttach(ctx, &common.Backend{Type: common.BackendType(99), Config: "{}"})
+		c.UnlockControl()
+		if err == nil || err.Error() != "invalid backend type" {
+			t.Errorf("%s: Start with an unknown backend type = %v, want exactly %q", name, err, "invalid backend type")
+		}
+	}
+}
