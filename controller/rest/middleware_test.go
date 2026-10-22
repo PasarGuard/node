@@ -49,6 +49,8 @@ func TestKeepAliveRefreshedWhenAuthenticatedRequestArrives(t *testing.T) {
 	if !refreshed {
 		t.Fatal("keep-alive was not refreshed while the request was in flight")
 	}
+	// The upload ended with an error ("panel went away"), so the handler
+	// cannot read a body and answers 400.
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
