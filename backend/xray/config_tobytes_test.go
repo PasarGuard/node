@@ -6,6 +6,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/xtls/xray-core/infra/conf"
+	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
+
 	"github.com/pasarguard/node/common"
 )
 
@@ -282,4 +285,94 @@ func TestToBytesWhileCloning(t *testing.T) {
 		}
 	})
 	wg.Wait()
+}
+
+const shadowsocks2022Config = `{"inbounds":[
+	{"tag":"aes128","protocol":"shadowsocks","settings":{"clients":[],"method":"2022-blake3-aes-128-gcm","password":"MDEyMzQ1Njc4OWFiY2RlZg==","network":"tcp,udp"}},
+	{"tag":"aes256","protocol":"shadowsocks","settings":{"clients":[],"method":"2022-blake3-aes-256-gcm","password":"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=","network":"tcp,udp"}},
+	{"tag":"chacha","protocol":"shadowsocks","settings":{"clients":[],"method":"2022-blake3-chacha20-poly1305","password":"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=","network":"tcp,udp"}},
+	{"tag":"legacy","protocol":"shadowsocks","settings":{"clients":[],"method":"aes-256-gcm","password":"legacy-server-password","network":"tcp,udp"}}
+]}`
+
+// buildShadowsocksInbound runs Xray's own config builder on a serialized inbound.
+func buildShadowsocksInbound(t *testing.T, settings map[string]any) any {
+	t.Helper()
+
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server conf.ShadowsocksServerConfig
+	if err := json.Unmarshal(raw, &server); err != nil {
+		t.Fatal(err)
+	}
+	built, err := server.Build()
+	if err != nil {
+		t.Fatalf("xray rejected the serialized inbound %v: %v", settings, err)
+	}
+	return built
+}
+
+// Xray builds a single-user Shadowsocks 2022 server from an empty client list. That
+// server accepts the bare server key, which every Shadowsocks 2022 link carries, and
+// rejects every later AddUser, so the inbound must start in multi-user mode.
+func TestToBytesStartsEmptyShadowsocks2022InboundsMultiUser(t *testing.T) {
+	cfg, err := NewConfig(shadowsocks2022Config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := serializeConfig(t, cfg)
+
+	for _, tag := range []string{"aes128", "aes256"} {
+		settings := out.settings(t, tag)
+		built := buildShadowsocksInbound(t, settings)
+		if _, ok := built.(*shadowsocks_2022.MultiUserServerConfig); !ok {
+			t.Errorf("%s: an inbound without users was built as %T, want a multi-user server", tag, built)
+			continue
+		}
+		clients, _ := settings["clients"].([]any)
+		if len(clients) != 1 {
+			t.Fatalf("%s: clients = %v, want one placeholder", tag, clients)
+		}
+		placeholder, _ := clients[0].(map[string]any)
+		if placeholder["password"] == settings["password"] {
+			t.Fatalf("%s: the placeholder uses the server key", tag)
+		}
+	}
+
+	// Xray has no multi-user mode for chacha20: a client there would stop the whole core.
+	if got := emails(t, out.settings(t, "chacha"), "clients"); len(got) != 0 {
+		t.Fatalf("chacha20 inbound clients = %v, want none", got)
+	}
+	buildShadowsocksInbound(t, out.settings(t, "chacha"))
+
+	// Legacy Shadowsocks stays multi-user with an empty client list.
+	if got := emails(t, out.settings(t, "legacy"), "clients"); len(got) != 0 {
+		t.Fatalf("legacy inbound clients = %v, want none", got)
+	}
+
+	for _, inbound := range cfg.InboundConfigs {
+		if len(inbound.clients) != 0 {
+			t.Fatalf("ToBytes stored clients on inbound %s: %v", inbound.Tag, inbound.clients)
+		}
+	}
+}
+
+func TestToBytesWritesOnlyRealShadowsocks2022Users(t *testing.T) {
+	cfg, err := NewConfig(shadowsocks2022Config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.syncUsers([]*common.User{{
+		Email:    "1",
+		Inbounds: []string{"aes128", "aes256"},
+		Proxies:  &common.Proxy{Shadowsocks: &common.Shadowsocks{Password: "user-one-password"}},
+	}})
+	out := serializeConfig(t, cfg)
+
+	for _, tag := range []string{"aes128", "aes256"} {
+		if got := emails(t, out.settings(t, tag), "clients"); len(got) != 1 || got[0] != "1" {
+			t.Fatalf("%s clients = %v, want [1]", tag, got)
+		}
+	}
 }
