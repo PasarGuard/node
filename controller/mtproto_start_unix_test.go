@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -66,6 +67,9 @@ func runFakeTelemt(delay, pidFile string, args []string) int {
 			return 2
 		}
 	}
+	// Catch SIGHUP like telemt, whose hot reload it starts; by default it
+	// would end this process.
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGHUP)
 	// Never outlive a broken test by much.
 	go func() {
 		time.Sleep(2 * time.Minute)
@@ -127,6 +131,16 @@ func fakeTelemtAPIListen(configPath string) (string, error) {
 // its own) and writes its pid to the returned file.
 func newFakeTelemtController(t *testing.T, healthDelay string) (*Controller, string) {
 	t.Helper()
+	cfg, pidFile := fakeTelemtConfig(t, healthDelay)
+	c := New(cfg)
+	t.Cleanup(c.Disconnect)
+	return c, pidFile
+}
+
+// fakeTelemtConfig returns a node config whose telemt is the fake (see
+// newFakeTelemtController) and the file the fake writes its pid to.
+func fakeTelemtConfig(t *testing.T, healthDelay string) (*config.Config, string) {
+	t.Helper()
 	testBinary, err := filepath.Abs(os.Args[0])
 	if err != nil {
 		t.Fatal(err)
@@ -142,9 +156,7 @@ func newFakeTelemtController(t *testing.T, healthDelay string) (*Controller, str
 
 	cfg := config.NewTestConfig(t.TempDir(), uuid.New())
 	cfg.TelemtExecutablePath = executable
-	c := New(cfg)
-	t.Cleanup(c.Disconnect)
-	return c, pidFile
+	return cfg, pidFile
 }
 
 func shellQuote(value string) string {

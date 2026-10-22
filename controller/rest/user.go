@@ -38,7 +38,7 @@ func (s *Service) SyncUser(w http.ResponseWriter, r *http.Request) {
 
 	if err = s.Backend().SyncUser(r.Context(), user); err != nil {
 		log.Printf("Error syncing user: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), syncErrorStatus(err))
 		return
 	}
 
@@ -66,7 +66,7 @@ func (s *Service) SyncUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err = s.Backend().SyncUsers(r.Context(), users.GetUsers()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), syncErrorStatus(err))
 		return
 	}
 
@@ -130,7 +130,7 @@ func (s *Service) SyncUsersChunked(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := controller.ApplyChunkedUserUpdate(r.Context(), s.Backend(), users); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), syncErrorStatus(err))
 		return
 	}
 
