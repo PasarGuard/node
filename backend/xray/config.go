@@ -641,8 +641,9 @@ var canonicalAPIServices = map[string]string{
 
 // requiredAPIServices are always present — the node's own gRPC clients depend on
 // HandlerService (users/inbounds) and StatsService (traffic); LoggerService
-// preserves current behavior.
-var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService"}
+// preserves current behavior; RoutingService lets a core config edit replace
+// the routing rules of the running xray without a restart.
+var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
 
 // sanitizeAPIServices returns the required API services plus any valid
 // user-provided extras (canonicalized, deduped case-insensitively, sorted).

@@ -155,7 +155,8 @@ func sameBackendConfig(active, incoming *common.Backend) bool {
 // already running (heartbeat case). It only restarts when:
 //   - No backend is running, or
 //   - The running backend has stopped, or
-//   - The incoming config differs from what started the current backend.
+//   - The incoming config differs from what started the current backend, and
+//     the backend cannot apply the difference live.
 //
 // The start runs to the end even when the caller goes away, so a timed-out
 // Start leaves a running core for the next Start or attach; Disconnect still
@@ -178,6 +179,14 @@ func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) er
 			c.Connect(data.GetKeepAlive())
 			return nil
 		}
+		if applyConfigLive(ctx, back, active, data) {
+			log.Println("StartOrAttach: config changed, applied to the running backend without a restart.")
+			c.mu.Lock()
+			c.activeData = data
+			c.mu.Unlock()
+			c.Connect(data.GetKeepAlive())
+			return nil
+		}
 		// Config changed while core is running: panel is sending a new config.
 		log.Println("StartOrAttach: config changed, restarting backend.")
 	} else if back != nil {
@@ -196,6 +205,21 @@ func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) er
 	}
 	c.Connect(data.GetKeepAlive())
 	return nil
+}
+
+// applyConfigLive asks a running backend to take a changed config without a
+// restart. It reports false when the backend has to be restarted instead.
+func applyConfigLive(ctx context.Context, back backend.Backend, active, incoming *common.Backend) bool {
+	live, ok := back.(backend.LiveConfigApplier)
+	if !ok || active == nil || active.GetType() != incoming.GetType() {
+		return false
+	}
+	applied, err := live.ApplyConfigLive(ctx, incoming.GetConfig(), incoming.GetExcludeInbounds())
+	if err != nil {
+		log.Printf("StartOrAttach: live config update failed, restarting backend: %v", err)
+		return false
+	}
+	return applied
 }
 
 // detachStart returns the context a start runs under: it keeps the request's

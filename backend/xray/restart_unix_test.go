@@ -99,12 +99,6 @@ func newFakeCoreXray(t *testing.T, stats *fakeStatsService) *Xray {
 	return &Xray{config: cfg, cfg: &config.Config{}, core: core, handler: handler, cancelFunc: cancel}
 }
 
-func corePID(x *Xray) int {
-	x.core.mu.Lock()
-	defer x.core.mu.Unlock()
-	return x.core.processPID
-}
-
 func waitUntil(t *testing.T, what string, condition func() bool) {
 	t.Helper()
 
