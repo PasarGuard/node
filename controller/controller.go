@@ -112,6 +112,12 @@ func (c *Controller) NewRequest() {
 	c.lastRequest = time.Now()
 }
 
+func (c *Controller) LastRequest() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastRequest
+}
+
 // sameBackendConfig reports whether two Backend descriptors describe the same
 // running configuration. Users are intentionally excluded — they are managed
 // through their own sync RPCs, so a Start that only differs in the user list
