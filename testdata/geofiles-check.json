@@ -1,0 +1,56 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "ip": [
+          "geoip:private",
+          "geoip:us",
+          "geoip:de",
+          "geoip:nl",
+          "geoip:gb",
+          "geoip:fr",
+          "geoip:fi",
+          "geoip:tr",
+          "geoip:ae",
+          "geoip:ir",
+          "geoip:ru",
+          "geoip:cn",
+          "geoip:cloudflare",
+          "geoip:telegram"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "domain": [
+          "geosite:category-ads-all",
+          "geosite:category-ir",
+          "geosite:category-gov-ir",
+          "geosite:private",
+          "geosite:google",
+          "geosite:openai",
+          "geosite:netflix",
+          "geosite:telegram",
+          "geosite:speedtest",
+          "geosite:cn",
+          "geosite:geolocation-!cn",
+          "geosite:gfw",
+          "geosite:win-spy"
+        ],
+        "outboundTag": "block"
+      }
+    ]
+  }
+}

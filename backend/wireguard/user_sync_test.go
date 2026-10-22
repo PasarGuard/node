@@ -1022,3 +1022,136 @@ func TestUpdateUsersAllowsKeyHandoverFromUserWhoLostAccess(t *testing.T) {
 		t.Fatal("expected the former owner to have no peer")
 	}
 }
+
+// nonCanonicalKey returns another base64 spelling of the same 32-byte key. ParseKey accepts
+// it because Go's StdEncoding ignores the two unused low bits of the last data character.
+func nonCanonicalKey(t *testing.T, canonical string) string {
+	t.Helper()
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	spelled := []byte(canonical)
+	spelled[42] = alphabet[strings.IndexByte(alphabet, spelled[42])|1]
+
+	key, err := wgtypes.ParseKey(string(spelled))
+	if err != nil || key.String() != canonical || string(spelled) == canonical {
+		t.Fatalf("could not build a non-canonical spelling of %s: %v", canonical, err)
+	}
+	return string(spelled)
+}
+
+func newKeySpellingTestWG(t *testing.T, applied *[]wgtypes.Config) *WireGuard {
+	t.Helper()
+	cfg, err := NewConfig(`{
+		"interface_name":"wg-test",
+		"listen_port":51820,
+		"address":["10.75.0.1/24"]
+	}`)
+	if err != nil {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	return &WireGuard{
+		config:       cfg,
+		peerStore:    NewPeerStore(),
+		statsTracker: stats.New(),
+		manager: &Manager{
+			iFaceName: "wg-test",
+			client: &fakeWGClient{
+				configureDeviceFn: func(_ string, cfg wgtypes.Config) error {
+					*applied = append(*applied, cfg)
+					return nil
+				},
+			},
+		},
+		state: lifecycleRunning,
+	}
+}
+
+func keySpellingTestUser(email, publicKey, peerIP string) *common.User {
+	return &common.User{
+		Email:    email,
+		Inbounds: []string{"wg-test"},
+		Proxies: &common.Proxy{
+			Wireguard: &common.Wireguard{PublicKey: publicKey, PeerIps: []string{peerIP}},
+		},
+	}
+}
+
+// The store keys peers by the canonical key, so a desired peer sent with another valid spelling
+// of the same key used to look like a new key: a later partial sync sent [add, remove] for the
+// same kernel peer and the user was cut off.
+func TestUpdateUsersKeepsPeerWithNonCanonicalKey(t *testing.T) {
+	_, canonical, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	var applied []wgtypes.Config
+	wg := newKeySpellingTestWG(t, &applied)
+	user := keySpellingTestUser("7", nonCanonicalKey(t, canonical), "10.75.0.7/32")
+
+	if err := wg.SyncUser(context.Background(), user); err != nil {
+		t.Fatalf("SyncUser failed: %v", err)
+	}
+	applied = nil
+
+	if err := wg.UpdateUsers(context.Background(), []*common.User{user}); err != nil {
+		t.Fatalf("UpdateUsers failed: %v", err)
+	}
+	for _, cfg := range applied {
+		for _, peer := range cfg.Peers {
+			if peer.Remove {
+				t.Fatalf("unchanged user's peer %s was removed from the kernel", peer.PublicKey)
+			}
+		}
+	}
+	if len(applied) != 0 {
+		t.Fatalf("expected no kernel change for an unchanged user, got %d ConfigureDevice calls", len(applied))
+	}
+	if peer := wg.peerStore.GetByEmail("7"); peer == nil || peer.PublicKey.String() != canonical {
+		t.Fatalf("expected the store to keep the peer under %s, got %+v", canonical, peer)
+	}
+}
+
+// An identical full sync must stay a no-op: a ReplacePeers would reset every peer's counters
+// and sessions.
+func TestSyncUsersNonCanonicalKeyNoEffectiveChangeSkipsReplaceApply(t *testing.T) {
+	_, canonical, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	var applied []wgtypes.Config
+	wg := newKeySpellingTestWG(t, &applied)
+	users := []*common.User{keySpellingTestUser("7", nonCanonicalKey(t, canonical), "10.75.0.7/32")}
+
+	if err := wg.SyncUsers(context.Background(), users); err != nil {
+		t.Fatalf("SyncUsers failed: %v", err)
+	}
+	applied = nil
+
+	if err := wg.SyncUsers(context.Background(), users); err != nil {
+		t.Fatalf("SyncUsers failed: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("expected no ConfigureDevice calls for a no-op full sync, got %d", len(applied))
+	}
+}
+
+func TestSyncUsersRejectsOneKeySpelledTwoWaysAcrossUsers(t *testing.T) {
+	_, canonical, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	var applied []wgtypes.Config
+	wg := newKeySpellingTestWG(t, &applied)
+	users := []*common.User{
+		keySpellingTestUser("7", canonical, "10.75.0.7/32"),
+		keySpellingTestUser("8", nonCanonicalKey(t, canonical), "10.75.0.8/32"),
+	}
+
+	err = wg.SyncUsers(context.Background(), users)
+	if err == nil || !strings.Contains(err.Error(), "assigned to multiple users") {
+		t.Fatalf("expected a duplicate key error, got %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("expected no kernel change for a rejected sync, got %d ConfigureDevice calls", len(applied))
+	}
+}
