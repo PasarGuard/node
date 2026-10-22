@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -93,6 +93,7 @@ func Load() (*Config, error) {
 }
 
 // parseNodeHost returns the IPv4 or IPv6 address to listen on; "localhost" means 127.0.0.1.
+// A scoped IPv6 address (fe80::1%eth0) is accepted too, since net.Listen takes the zone.
 // Any other value keeps the old fallback to 127.0.0.1, so a node that started before still
 // starts, but it is logged as an error: the panel usually cannot reach a loopback-only node.
 func parseNodeHost(value string) string {
@@ -100,7 +101,7 @@ func parseNodeHost(value string) string {
 	if strings.EqualFold(host, "localhost") {
 		return "127.0.0.1"
 	}
-	if net.ParseIP(host) == nil {
+	if _, err := netip.ParseAddr(host); err != nil {
 		log.Printf("[Error] NODE_HOST %q is not an IP address (for example 0.0.0.0 or ::). Falling back to 127.0.0.1: only clients on this host can reach the node.", value)
 		return "127.0.0.1"
 	}

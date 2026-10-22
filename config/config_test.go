@@ -66,14 +66,15 @@ func TestLoadAcceptsValidAPIKey(t *testing.T) {
 
 func TestLoadAcceptsNodeHostIPsAndLocalhost(t *testing.T) {
 	cases := map[string]string{
-		"0.0.0.0":     "0.0.0.0",
-		"10.0.0.5":    "10.0.0.5",
-		"::":          "::",
-		"::1":         "::1",
-		"2001:db8::1": "2001:db8::1",
-		" 0.0.0.0 ":   "0.0.0.0",
-		"localhost":   "127.0.0.1",
-		" LocalHost ": "127.0.0.1",
+		"0.0.0.0":      "0.0.0.0",
+		"10.0.0.5":     "10.0.0.5",
+		"::":           "::",
+		"::1":          "::1",
+		"2001:db8::1":  "2001:db8::1",
+		"fe80::1%eth0": "fe80::1%eth0",
+		" 0.0.0.0 ":    "0.0.0.0",
+		"localhost":    "127.0.0.1",
+		" LocalHost ":  "127.0.0.1",
 	}
 	for value, want := range cases {
 		t.Run(value, func(t *testing.T) {
@@ -121,7 +122,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 // An invalid NODE_HOST keeps the old fallback to 127.0.0.1, so an upgrade never stops a node
 // that used to start, but it is now logged as an error with the bad value.
 func TestLoadFallsBackToLoopbackOnInvalidNodeHost(t *testing.T) {
-	for _, value := range []string{"", "node.example.com", "256.1.1.1", "[::1]", "0.0.0.0:62050"} {
+	for _, value := range []string{"", "node.example.com", "256.1.1.1", "[::1]", "0.0.0.0:62050", "10.0.0.5%eth0", "fe80::1%"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("API_KEY", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
 			t.Setenv("NODE_HOST", value)
