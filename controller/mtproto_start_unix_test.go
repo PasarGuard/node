@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -253,5 +254,47 @@ func TestMTProtoRetryAttachesToAStartInProgress(t *testing.T) {
 	}
 	if !r2.back.Started() {
 		t.Fatal("no running telemt after the retried Start")
+	}
+}
+
+// Process shutdown calls Disconnect without LockControl. It must abort an
+// MTProto start that waits for telemt's API instead of waiting up to the
+// telemt startup timeout (90 s), and it must leave no telemt running.
+func TestDisconnectAbortsAnMTProtoStartInProgress(t *testing.T) {
+	c, pidFile := newFakeTelemtController(t, "never")
+
+	startErr := make(chan error, 1)
+	go func() {
+		c.LockControl()
+		defer c.UnlockControl()
+		startErr <- c.StartOrAttach(context.Background(), mtprotoStartRequest())
+	}()
+	pid := readFakeTelemtPID(t, pidFile)
+	waitForStartInProgress(t, c)
+
+	disconnected := make(chan struct{})
+	go func() {
+		c.Disconnect()
+		close(disconnected)
+	}()
+
+	select {
+	case err := <-startErr:
+		if err == nil {
+			t.Fatal("an MTProto start aborted by Disconnect reported success")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the MTProto start still runs 10s after Disconnect")
+	}
+	select {
+	case <-disconnected:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Disconnect still blocked 10s after the start ended")
+	}
+	if c.Backend() != nil {
+		t.Fatal("an aborted start left a backend attached")
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("telemt %d still runs after the aborted start (kill 0: %v)", pid, err)
 	}
 }

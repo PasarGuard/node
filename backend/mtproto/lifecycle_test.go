@@ -304,25 +304,45 @@ func TestWaitForReadyGivesUp(t *testing.T) {
 	}
 }
 
-// TestStartOutlivesRequestDeadline models the panel's 10 s Start call against
-// a telemt that binds its API later: the start must complete anyway, so the
-// panel's retry attaches to a running backend.
-func TestStartOutlivesRequestDeadline(t *testing.T) {
-	exe := writeFakeTelemt(t, fakeTelemt{HealthDelay: 1500 * time.Millisecond})
+// TestCancelledStartStopsTelemt: the controller runs New under a context that
+// outlives the panel's request (controller.StartOrAttach) and cancels it only
+// to abort the start, on Disconnect. New must then stop waiting for telemt's
+// API at once and leave no telemt running, not wait for telemtStartupTimeout.
+func TestCancelledStartStopsTelemt(t *testing.T) {
+	lowerStartupTimeout(t, 20*time.Second)
+	record := filepath.Join(t.TempDir(), "record.json")
+	exe := writeFakeTelemt(t, fakeTelemt{NoAPI: true, RecordFile: record})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	mt, err := New(ctx, testNodeConfig(t, exe), testMTConfig(t), nil)
-	if err != nil {
-		t.Fatalf("New failed once the request deadline passed: %v", err)
+	type result struct {
+		mt  *MTProto
+		err error
 	}
-	t.Cleanup(mt.Shutdown)
+	done := make(chan result, 1)
+	go func() {
+		mt, err := New(ctx, testNodeConfig(t, exe), testMTConfig(t), nil)
+		done <- result{mt, err}
+	}()
 
-	if ctx.Err() == nil {
-		t.Fatal("the request deadline had not passed yet; the test proves nothing")
+	pid := readFakeTelemtRecord(t, record).PID
+	cancel()
+
+	var r result
+	select {
+	case r = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("New still waits for telemt 5s after its context was cancelled")
 	}
-	if !mt.Started() {
-		t.Error("backend not started")
+	if r.err == nil {
+		r.mt.Shutdown()
+		t.Fatal("New succeeded although its context was cancelled before telemt's API came up")
+	}
+	if !errors.Is(r.err, context.Canceled) {
+		t.Errorf("New error = %v, want one wrapping context.Canceled", r.err)
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("telemt %d is still running after the cancelled start (kill 0: %v)", pid, err)
 	}
 }
 

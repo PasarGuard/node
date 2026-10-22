@@ -93,16 +93,16 @@ func New(ctx context.Context, cfg *config.Config, mtConfig *Config, users []*com
 		cancel:         cancel,
 	}
 
-	// The panel's Start call has a short deadline (10 s by default) while
-	// telemt may need far longer to bind its API. Let a slow start finish
-	// anyway: the panel's retry then attaches to the running backend.
-	startCtx, cancelStart := context.WithTimeout(context.WithoutCancel(ctx), telemtStartupTimeout)
-	defer cancelStart()
-
+	// telemt may need far longer than the panel's Start call (10 s by
+	// default) to bind its API. The controller runs a start under a context
+	// that outlives that call and is cancelled only to abort the start
+	// (Disconnect), so a slow start finishes and the panel's retry attaches.
+	// waitForHealth bounds it by telemtStartupTimeout; cancelling ctx stops
+	// telemt at once.
 	mt.syncMu.Lock()
 	err = mt.writeRenderedConfigLocked(mt.desired)
 	if err == nil {
-		err = mt.startLocked(startCtx)
+		err = mt.startLocked(ctx)
 	}
 	mt.syncMu.Unlock()
 	if err != nil {
@@ -193,7 +193,10 @@ func generateBearerToken() (string, error) {
 
 // startLocked starts telemt on the rendered config and waits for its API.
 // A failure stops telemt and carries its last output. Readiness is watched in
-// the background. Requires syncMu.
+// the background. Cancelling ctx aborts the start and stops telemt, so a
+// caller that may give up while telemt still binds passes a context detached
+// from its own (the controller's start context, the detached apply context).
+// Requires syncMu.
 func (m *MTProto) startLocked(ctx context.Context) error {
 	if m.lifetime.Err() != nil {
 		return errClosed
@@ -204,9 +207,7 @@ func (m *MTProto) startLocked(ctx context.Context) error {
 	if err := m.process.Start(m.configPath); err != nil {
 		return err
 	}
-	// Once telemt runs, only telemtStartupTimeout and Shutdown bound its
-	// startup: a caller that gives up must not kill a telemt still binding.
-	if err := m.waitForHealth(context.WithoutCancel(ctx)); err != nil {
+	if err := m.waitForHealth(ctx); err != nil {
 		m.process.Stop()
 		return m.startupError(err)
 	}
@@ -264,7 +265,7 @@ func (m *MTProto) startupError(err error) error {
 }
 
 // waitForHealth polls /v1/health until it answers, telemt exits, the backend
-// shuts down, or telemtStartupTimeout passes.
+// shuts down, ctx ends, or telemtStartupTimeout passes.
 func (m *MTProto) waitForHealth(ctx context.Context) error {
 	timeout := telemtStartupTimeout
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -285,6 +286,10 @@ func (m *MTProto) waitForHealth(ctx context.Context) error {
 		case <-m.lifetime.Done():
 			return errClosed
 		case <-waitCtx.Done():
+			// Shutdown also ends the contexts of the restarts and applies.
+			if m.lifetime.Err() != nil {
+				return errClosed
+			}
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("stopped waiting for the telemt API: %w", err)
 			}
