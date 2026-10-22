@@ -36,6 +36,8 @@ type Service interface {
 	Disconnect()
 }
 
+// Lock order: controlMu before mu. startMu is a leaf: it is never held while
+// taking another lock or while a start runs.
 type Controller struct {
 	backend     backend.Backend
 	activeData  *common.Backend // descriptor used to start the current backend
@@ -213,6 +215,9 @@ func (c *Controller) detachStart(ctx context.Context) (context.Context, context.
 	}
 }
 
+// abortStart cancels the start in progress, if any. A start only runs under
+// LockControl and clears startCancel before it returns, so callers that hold
+// LockControl (Stop, the keep-alive tracker) always find nothing to abort.
 func (c *Controller) abortStart() {
 	c.startMu.Lock()
 	defer c.startMu.Unlock()

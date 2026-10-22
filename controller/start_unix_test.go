@@ -145,6 +145,8 @@ func TestSecondStartAttachesToAStartInProgress(t *testing.T) {
 	firstDone := make(chan result, 1)
 	go start(gaveUp, first, locked, firstDone)
 	<-locked
+	// Make sure the first Start really holds the core while the retry arrives.
+	waitForStartInProgress(t, c)
 
 	// The panel's retry arrives while the first Start is still running.
 	retryCtx, cancelRetry := context.WithTimeout(context.Background(), time.Minute)
