@@ -64,6 +64,19 @@ func (s *Service) GetUserOnlineIpListStats(w http.ResponseWriter, r *http.Reques
 	common.SendProtoResponse(w, stats)
 }
 
+func (s *Service) GetUsersOnlineIpListStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.Backend().GetUsersOnlineIpListStats(r.Context())
+	if err != nil {
+		err = common.InterceptNotFound(err)
+		st, _ := status.FromError(err)
+		httpCode := common.GrpcCodeToHTTP(st.Code())
+		http.Error(w, err.Error(), httpCode)
+		return
+	}
+
+	common.SendProtoResponse(w, stats)
+}
+
 func (s *Service) GetBackendStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.Backend().GetSysStats(r.Context())
 	if err != nil {
