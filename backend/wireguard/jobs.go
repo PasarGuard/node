@@ -43,6 +43,19 @@ func (wg *WireGuard) updateConnectedPeers(ctx context.Context) {
 	default:
 	}
 
+	// A sync that re-creates peers marks their counter reset in the tracker. Holding syncMu
+	// from the device read to the tracker update keeps a sample read before such a reset
+	// from being applied after the mark, which would count the old counter twice.
+	wg.syncMu.Lock()
+	defer wg.syncMu.Unlock()
+
+	wg.samplePeersLocked(ctx, false)
+}
+
+// samplePeersLocked reads the peer counters into the tracker. The caller holds syncMu.
+// Before a ReplacePeers it reads every peer that has completed a handshake, not only the
+// recently active ones, because their counters are about to be destroyed.
+func (wg *WireGuard) samplePeersLocked(ctx context.Context, beforeReset bool) {
 	wg.mu.RLock()
 	mgr := wg.manager
 	cfg := wg.config
@@ -73,7 +86,7 @@ func (wg *WireGuard) updateConnectedPeers(ctx context.Context) {
 		if peer.LastHandshakeTime.IsZero() {
 			continue // never connected
 		}
-		if peer.LastHandshakeTime.Before(activeHandshakeCutoff) {
+		if !beforeReset && peer.LastHandshakeTime.Before(activeHandshakeCutoff) {
 			continue // stale/offline peer
 		}
 

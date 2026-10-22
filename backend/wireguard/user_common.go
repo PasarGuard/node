@@ -264,13 +264,16 @@ func (wg *WireGuard) collectDesiredPeers(users []*common.User) (map[string]*Desi
 			continue
 		}
 
-		if existing, exists := desiredPeers[publicKey]; exists && existing.Email != email {
-			return nil, fmt.Errorf("wireguard public key %s is assigned to multiple users: %s and %s", publicKey, existing.Email, email)
+		// Key by the canonical form, like the peer store and the kernel: ParseKey also accepts
+		// other base64 spellings of the same key, which would look like a different peer.
+		canonicalKey := parsedKey.String()
+		if existing, exists := desiredPeers[canonicalKey]; exists && existing.Email != email {
+			return nil, fmt.Errorf("wireguard public key %s is assigned to multiple users: %s and %s", canonicalKey, existing.Email, email)
 		}
 
-		desiredPeers[publicKey] = &DesiredPeer{
+		desiredPeers[canonicalKey] = &DesiredPeer{
 			Email:         email,
-			PublicKey:     publicKey,
+			PublicKey:     canonicalKey,
 			ParsedKey:     parsedKey,
 			AllowedIPNets: allowedIPNets,
 		}
