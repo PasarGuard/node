@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/pkg/logstream"
 )
@@ -1222,5 +1223,86 @@ func TestAPIClientDeleteUserReadsTelemtAnswer(t *testing.T) {
 	}
 	if _, onDisk := parseConfigUsers(readConfig(t, api.configPath))["u1"]; onDisk {
 		t.Error("u1 is still in the config file")
+	}
+}
+
+// TestSyncErrorsTellRetryLaterFromRejection: a sync error that comes from
+// telemt's state (busy with an earlier apply, a caller that gave up while it
+// queued or waited, telemt that does not start, the backend shut down) is
+// marked backend.RetryLaterError, which the node answers as unavailable, so
+// the bridge retries the batch instead of splitting it to find a user to
+// blame. A render telemt read and refused, which the users sent may have
+// caused, and an invalid user synced alone stay rejections. The texts the
+// panel matches do not change.
+func TestSyncErrorsTellRetryLaterFromRejection(t *testing.T) {
+	users := []*common.User{mtUser("u2", "mtproto", otherSecret)}
+	cases := []struct {
+		name       string
+		retryLater bool
+		text       string
+		run        func(t *testing.T, m *MTProto, api *fakeTelemtAPI) error
+	}{
+		{"caller gave up during an apply", true, "the users are still being applied: context deadline exceeded",
+			func(t *testing.T, m *MTProto, api *fakeTelemtAPI) error {
+				lowerMarkerConfirmTimeout(t, 2*time.Second)
+				api.set(func(f *fakeTelemtAPI) { f.rejectReload = true })
+				ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+				defer cancel()
+				err := m.SyncUsers(ctx, users)
+				waitSettled(m)
+				return err
+			}},
+		{"queued behind an apply", true, "context deadline exceeded",
+			func(t *testing.T, m *MTProto, _ *fakeTelemtAPI) error {
+				m.syncMu.Lock()
+				defer m.syncMu.Unlock()
+				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+				defer cancel()
+				return m.UpdateUsers(ctx, users)
+			}},
+		{"caller already gone", true, "context canceled",
+			func(t *testing.T, m *MTProto, _ *fakeTelemtAPI) error {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return m.UpdateUsersAndRestart(ctx, users)
+			}},
+		{"telemt does not start", true, "failed to start telemt",
+			func(t *testing.T, m *MTProto, _ *fakeTelemtAPI) error {
+				// No telemt runs, and none can start: a full apply must
+				// start one first.
+				m.process.run = nil
+				return m.SyncUsers(context.Background(), users)
+			}},
+		{"backend shut down", true, errClosed.Error(),
+			func(t *testing.T, m *MTProto, _ *fakeTelemtAPI) error {
+				m.cancel() // what Shutdown does first
+				return m.SyncUsers(context.Background(), users)
+			}},
+		{"telemt refused the render", false, "telemt did not load the new config",
+			func(t *testing.T, m *MTProto, api *fakeTelemtAPI) error {
+				api.set(func(f *fakeTelemtAPI) { f.loadError = "failed to load config: TOML parse error at line 3" })
+				return m.SyncUsers(context.Background(), users)
+			}},
+		{"invalid user synced alone", false, "invalid secret",
+			func(t *testing.T, m *MTProto, _ *fakeTelemtAPI) error {
+				return m.SyncUser(context.Background(), mtUser("u3", "mtproto", "not-hex"))
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := newFakeTelemtAPI(t)
+			m := newSyncTestBackend(t, api, []*common.User{mtUser("u1", "mtproto", testSecret)})
+
+			err := tc.run(t, m, api)
+			if err == nil {
+				t.Fatal("the sync succeeded")
+			}
+			if got := backend.IsRetryLater(err); got != tc.retryLater {
+				t.Errorf("IsRetryLater(%q) = %v, want %v", err, got, tc.retryLater)
+			}
+			if !strings.Contains(err.Error(), tc.text) {
+				t.Errorf("error %q does not contain %q", err, tc.text)
+			}
+		})
 	}
 }

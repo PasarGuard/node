@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 )
 
@@ -31,7 +32,7 @@ func (m *MTProto) SyncUser(ctx context.Context, user *common.User) error {
 // SyncUsers replaces all users through one config render and reload.
 func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 	if err := m.lockSync(ctx); err != nil {
-		return err
+		return syncError(err)
 	}
 	desired, _ := ActiveUsersFromCommon(users, m.config.InboundTag)
 
@@ -40,7 +41,7 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 		m.syncMu.Unlock()
 		return nil
 	}
-	return m.applyFullDetachedLocked(ctx, desired)
+	return syncError(m.applyFullDetachedLocked(ctx, desired))
 }
 
 // UpdateUsers applies users on top of the current ones. Up to
@@ -49,23 +50,37 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 // that did not change are not sent at all.
 func (m *MTProto) UpdateUsers(ctx context.Context, users []*common.User) error {
 	if err := m.lockSync(ctx); err != nil {
-		return err
+		return syncError(err)
 	}
 	next, full := m.updateUsersLocked(ctx, users)
 	if !full {
 		m.syncMu.Unlock()
 		return nil
 	}
-	return m.applyFullDetachedLocked(ctx, next)
+	return syncError(m.applyFullDetachedLocked(ctx, next))
 }
 
 // UpdateUsersAndRestart applies users on top of the current ones through a
 // config render and reload.
 func (m *MTProto) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
 	if err := m.lockSync(ctx); err != nil {
+		return syncError(err)
+	}
+	return syncError(m.applyFullDetachedLocked(ctx, m.buildNextDesiredLocked(users)))
+}
+
+// syncError is how a sync reports err. A failure that comes from telemt's
+// state (busy with an earlier apply, a caller that gave up while it queued or
+// waited, telemt that does not start or answer, the backend shut down) is
+// marked retry-later, so the node answers it as unavailable and the caller
+// retries the batch. A render telemt read and refused (errReloadRejected)
+// stays a plain error: the users sent may have caused it, so a caller may
+// narrow the batch down. The text never changes.
+func syncError(err error) error {
+	if err == nil || errors.Is(err, errReloadRejected) {
 		return err
 	}
-	return m.applyFullDetachedLocked(ctx, m.buildNextDesiredLocked(users))
+	return backend.RetryLater(err)
 }
 
 // lockSync takes syncMu for a sync call. A caller waiting behind another
