@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -25,6 +26,12 @@ const NodeVersion = "0.5.4"
 // health interval equals keep_alive does not trip the watchdog on jitter.
 const keepAliveGrace = 5 * time.Second
 
+// startTimeout bounds a core start, which does not follow the caller's
+// cancellation: the panel gives up on Start after its RPC timeout (10 s by
+// default) and then attaches to a core that came up meanwhile, while a large
+// user list takes xray longer than that to load.
+const startTimeout = 3 * time.Minute
+
 type Service interface {
 	Disconnect()
 }
@@ -40,6 +47,8 @@ type Controller struct {
 	cancelFunc  context.CancelFunc
 	mu          sync.RWMutex
 	controlMu   sync.Mutex
+	startMu     sync.Mutex         // guards startCancel; never held while starting
+	startCancel context.CancelFunc // aborts the start in progress, if any
 }
 
 func New(cfg *config.Config) *Controller {
@@ -74,7 +83,15 @@ func (c *Controller) Connect(keepAlive uint64) {
 	}
 }
 
+// Disconnect stops the backend. It first aborts a start in progress, which
+// would otherwise hold mu until the core is up: process shutdown calls
+// Disconnect without LockControl.
 func (c *Controller) Disconnect() {
+	c.abortStart()
+	c.disconnect()
+}
+
+func (c *Controller) disconnect() {
 	c.mu.Lock()
 	if c.cancelFunc != nil {
 		c.cancelFunc()
@@ -138,8 +155,15 @@ func sameBackendConfig(active, incoming *common.Backend) bool {
 //   - The running backend has stopped, or
 //   - The incoming config differs from what started the current backend.
 //
+// The start runs to the end even when the caller goes away, so a timed-out
+// Start leaves a running core for the next Start or attach; Disconnect still
+// aborts it.
+//
 // Caller must hold LockControl.
 func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) error {
+	ctx, cancel := c.detachStart(ctx)
+	defer cancel()
+
 	back := c.Backend()
 	if back != nil && back.Started() {
 		c.mu.RLock()
@@ -160,13 +184,41 @@ func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) er
 	}
 
 	if back != nil {
-		c.Disconnect()
+		c.disconnect()
 	}
 	if err := c.StartBackend(ctx, data); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("core not ready within %s: %w", startTimeout, err)
+		}
 		return err
 	}
 	c.Connect(data.GetKeepAlive())
 	return nil
+}
+
+// detachStart returns the context a start runs under: it keeps the request's
+// values but not its cancellation, ends after startTimeout, and Disconnect
+// cancels it.
+func (c *Controller) detachStart(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), startTimeout)
+	c.startMu.Lock()
+	c.startCancel = cancel
+	c.startMu.Unlock()
+
+	return ctx, func() {
+		c.startMu.Lock()
+		c.startCancel = nil
+		c.startMu.Unlock()
+		cancel()
+	}
+}
+
+func (c *Controller) abortStart() {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.startCancel != nil {
+		c.startCancel()
+	}
 }
 
 func (c *Controller) StartBackend(ctx context.Context, backend *common.Backend) error {

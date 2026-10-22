@@ -117,6 +117,45 @@ func waitUntil(t *testing.T, what string, condition func() bool) {
 	}
 }
 
+// The panel gives up on a full sync after its RPC timeout while a large user
+// list is still loading. Rolling back then restarted xray a second time and
+// left it on the old users.
+func TestSyncUsersOutlivesTheCaller(t *testing.T) {
+	stats := &fakeStatsService{}
+	x := newFakeCoreXray(t, stats)
+	previous := x.config
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	syncErr := make(chan error, 1)
+	go func() { syncErr <- x.SyncUsers(ctx, nil) }()
+	waitUntil(t, "the full sync starts its candidate core", x.core.Started)
+	pid := corePID(x)
+
+	cancel()
+	// Let at least one readiness probe run after the caller left.
+	time.Sleep(1500 * time.Millisecond)
+	stats.healthy.Store(true)
+
+	select {
+	case err := <-syncErr:
+		if err != nil {
+			t.Fatalf("SyncUsers failed after its caller went away: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("SyncUsers still running 10s after the core answered")
+	}
+	if got := corePID(x); got != pid {
+		t.Fatalf("xray was restarted again after the caller went away (pid %d, now %d)", pid, got)
+	}
+	x.mu.RLock()
+	kept := x.config == previous
+	x.mu.RUnlock()
+	if kept {
+		t.Fatal("the full sync left xray on the previous config")
+	}
+}
+
 func TestSyncUsersDoesNotStartXrayAfterShutdown(t *testing.T) {
 	x := newFakeCoreXray(t, &fakeStatsService{})
 
