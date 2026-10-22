@@ -52,9 +52,9 @@ func (x *Xray) ApplyConfigLive(ctx context.Context, rawConfig string, exclude []
 	defer x.syncMu.Unlock()
 
 	x.mu.RLock()
-	cur, handler, core := x.config, x.handler, x.core
+	closed, cur, handler, core := x.closed, x.config, x.handler, x.core
 	x.mu.RUnlock()
-	if cur == nil || handler == nil || core == nil || !core.Started() {
+	if closed || cur == nil || handler == nil || core == nil || !core.Started() {
 		return false, nil
 	}
 
