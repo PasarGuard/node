@@ -25,6 +25,11 @@ const NodeVersion = "0.5.4"
 // health interval equals keep_alive does not trip the watchdog on jitter.
 const keepAliveGrace = 5 * time.Second
 
+// heartbeatHealthTimeout bounds the health check that tells a heartbeat Start
+// from a repair Start. It runs under LockControl, so a hung core API must not
+// hold the lock for long.
+var heartbeatHealthTimeout = 3 * time.Second
+
 type Service interface {
 	Disconnect()
 }
@@ -135,7 +140,7 @@ func sameBackendConfig(active, incoming *common.Backend) bool {
 // StartOrAttach starts the core, or refreshes keep-alive if the same core is
 // already running (heartbeat case). It only restarts when:
 //   - No backend is running, or
-//   - The running backend has stopped, or
+//   - The running backend has stopped or fails its health check, or
 //   - The incoming config differs from what started the current backend, and
 //     the backend cannot apply the difference live.
 //
@@ -148,21 +153,27 @@ func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) er
 		c.mu.RUnlock()
 
 		if sameBackendConfig(active, data) {
-			// Same config, backend healthy: this is a heartbeat. Just refresh.
-			log.Println("StartOrAttach: backend already running with same config, refreshing keep-alive.")
-			c.Connect(data.GetKeepAlive())
-			return nil
-		}
-		if applyConfigLive(ctx, back, active, data) {
+			err := backendHealthy(ctx, back)
+			if err == nil {
+				// Same config, backend healthy: this is a heartbeat. Just refresh.
+				log.Println("StartOrAttach: backend already running with same config, refreshing keep-alive.")
+				c.Connect(data.GetKeepAlive())
+				return nil
+			}
+			// A backend can report started while it is broken (a WireGuard
+			// interface that is gone), and the panel sends Start to repair it.
+			log.Printf("StartOrAttach: running backend with same config is unhealthy, restarting: %v", err)
+		} else if applyConfigLive(ctx, back, active, data) {
 			log.Println("StartOrAttach: config changed, applied to the running backend without a restart.")
 			c.mu.Lock()
 			c.activeData = data
 			c.mu.Unlock()
 			c.Connect(data.GetKeepAlive())
 			return nil
+		} else {
+			// Config changed while core is running: panel is sending a new config.
+			log.Println("StartOrAttach: config changed, restarting backend.")
 		}
-		// Config changed while core is running: panel is sending a new config.
-		log.Println("StartOrAttach: config changed, restarting backend.")
 	} else if back != nil {
 		// Backend object exists but has stopped.
 		log.Println("StartOrAttach: replacing a backend that is no longer running.")
@@ -176,6 +187,16 @@ func (c *Controller) StartOrAttach(ctx context.Context, data *common.Backend) er
 	}
 	c.Connect(data.GetKeepAlive())
 	return nil
+}
+
+// backendHealthy reports why a running backend cannot serve, or nil. It does not
+// follow the caller's cancellation, so an abandoned request does not restart a
+// healthy core.
+func backendHealthy(ctx context.Context, back backend.Backend) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), heartbeatHealthTimeout)
+	defer cancel()
+	_, err := back.GetSysStats(ctx)
+	return err
 }
 
 // applyConfigLive asks a running backend to take a changed config without a
