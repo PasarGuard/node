@@ -307,7 +307,13 @@ func (x *Xray) applyConfigWithRestart(ctx context.Context, candidate *Config) er
 		return err
 	}
 
-	if err := x.checkXrayStatus(ctx); err != nil {
+	// The new core is already booting. Rolling back because the panel gave up
+	// on its RPC timeout would restart xray a second time and leave it on the
+	// old users, so wait for it regardless; Shutdown still ends the wait, since
+	// checkXrayStatus sees the core stop.
+	readyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fullSyncReadyTimeout)
+	defer cancel()
+	if err := x.checkXrayStatus(readyCtx); err != nil {
 		if restoreErr := x.restorePreviousConfig(previous); restoreErr != nil {
 			return fmt.Errorf("%w; failed to restore previous xray config: %v", err, restoreErr)
 		}
