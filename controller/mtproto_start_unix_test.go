@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
+	"github.com/pasarguard/node/backend/mtproto"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/netutil"
@@ -296,5 +297,40 @@ func TestDisconnectAbortsAnMTProtoStartInProgress(t *testing.T) {
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Errorf("telemt %d still runs after the aborted start (kill 0: %v)", pid, err)
+	}
+}
+
+// telemt cannot take a changed core config live (MTProto does not implement
+// backend.LiveConfigApplier), so a Start with another config restarts it on
+// the new one instead of keeping the old telemt.
+func TestMTProtoConfigChangeRestartsTelemt(t *testing.T) {
+	c, pidFile := newFakeTelemtController(t, "0s")
+	if _, live := any(&mtproto.MTProto{}).(backend.LiveConfigApplier); live {
+		t.Fatal("MTProto implements LiveConfigApplier: check that a live apply is correct for telemt")
+	}
+
+	start := func(data *common.Backend) backend.Backend {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		c.LockControl()
+		defer c.UnlockControl()
+		if err := c.StartOrAttach(ctx, data); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		return c.Backend()
+	}
+
+	first := start(mtprotoStartRequest())
+	oldPID := readFakeTelemtPID(t, pidFile)
+	second := start(mtprotoStartRequest()) // another listener port
+	if second == first {
+		t.Fatal("a Start with another MTProto config kept the running backend")
+	}
+	if !second.Started() {
+		t.Fatal("no running telemt after the config change")
+	}
+	if err := syscall.Kill(oldPID, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("the old telemt %d still runs after the config change (kill 0: %v)", oldPID, err)
 	}
 }
