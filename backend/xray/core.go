@@ -24,6 +24,7 @@ type Core struct {
 	assetsPath                string
 	configPath                string
 	version                   string
+	executable                os.FileInfo
 	process                   *exec.Cmd
 	processPID                int
 	restarting                bool
@@ -259,6 +260,9 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	}
 	c.process = cmd
 	c.processPID = cmd.Process.Pid
+	// Lets a live config update tell whether the binary on disk is still the
+	// one that is running.
+	c.executable, _ = os.Stat(c.executablePath)
 	c.stopping = false
 	c.waitDone = make(chan struct{})
 	c.unixSocketPaths = socketPaths

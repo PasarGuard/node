@@ -14,6 +14,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
+# install_xray also installs the pinned geo files (Makefile install_geofiles) and fails the build unless xray loads them
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} XRAY_TAG=${XRAY_TAG} make install_xray
 
 FROM alpine:latest

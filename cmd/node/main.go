@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -22,7 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.NodeHost, cfg.ServicePort)
+	addr := net.JoinHostPort(cfg.NodeHost, strconv.Itoa(cfg.ServicePort))
 
 	tlsConfig, err := tlsutil.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
 	if err != nil {

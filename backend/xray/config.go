@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -73,10 +75,26 @@ type inboundUpdate struct {
 	removeEmailSet map[string]struct{}
 }
 
+// canHoldUsers reports whether this inbound may hold users the node manages.
+// It lists the Xray inbound protocols that never take users from the node
+// (dokodemo-door and its alias tunnel, which the node's own API_INBOUND uses,
+// socks and mixed, http, tun): removing a user from them is a wasted Xray API
+// call. Every other protocol counts as holding users, so a protocol added to
+// isActiveInbound, syncUsers, updateUsers and the ToBytes switch gets its
+// removals without a change here; one the node does not manage yet only costs
+// a remove call that fails. Xray matches protocol names case-insensitively.
+func (i *Inbound) canHoldUsers() bool {
+	switch strings.ToLower(i.Protocol) {
+	case "dokodemo-door", "tunnel", "socks", "mixed", "http", "tun":
+		return false
+	}
+	return true
+}
+
 func (c *Config) buildInboundUpdates(users []*common.User) (map[string]*Inbound, map[string]*inboundUpdate) {
 	inboundByTag := make(map[string]*Inbound)
 	for _, inbound := range c.InboundConfigs {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
 			continue
 		}
 		inboundByTag[inbound.Tag] = inbound
@@ -204,7 +222,8 @@ func (i *Inbound) syncUsers(users []*common.User) {
 
 	case Wireguard:
 		for _, user := range users {
-			if user.GetProxies().GetWireguard() == nil {
+			// No public key means no WireGuard account, as in setupUserAccount.
+			if user.GetProxies().GetWireguard().GetPublicKey() == "" {
 				continue
 			}
 			if slices.Contains(user.Inbounds, i.Tag) {
@@ -360,6 +379,29 @@ func (i *Inbound) removeUser(email string) {
 
 type Stats struct{}
 
+// shadowsocks2022PlaceholderKey is random per process and never leaves it.
+var shadowsocks2022PlaceholderKey = func() string {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	return base64.StdEncoding.EncodeToString(key)
+}()
+
+// shadowsocks2022Placeholder returns a client for a Shadowsocks 2022 inbound without
+// users. Xray builds such an inbound as a single-user server, which accepts the bare
+// server key (part of every Shadowsocks 2022 link) and rejects every later AddUser.
+// A client whose key nobody holds keeps the inbound multi-user. Xray has no multi-user
+// mode for chacha20, so there is no placeholder for it.
+func shadowsocks2022Placeholder(inbound *Inbound) *api.ShadowsocksAccount {
+	method, _ := inbound.Settings["method"].(string)
+	if inbound.Protocol != Shadowsocks || !strings.HasPrefix(method, "2022-blake3-aes") {
+		return nil
+	}
+	return &api.ShadowsocksAccount{
+		BaseAccount: api.BaseAccount{Email: "pasarguard-placeholder"},
+		Password:    common.EnsureBase64Password(shadowsocks2022PlaceholderKey, method),
+	}
+}
+
 func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 	inbound.mu.RLock()
 	defer inbound.mu.RUnlock()
@@ -393,6 +435,8 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 	if len(inbound.clients) == 0 {
 		if inbound.Protocol == Wireguard {
 			snap.Settings["peers"] = []any{}
+		} else if placeholder := shadowsocks2022Placeholder(inbound); placeholder != nil {
+			snap.Settings["clients"] = []*api.ShadowsocksAccount{placeholder}
 		} else {
 			snap.Settings["clients"] = []any{}
 		}
@@ -625,8 +669,9 @@ var canonicalAPIServices = map[string]string{
 
 // requiredAPIServices are always present — the node's own gRPC clients depend on
 // HandlerService (users/inbounds) and StatsService (traffic); LoggerService
-// preserves current behavior.
-var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService"}
+// preserves current behavior; RoutingService lets a core config edit replace
+// the routing rules of the running xray without a restart.
+var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
 
 // sanitizeAPIServices returns the required API services plus any valid
 // user-provided extras (canonicalized, deduped case-insensitively, sorted).
