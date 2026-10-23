@@ -14,6 +14,23 @@ import (
 
 const onlineActivityThreshold = 45 * time.Second
 
+// The tracker preserves cumulative deltas across peer changes and soft restarts.
+// A new backend instance receives a new epoch when its trackers are recreated.
+func (wg *WireGuard) UsageSnapshot(ctx context.Context, kind common.StatType) (string, *common.StatResponse, error) {
+	wg.syncMu.Lock()
+	defer wg.syncMu.Unlock()
+	if kind == common.StatType_Outbounds {
+		rx, tx, err := wg.getInterfaceCounters()
+		if err != nil {
+			return "", nil, err
+		}
+		rx, tx = wg.interfaceStats.Cumulative(rx, tx)
+		return wg.usageEpoch, &common.StatResponse{Stats: stats.BuildInterfaceStats(wg.config.InterfaceName, "interface", rx, tx)}, nil
+	}
+	stats, err := wg.GetStats(ctx, &common.StatRequest{Type: kind, Reset_: false})
+	return wg.usageEpoch, stats, err
+}
+
 func (wg *WireGuard) getInterfaceCounters() (int64, int64, error) {
 	wg.mu.RLock()
 	mgr := wg.manager

@@ -14,7 +14,7 @@ func (s *Service) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.Backend().GetStats(r.Context(), &request)
+	stats, err := s.Controller.GetStats(r.Context(), &request)
 	if err != nil {
 		err = common.InterceptNotFound(err)
 		st, _ := status.FromError(err)
