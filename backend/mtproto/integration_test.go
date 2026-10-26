@@ -6,7 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,6 +83,21 @@ func telemtBinOrSkip(t *testing.T) string {
 // with the other integration tests.
 func startLiveTelemt(t *testing.T, generatedPath string, users ...*common.User) *liveTelemt {
 	t.Helper()
+	return startLiveTelemtWithConfig(t, generatedPath, func(nativePort int, dc string) string {
+		return fmt.Sprintf(`{
+			"inbound_tag": "mtproto",
+			"general": {"use_middle_proxy": false, "modes": {"classic": true, "secure": true, "tls": false}},
+			"server": {"port": %d, "listeners": [{"ip": "127.0.0.1"}]},
+			"dc_overrides": {"%d": %q}
+		}`, nativePort, mtprotoTestDC, dc)
+	}, users...)
+}
+
+// startLiveTelemtWithConfig is startLiveTelemt with the panel config built by
+// configJSON from the MTProxy listener port and the fake DC address. The
+// config must serve MTProxy on 127.0.0.1:nativePort.
+func startLiveTelemtWithConfig(t *testing.T, generatedPath string, configJSON func(nativePort int, dc string) string, users ...*common.User) *liveTelemt {
+	t.Helper()
 	bin := telemtBinOrSkip(t)
 	t.Parallel()
 
@@ -90,12 +108,7 @@ func startLiveTelemt(t *testing.T, generatedPath string, users ...*common.User) 
 	}
 
 	port := netutil.FindFreePort()
-	mtConfig, err := NewConfig(fmt.Sprintf(`{
-		"inbound_tag": "mtproto",
-		"general": {"use_middle_proxy": false, "modes": {"classic": true, "secure": true, "tls": false}},
-		"server": {"port": %d, "listeners": [{"ip": "127.0.0.1"}]},
-		"dc_overrides": {"%d": %q}
-	}`, port, mtprotoTestDC, startFakeDC(t)))
+	mtConfig, err := NewConfig(configJSON(port, startFakeDC(t)))
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
@@ -635,4 +648,133 @@ func TestIntegrationRejectedRenderRestoresUsers(t *testing.T) {
 	l.expectOpen(aliceSession, "alice", 1)
 	l.expectAdmitted("alice", secretAlice)
 	l.expectRefused("1000000", fmt.Sprintf("%032x", 1_000_000))
+}
+
+// webVhostHost is the vhost of the WEB integration tests; requests name it
+// in their Host header.
+const webVhostHost = "proxy.example.com"
+
+// webDecoyBody is what the WEB tests' decoy upstream answers.
+const webDecoyBody = "decoy-ok"
+
+// startLiveWebTelemt starts the real telemt with an MTProxy listener and a
+// WEB listener on 127.0.0.1, one vhost for webVhostHost and a decoy upstream
+// on 127.0.0.1 answering webDecoyBody. It returns the backend and the WEB
+// listener address.
+func startLiveWebTelemt(t *testing.T, users ...*common.User) (*liveTelemt, string) {
+	t.Helper()
+	telemtBinOrSkip(t)
+	decoy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, webDecoyBody)
+	}))
+	t.Cleanup(decoy.Close)
+	webPort := netutil.FindFreePort()
+
+	l := startLiveTelemtWithConfig(t, "", func(nativePort int, dc string) string {
+		return fmt.Sprintf(`{
+			"inbound_tag": "mtproto",
+			"general": {"use_middle_proxy": false, "modes": {"classic": true, "secure": true, "tls": false}},
+			"server": {"port": %d, "listeners": [
+				{"ip": "127.0.0.1"},
+				{"ip": "127.0.0.1", "port": %d, "transport": "web", "web_trusted_proxy_cidrs": ["127.0.0.1/32"]}
+			]},
+			"dc_overrides": {"%d": %q},
+			"web": {"enabled": true, "vhosts": [{
+				"host": %q,
+				"public_addr": "127.0.0.1:443",
+				"decoy": {"mode": "http_upstream", "upstream": %q}
+			}]}
+		}`, nativePort, webPort, mtprotoTestDC, dc, webVhostHost, decoy.URL)
+	}, users...)
+	return l, fmt.Sprintf("127.0.0.1:%d", webPort)
+}
+
+// webProfileUsers returns the users of the WEB profiles telemt reports for
+// webVhostHost in GET /v1/config.
+func (l *liveTelemt) webProfileUsers() []string {
+	l.t.Helper()
+	type configData struct {
+		Web struct {
+			Vhosts []struct {
+				Host     string `json:"host"`
+				Profiles []struct {
+					User string `json:"user"`
+				} `json:"profiles"`
+			} `json:"vhosts"`
+		} `json:"web"`
+	}
+	data, err := doAPIRequest[configData](l.ctx, l.mt.apiClient, http.MethodGet, "/v1/config", nil)
+	if err != nil {
+		l.t.Fatalf("GET /v1/config: %v", err)
+	}
+	var users []string
+	for _, vhost := range data.Web.Vhosts {
+		if vhost.Host != webVhostHost {
+			continue
+		}
+		for _, profile := range vhost.Profiles {
+			users = append(users, profile.User)
+		}
+	}
+	slices.Sort(users)
+	return users
+}
+
+// waitWebProfileUsers waits until telemt reports WEB profiles for exactly
+// want, sorted.
+func (l *liveTelemt) waitWebProfileUsers(want ...string) {
+	l.t.Helper()
+	var got []string
+	if !waitUntil(liveWait, func() bool {
+		got = l.webProfileUsers()
+		return slices.Equal(got, want)
+	}) {
+		l.t.Fatalf("telemt WEB profiles of %s = %v, want %v", webVhostHost, got, want)
+	}
+}
+
+// A WEB listener relays a plain request for the vhost to the decoy, telemt
+// runs one WEB profile per user and follows a full sync, and a native
+// session stays open across that sync.
+func TestIntegrationWebDecoyAndProfiles(t *testing.T) {
+	u1 := mtUser("u1", "mtproto", secretAlice)
+	l, webAddr := startLiveWebTelemt(t, u1)
+
+	request, err := http.NewRequestWithContext(l.ctx, http.MethodGet, "http://"+webAddr+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = webVhostHost
+	request.Header.Set("X-Forwarded-For", "198.51.100.7")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("GET / on the WEB listener: %v", err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || response.StatusCode != http.StatusOK || string(body) != webDecoyBody {
+		t.Fatalf("GET / on the WEB listener = %d %q, %v; want 200 %q from the decoy", response.StatusCode, body, err, webDecoyBody)
+	}
+	t.Logf("WEB listener answered %d %q", response.StatusCode, body)
+
+	l.waitWebProfileUsers("u1")
+	session := l.expectAdmitted("u1", secretAlice)
+
+	if err := l.mt.SyncUsers(l.ctx, []*common.User{u1, mtUser("u2", "mtproto", secretBob)}); err != nil {
+		t.Fatalf("SyncUsers(u1, u2): %v", err)
+	}
+	l.waitWebProfileUsers("u1", "u2")
+	t.Logf("telemt WEB profiles after the sync: %v", l.webProfileUsers())
+	l.expectOpen(session, "u1", 1)
+	l.expectAdmitted("u2", secretBob)
+}
+
+// With no real users, telemt starts with WEB on and the marker's profile as
+// the only one.
+func TestIntegrationWebStartWithoutUsers(t *testing.T) {
+	l, _ := startLiveWebTelemt(t)
+
+	marker := l.mt.markerUsername()
+	l.waitWebProfileUsers(marker)
+	t.Logf("telemt WEB profiles without users: %v", l.webProfileUsers())
 }
