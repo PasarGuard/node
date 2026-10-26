@@ -34,7 +34,146 @@ The MTProto backend runs [telemt](https://github.com/telemt/telemt) as a separat
 - telemt needs outbound access to Telegram. On start it checks the Telegram data centers, which can take up to a minute.
 - Start can take up to 90 s while telemt probes Telegram, and the panel's retry attaches to the backend that is starting or running.
 - Above 4096 users with stats or configured users, telemt stops its per-user series and the node bills from telemt's API totals, reported as downlink (no uplink and downlink split).
-- telemt refuses a config file above 8 MiB, which is roughly 150k to 190k users on one node.
+- telemt refuses a config file above 8 MiB, which is about 196k users on one node without WEB mode (fewer with WEB, see below).
+
+## WEB mode
+WEB mode carries MTProxy over real HTTPS (long polling or WebSocket) to your own domain on port 443. Links look like `tg://webproxy?server=proxy.example.com&secret=dd...` and have no port.
+- Clients: Telegram Desktop's `WEB` proxy type, and Telegram iOS with the `https` carrier only. Android is not covered by telemt's docs and is untested.
+- Secrets are `plain` or `dd`. Fake TLS (`ee`) is not used by WEB.
+- telemt does not terminate TLS. A front (Caddy, nginx or HAProxy) holds the certificate on 443 and forwards plain HTTP/1.1 to telemt's WEB listener on a private address, with exactly one `X-Forwarded-For` address. pg-node runs the node with `network_mode: host`, so a front on the same host reaches `127.0.0.1:<port>`.
+- telemt's own guide is [`docs/WEB/WEB_PROXY.en.md`](https://github.com/telemt/telemt/blob/3.5.14/docs/WEB/WEB_PROXY.en.md).
+
+```text
+Telegram client --HTTPS :443--> front (TLS) --HTTP/1.1--> 127.0.0.1:18080 (telemt WEB listener) --> Telegram
+```
+
+### Core config
+What the node accepts in the MTProto core JSON:
+- A `server.listeners[]` entry with `"transport": "web"`:
+  - `ip` is a loopback or private address (127/8, ::1, 10/8, 172.16/12, 192.168/16, fc00::/7). `0.0.0.0`, `::` and public addresses are refused.
+  - `port` is set, and differs from `server.port` and from every native listener's port.
+  - telemt's WEB listener keys pass through, for example `web_client_ip_source` and `web_trusted_proxy_cidrs`.
+- A `web` section with `"enabled": true` and at least one `vhosts[]` entry:
+  - `host`: the public domain. `base_path` is optional.
+  - `public_addr`: the server's public IP on port 443, for example `203.0.113.10:443`.
+  - `decoy`: `{"mode": "http_upstream", "upstream": "http://<loopback or private IP>[:port]"}`. Host names and `static_directory` are refused. The decoy is the site that ordinary visitors and probes see.
+  - `user_profile` (PasarGuard only, optional): `secret_mode` is `"dd"` (default) or `"plain"`, plus optional `max_sessions`, `max_streams` and `max_streams_per_session`. It applies to every user on that vhost.
+- Refused: `web.vhosts[].profiles`, `web.debug`, `web.limits.max_profiles` and `include` anywhere.
+
+The node writes one telemt WEB profile per user per vhost and sets `web.limits.max_profiles` to 65536. With WEB on, every user change rewrites telemt's config and hot reloads it: open sessions of unchanged users stay, removed users are cut.
+
+telemt creates its default native listener only when no listeners are listed. Adding a WEB listener therefore turns native MTProto off unless you also list native listeners. The panel form writes them when WEB is enabled. If you edit the JSON by hand, add `{"ip": "0.0.0.0"}` and `{"ip": "::"}` (or your own).
+
+Minimal example: native MTProto on 8443, WEB on `127.0.0.1:18080`, a decoy site on `127.0.0.1:18081`:
+```json
+{
+  "server": {
+    "port": 8443,
+    "listeners": [
+      {"ip": "0.0.0.0"},
+      {"ip": "::"},
+      {
+        "ip": "127.0.0.1",
+        "port": 18080,
+        "transport": "web",
+        "web_client_ip_source": "x_forwarded_for",
+        "web_trusted_proxy_cidrs": ["127.0.0.1/32"]
+      }
+    ]
+  },
+  "web": {
+    "enabled": true,
+    "carrier": "https",
+    "vhosts": [
+      {
+        "host": "proxy.example.com",
+        "public_addr": "203.0.113.10:443",
+        "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"},
+        "user_profile": {"secret_mode": "dd"}
+      }
+    ]
+  }
+}
+```
+`"carrier": "https"` keeps iOS working. `https-lanes` needs public HTTP/2 and is not supported by iOS.
+
+### Front examples
+Both forward the whole domain to telemt, overwrite `X-Forwarded-For` with one address, and turn off response buffering. Timeouts must stay above telemt's 25 s long poll and twice the WebSocket liveness interval; 65 s covers the defaults. Do not enable upstream retries. Keep request URLs and the `Authorization` header out of access logs: they carry the users' WEB credentials.
+
+Caddy (gets and renews the certificate itself):
+```caddyfile
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+proxy.example.com {
+	reverse_proxy 127.0.0.1:18080 {
+		header_up X-Forwarded-For {remote_host}
+		flush_interval -1
+		stream_close_delay 5m
+	}
+}
+```
+Do not add `header_up Host`. `protocols h1 h2` keeps HTTP/3 off, and it applies to every site on that Caddy server.
+
+nginx (the `map` goes in the `http` context):
+```nginx
+map $http_upgrade $telemt_connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+upstream telemt_web {
+    server 127.0.0.1:18080;
+    keepalive 64;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name proxy.example.com;
+    access_log off;
+
+    ssl_certificate     /etc/letsencrypt/live/proxy.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/proxy.example.com/privkey.pem;
+
+    client_max_body_size 2m;
+
+    location / {
+        proxy_pass http://telemt_web;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $telemt_connection_upgrade;
+
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 65s;
+        proxy_read_timeout 65s;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_next_upstream off;
+    }
+}
+```
+`client_max_body_size` must be at least telemt's `web.limits.max_body_bytes`.
+
+Firewall the WEB listener port and the decoy port from outside, even on loopback.
+
+### Port 443
+The front needs public port 443, and native fake TLS usually wants 443 too. Either:
+- move native MTProto to another port (8443 in the example above), or
+- split 443 by host name in the front: nginx `stream` with `ssl_preread`, or HAProxy SNI routing. The WEB domain is terminated by the front and other names pass through to telemt's native listener. PasarGuard has not tested this split.
+
+### Several nodes
+A WEB domain points at one server, and `public_addr` is that server's IP. With several MTProto nodes, use one core per node.
+
+### Capacity
+- telemt holds at most 65536 WEB profiles (users times vhosts): 65536 users with one vhost, 32768 with two.
+- The 8 MiB config file limit allows about 69k users with one WEB vhost (about 121.6 bytes per user), and about 36k if every user has every optional limit set (about 232.9 bytes per user). Native only is about 196k (about 42.8 bytes per user). Each extra vhost adds about 79 bytes per user.
+- 65536 profiles fit telemt's default WEB memory envelope (1280 MiB, about 4 MiB free for profiles at 64 bytes each). If you raise other `web.limits` reservations or lower `web.limits.memory_envelope_bytes`, telemt refuses to start with `web.limits memory reservations must fit memory_envelope_bytes`.
 
 ## Xray and MTProto on one host
 One node runs one backend, so serving Xray (or WireGuard) and MTProto from one server takes two node instances, each added to the panel as its own node:
