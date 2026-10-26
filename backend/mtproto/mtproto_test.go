@@ -75,3 +75,30 @@ func TestBuildPatchUserRequest_ClearsOptionalFields(t *testing.T) {
 		t.Errorf("max_unique_ips = %v, want 2", setPayload.MaxUniqueIPs)
 	}
 }
+
+func TestBuildCreateUserRequest_OmitsUnsetFields(t *testing.T) {
+	encoded, err := json.Marshal(buildCreateUserRequest(&runtimeUser{Username: "alice", Secret: testSecret}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(encoded), `{"username":"alice","secret":"`+testSecret+`"}`; got != want {
+		t.Errorf("create JSON = %s, want %s", got, want)
+	}
+
+	tag := "aabbccddeeff00112233445566778899"
+	encoded, err = json.Marshal(buildCreateUserRequest(&runtimeUser{
+		Username:     "alice",
+		Secret:       testSecret,
+		UserAdTag:    tag,
+		MaxTCPConns:  4,
+		MaxUniqueIPs: 2,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"user_ad_tag":"` + tag + `"`, `"max_tcp_conns":4`, `"max_unique_ips":2`} {
+		if !strings.Contains(string(encoded), want) {
+			t.Errorf("create JSON missing %s: %s", want, encoded)
+		}
+	}
+}

@@ -64,22 +64,24 @@ type telemtHealthReady struct {
 	Reason string `json:"reason"`
 }
 
+// telemtCreateUserRequest leaves out unset fields; a zero limit means no
+// per-user limit.
 type telemtCreateUserRequest struct {
 	Username     string `json:"username"`
-	Secret       string `json:"secret,omitempty"`
-	UserAdTag    string `json:"user_ad_tag,omitempty"`
-	MaxTCPConns  *int   `json:"max_tcp_conns,omitempty"`
-	MaxUniqueIPs *int   `json:"max_unique_ips,omitempty"`
+	Secret       string `json:"secret,omitzero"`
+	UserAdTag    string `json:"user_ad_tag,omitzero"`
+	MaxTCPConns  uint32 `json:"max_tcp_conns,omitzero"`
+	MaxUniqueIPs uint32 `json:"max_unique_ips,omitzero"`
 }
 
 // telemtPatchUserRequest uses JSON Merge Patch: omitted fields are unchanged,
-// JSON null removes the per-user override, and a value sets it. omitempty is
-// therefore not used on the clearable fields.
+// JSON null removes the per-user override, and a value sets it. The clearable
+// fields are pointers without omitzero, so nil is sent as null.
 type telemtPatchUserRequest struct {
-	Secret       string  `json:"secret,omitempty"`
+	Secret       string  `json:"secret,omitzero"`
 	UserAdTag    *string `json:"user_ad_tag"`
-	MaxTCPConns  *int    `json:"max_tcp_conns"`
-	MaxUniqueIPs *int    `json:"max_unique_ips"`
+	MaxTCPConns  *uint32 `json:"max_tcp_conns"`
+	MaxUniqueIPs *uint32 `json:"max_unique_ips"`
 }
 
 type apiStatusError struct {
@@ -163,11 +165,7 @@ func (c *apiClient) ActiveIPs(ctx context.Context) (map[string][]string, error) 
 }
 
 func (c *apiClient) CreateUser(ctx context.Context, user *runtimeUser) error {
-	request, err := buildCreateUserRequest(user)
-	if err != nil {
-		return err
-	}
-	_, err = doAPIRequest[telemtUserInfo](ctx, c, http.MethodPost, "/v1/users", request)
+	_, err := doAPIRequest[telemtUserInfo](ctx, c, http.MethodPost, "/v1/users", buildCreateUserRequest(user))
 	return err
 }
 
@@ -187,24 +185,14 @@ func (c *apiClient) DeleteUser(ctx context.Context, username string) error {
 	return err
 }
 
-func buildCreateUserRequest(user *runtimeUser) (*telemtCreateUserRequest, error) {
-	maxTCPConns, err := optionalPositiveInt(user.MaxTCPConns, "max_tcp_conns")
-	if err != nil {
-		return nil, err
-	}
-	maxUniqueIPs, err := optionalPositiveInt(user.MaxUniqueIPs, "max_unique_ips")
-	if err != nil {
-		return nil, err
-	}
-
-	request := &telemtCreateUserRequest{
+func buildCreateUserRequest(user *runtimeUser) *telemtCreateUserRequest {
+	return &telemtCreateUserRequest{
 		Username:     user.Username,
 		Secret:       user.Secret,
 		UserAdTag:    user.UserAdTag,
-		MaxTCPConns:  maxTCPConns,
-		MaxUniqueIPs: maxUniqueIPs,
+		MaxTCPConns:  user.MaxTCPConns,
+		MaxUniqueIPs: user.MaxUniqueIPs,
 	}
-	return request, nil
 }
 
 func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
@@ -212,19 +200,10 @@ func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
 		return nil, errors.New("mtproto user is nil")
 	}
 
-	maxTCPConns, err := optionalPositiveInt(user.MaxTCPConns, "max_tcp_conns")
-	if err != nil {
-		return nil, err
-	}
-	maxUniqueIPs, err := optionalPositiveInt(user.MaxUniqueIPs, "max_unique_ips")
-	if err != nil {
-		return nil, err
-	}
-
 	request := &telemtPatchUserRequest{
 		Secret:       user.Secret,
-		MaxTCPConns:  maxTCPConns,
-		MaxUniqueIPs: maxUniqueIPs,
+		MaxTCPConns:  positiveOrNil(user.MaxTCPConns),
+		MaxUniqueIPs: positiveOrNil(user.MaxUniqueIPs),
 	}
 	if user.UserAdTag != "" {
 		tag := user.UserAdTag
@@ -233,16 +212,13 @@ func buildPatchUserRequest(user *runtimeUser) (*telemtPatchUserRequest, error) {
 	return request, nil
 }
 
-func optionalPositiveInt(value uint32, field string) (*int, error) {
+// positiveOrNil returns nil for 0 (no per-user limit), which a patch sends as
+// null to clear the override.
+func positiveOrNil(value uint32) *uint32 {
 	if value == 0 {
-		return nil, nil
+		return nil
 	}
-	maxInt := int(^uint(0) >> 1)
-	if uint64(value) > uint64(maxInt) {
-		return nil, fmt.Errorf("mtproto field %s exceeds native int range", field)
-	}
-	converted := int(value)
-	return &converted, nil
+	return &value
 }
 
 func doAPIRequest[T any](ctx context.Context, client *apiClient, method, path string, body any) (*T, error) {
