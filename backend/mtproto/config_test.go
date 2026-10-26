@@ -490,6 +490,14 @@ func TestNewConfigRejectsUnsafeWeb(t *testing.T) {
 		{"static directory decoy", withVhost(`{` + host + `, "decoy": {"mode": "static_directory", "directory": "/srv"}}`), "static_directory"},
 		{"decoy hostname", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://example.com"}}`), "private"},
 		{"decoy public ip", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://8.8.8.8"}}`), "private"},
+		{"decoy https", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "https://127.0.0.1:18081"}}`), "http origin"},
+		{"decoy path", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://192.168.0.10/site"}}`), "http origin"},
+		{"decoy query", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081/?a=1"}}`), "http origin"},
+		{"decoy empty query", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081?"}}`), "http origin"},
+		{"decoy fragment", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081/#top"}}`), "http origin"},
+		{"decoy empty fragment", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081#"}}`), "http origin"},
+		{"decoy userinfo", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://user:pass@127.0.0.1:18081"}}`), "http origin"},
+		{"decoy port zero", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:0"}}`), "http origin"},
 		{"decoy missing", withVhost(`{` + host + `}`), "decoy"},
 		{"vhost profiles", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}, "profiles": []}`), "must not define web.vhosts[0].profiles"},
 		{"web debug", withWeb(`{"enabled": true, "debug": {}, "vhosts": [{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}}]}`), "must not define web.debug"},
@@ -514,6 +522,63 @@ func TestNewConfigRejectsUnsafeWeb(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestNewConfigAcceptsDecoyOrigins(t *testing.T) {
+	for _, upstream := range []string{"http://127.0.0.1:18081", "http://127.0.0.1:18081/", "http://10.0.0.5", "http://[::1]:18081/"} {
+		raw := `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "` + upstream + `"}}]}}`
+		if _, err := NewConfig(raw); err != nil {
+			t.Errorf("NewConfig with upstream %q failed: %v", upstream, err)
+		}
+	}
+}
+
+// A loopback decoy on telemt's own API or metrics port would publish them on
+// the WEB domain; Render refuses it because only Render knows those ports.
+func TestRenderRejectsDecoyOnTelemtPorts(t *testing.T) {
+	users := map[string]*runtimeUser{"1": {Username: "1", Secret: testSecret}}
+	cases := map[string]struct {
+		upstream string
+		want     string
+	}{
+		"metrics port":    {"http://127.0.0.1:23456", "metrics port"},
+		"api port":        {"http://127.0.0.1:12345/", "API port"},
+		"v6 loopback":     {"http://[::1]:23456", "metrics port"},
+		"other loopback":  {"http://127.0.0.2:12345", "API port"},
+		"default port 80": {"http://127.0.0.1", "metrics port"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw := `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "` + tc.upstream + `"}}]}}`
+			cfg, err := NewConfig(raw)
+			if err != nil {
+				t.Fatalf("NewConfig failed: %v", err)
+			}
+			metricsPort := 23456
+			if name == "default port 80" {
+				metricsPort = 80
+			}
+			_, err = cfg.Render(users, nil, 12345, metricsPort, "Bearer x")
+			if err == nil {
+				t.Fatalf("Render with upstream %q succeeded, want a port conflict", tc.upstream)
+			}
+			for _, part := range []string{"web.vhosts[0].decoy.upstream", tc.want} {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("error %q does not contain %q", err, part)
+				}
+			}
+		})
+	}
+
+	// A private, non-loopback host on the same port is another machine.
+	raw := `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://10.0.0.5:23456"}}]}}`
+	cfg, err := NewConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Render(users, nil, 12345, 23456, "Bearer x"); err != nil {
+		t.Errorf("Render with a private decoy on another host failed: %v", err)
 	}
 }
 

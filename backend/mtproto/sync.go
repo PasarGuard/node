@@ -46,8 +46,10 @@ func (m *MTProto) SyncUsers(ctx context.Context, users []*common.User) error {
 
 // UpdateUsers applies users on top of the current ones. Up to
 // partialApplyMaxUsers changes go through telemt's user API; more, or an
-// unconfirmed telemt state, go through a config render and reload. Users
-// that did not change are not sent at all.
+// unconfirmed telemt state, go through a config render and reload. With WEB
+// on, every change goes through the render and reload, because telemt's user
+// API cannot reach the WEB profiles. Users that did not change are not sent
+// at all.
 func (m *MTProto) UpdateUsers(ctx context.Context, users []*common.User) error {
 	if err := m.lockSync(ctx); err != nil {
 		return syncError(err)

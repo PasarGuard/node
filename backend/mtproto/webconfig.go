@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -151,7 +153,9 @@ func takeWebProfiles(root map[string]any) ([]webUserProfile, error) {
 
 // validateWebDecoy allows only an http_upstream decoy whose upstream host is a
 // loopback or private IP literal: static_directory would serve files from the
-// node host, and a public or named upstream would reach past the node.
+// node host, and a public or named upstream would reach past the node. The
+// upstream must also be a bare http origin, as telemt's decoy_dns::parse_origin
+// requires, so a value telemt refuses at Start is refused here first.
 func validateWebDecoy(index int, rawDecoy any) error {
 	field := fmt.Sprintf("web.vhosts[%d].decoy", index)
 	decoy, ok := rawDecoy.(map[string]any)
@@ -167,15 +171,73 @@ func validateWebDecoy(index int, rawDecoy any) error {
 	}
 
 	upstream, _ := decoy["upstream"].(string)
-	parsed, err := url.Parse(upstream)
-	if err != nil || upstream == "" {
-		return fmt.Errorf("mtproto config field %s.upstream must be an http URL", field)
+	parsed, ok := parseHTTPOrigin(upstream)
+	if !ok {
+		return fmt.Errorf("mtproto config field %s.upstream must be an http origin without credentials, path, query, or fragment", field)
 	}
 	ip := net.ParseIP(parsed.Hostname())
 	if ip == nil || ip.IsUnspecified() || !(ip.IsLoopback() || ip.IsPrivate()) {
 		return fmt.Errorf("mtproto config field %s.upstream must use a loopback or private IP address as its host", field)
 	}
 	return nil
+}
+
+// checkDecoyPorts refuses a decoy upstream on a loopback host and the node's
+// telemt API or metrics port: the decoy connects from loopback, so the WEB
+// domain would publish that endpoint. Only Render knows the two ports.
+func checkDecoyPorts(base map[string]any, apiPort, metricsPort int) error {
+	web, _ := base["web"].(map[string]any)
+	vhosts, _ := web["vhosts"].([]any)
+	for index, rawVhost := range vhosts {
+		vhost, _ := rawVhost.(map[string]any)
+		decoy, _ := vhost["decoy"].(map[string]any)
+		upstream, _ := decoy["upstream"].(string)
+		origin, ok := parseHTTPOrigin(upstream)
+		if !ok {
+			continue
+		}
+		if ip := net.ParseIP(origin.Hostname()); ip == nil || !ip.IsLoopback() {
+			continue
+		}
+		field := fmt.Sprintf("web.vhosts[%d].decoy.upstream", index)
+		switch port := decoyOriginPort(origin); port {
+		case apiPort:
+			return fmt.Errorf("mtproto config field %s port %d conflicts with the node's telemt API port", field, port)
+		case metricsPort:
+			return fmt.Errorf("mtproto config field %s port %d conflicts with the node's telemt metrics port", field, port)
+		}
+	}
+	return nil
+}
+
+// parseHTTPOrigin parses an http URL with a host, an optional port in
+// 1-65535, a path of "" or "/", and no userinfo, query or fragment.
+func parseHTTPOrigin(raw string) (*url.URL, bool) {
+	// url.Parse drops an empty "#", and "?" only sets ForceQuery, so both
+	// characters are checked on the raw string.
+	if strings.ContainsAny(raw, "?#") {
+		return nil, false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") || parsed.RawPath != "" {
+		return nil, false
+	}
+	if port := parsed.Port(); port != "" {
+		if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+			return nil, false
+		}
+	}
+	return parsed, true
+}
+
+// decoyOriginPort is the TCP port an origin from parseHTTPOrigin connects to.
+func decoyOriginPort(origin *url.URL) int {
+	if port := origin.Port(); port != "" {
+		number, _ := strconv.Atoi(port)
+		return number
+	}
+	return 80
 }
 
 func webUserProfileValue(index int, raw any) (webUserProfile, error) {

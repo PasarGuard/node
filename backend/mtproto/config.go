@@ -45,7 +45,7 @@ var (
 	rejectedConfigKeys = []rejectedConfigKey{
 		{path: []string{"include"}, reason: "telemt would read other files on the node host"},
 		{path: []string{"web", "debug"}, reason: "the WEB debug endpoint would expose node traffic records"},
-		{path: []string{"web", "limits", "max_profiles"}, reason: "the node sizes it from the WEB profiles it renders"},
+		{path: []string{"web", "limits", "max_profiles"}, reason: "the node sets it"},
 		{path: []string{"server", "api"}, reason: "the node manages the telemt control API"},
 		{path: []string{"server", "admin_api"}, reason: "it is an alias of server.api, which the node manages"},
 		{path: []string{"server", "metrics_port"}, reason: "the node manages the metrics endpoint"},
@@ -298,6 +298,10 @@ func (c *Config) Render(users map[string]*runtimeUser, marker *runtimeUser, apiP
 		case metricsPort:
 			return "", fmt.Errorf("mtproto config listen port %d conflicts with the node's telemt metrics port", port)
 		}
+	}
+
+	if err := checkDecoyPorts(c.base, apiPort, metricsPort); err != nil {
+		return "", err
 	}
 
 	root := cloneMap(c.base)

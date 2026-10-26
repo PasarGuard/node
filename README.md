@@ -52,12 +52,13 @@ What the node accepts in the MTProto core JSON:
 - A `server.listeners[]` entry with `"transport": "web"`:
   - `ip` is a loopback or private address (127/8, ::1, 10/8, 172.16/12, 192.168/16, fc00::/7). `0.0.0.0`, `::` and public addresses are refused.
   - `port` is set, and differs from `server.port` and from every native listener's port.
-  - telemt's WEB listener keys pass through, for example `web_client_ip_source` and `web_trusted_proxy_cidrs`.
+  - `web_trusted_proxy_cidrs` is required: the networks your front connects from, for example `["127.0.0.1/32"]`. telemt refuses a WEB listener with an empty list or a `/0` network.
+  - telemt's other WEB listener keys pass through, for example `web_client_ip_source`.
 - A `web` section with `"enabled": true` and at least one `vhosts[]` entry:
   - `host`: the public domain. `base_path` is optional.
   - `public_addr`: the server's public IP on port 443, for example `203.0.113.10:443`.
-  - `decoy`: `{"mode": "http_upstream", "upstream": "http://<loopback or private IP>[:port]"}`. Host names and `static_directory` are refused. The decoy is the site that ordinary visitors and probes see.
-  - `user_profile` (PasarGuard only, optional): `secret_mode` is `"dd"` (default) or `"plain"`, plus optional `max_sessions`, `max_streams` and `max_streams_per_session`. It applies to every user on that vhost.
+  - `decoy`: `{"mode": "http_upstream", "upstream": "http://<loopback or private IP>[:port]"}`. The upstream is a bare http origin: no `https`, path, query, fragment or credentials. Host names, `static_directory`, and a loopback upstream on the node's telemt API or metrics port are refused. The decoy is the site that ordinary visitors and probes see.
+  - `user_profile` (PasarGuard only, optional): `secret_mode` is `"dd"` (default) or `"plain"`, plus optional `max_sessions`, `max_streams` and `max_streams_per_session`. It applies to every user on that vhost. telemt refuses at Start a limit of 0 and limits above its global WEB limits: `max_sessions` above `web.limits.max_sessions_global` (default 128), `max_streams` above `web.limits.max_streams_global` (default 4096), `max_streams_per_session` above `web.limits.max_streams_per_session` (default 128) or above `max_streams`. It also refuses more vhosts than `web.limits.max_vhosts` (default 8).
 - Refused: `web.vhosts[].profiles`, `web.debug`, `web.limits.max_profiles` and `include` anywhere.
 
 The node writes one telemt WEB profile per user per vhost and sets `web.limits.max_profiles` to 65536. With WEB on, every user change rewrites telemt's config and hot reloads it: open sessions of unchanged users stay, removed users are cut.
@@ -173,7 +174,7 @@ A WEB domain points at one server, and `public_addr` is that server's IP. With s
 
 ### Capacity
 - telemt holds at most 65536 WEB profiles (users times vhosts): 65536 users with one vhost, 32768 with two.
-- The 8 MiB config file limit allows about 69k users with one WEB vhost (about 121.6 bytes per user), and about 36k if every user has every optional limit set (about 232.9 bytes per user). Native only is about 196k (about 42.8 bytes per user). Each extra vhost adds about 79 bytes per user.
+- The 8 MiB config file limit allows about 69k users with one WEB vhost (about 121.6 bytes per user), and about 36k if every user has every optional limit set (about 232.9 bytes per user). Native only is about 196k (about 42.8 bytes per user). Each extra vhost adds an estimated 79 bytes per user (not measured).
 - 65536 profiles fit telemt's default WEB memory envelope (1280 MiB, about 4 MiB free for profiles at 64 bytes each). If you raise other `web.limits` reservations or lower `web.limits.memory_envelope_bytes`, telemt refuses to start with `web.limits memory reservations must fit memory_envelope_bytes`.
 
 ## Xray and MTProto on one host
