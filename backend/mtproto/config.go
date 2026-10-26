@@ -21,10 +21,12 @@ const (
 	// telemtDefaultPort is the server.port telemt uses when the config omits it.
 	telemtDefaultPort = 443
 	// webMaxProfiles is the web.limits.max_profiles the node renders. telemt
-	// reads it only at start, so it is fixed well above any user count rather
-	// than sized per sync. Each profile reserves 64 bytes of telemt's WEB
-	// memory envelope, so this reserves 16 MiB.
-	webMaxProfiles = 262144
+	// reads it only at start, so it is fixed rather than sized per sync. Each
+	// profile reserves 64 bytes of telemt's WEB memory envelope, and telemt's
+	// default envelope (1280 MiB) has about 4.1 MiB to spare once its other
+	// default reservations are counted: 65536 profiles take 4 MiB of it. A
+	// render with more profiles (users times vhosts) is rejected by telemt.
+	webMaxProfiles = 65536
 )
 
 var (

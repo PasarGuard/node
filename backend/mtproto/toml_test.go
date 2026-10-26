@@ -372,7 +372,7 @@ web_trusted_proxy_cidrs = ['127.0.0.1/32']
 enabled = true
 
 [web.limits]
-max_profiles = 262144
+max_profiles = 65536
 
 [[web.vhosts]]
 host = 'proxy.example.com'

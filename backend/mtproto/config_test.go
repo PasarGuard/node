@@ -578,8 +578,8 @@ func TestRenderWebProfiles(t *testing.T) {
 			t.Errorf("profiles[%d] = %#v, want %#v", index, profile, want[index])
 		}
 	}
-	if got := tomlAt(tree, "web", "limits", "max_profiles"); got != int64(262144) {
-		t.Errorf("web.limits.max_profiles = %#v, want 262144", got)
+	if got := tomlAt(tree, "web", "limits", "max_profiles"); got != int64(65536) {
+		t.Errorf("web.limits.max_profiles = %#v, want 65536", got)
 	}
 	if _, ok := tomlAt(tree, "web", "vhosts").([]any)[0].(map[string]any)["user_profile"]; ok {
 		t.Errorf("user_profile must not reach telemt\n---\n%s", out)
