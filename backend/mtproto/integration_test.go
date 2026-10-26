@@ -4,6 +4,10 @@ package mtproto
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -657,11 +662,27 @@ const webVhostHost = "proxy.example.com"
 // webDecoyBody is what the WEB tests' decoy upstream answers.
 const webDecoyBody = "decoy-ok"
 
+// webCapabilityContext is the context telemt hashes into the WEB capability
+// of a vhost without base_path (WEB_CAPABILITY_CONTEXT_V1 in telemt's
+// src/config/load/runtime_web.rs).
+const webCapabilityContext = "tdesktop-web-proxy-bridge-v1\n"
+
+// webBridgeContentType is the content type of telemt's WEB bridge page.
+const webBridgeContentType = "text/html; charset=utf-8"
+
+// liveWeb is a backend on the real telemt with a WEB listener.
+type liveWeb struct {
+	*liveTelemt
+	webAddr string
+	// requests numbers WEB requests so each comes from its own forwarded
+	// address: telemt caps live bootstraps per client address.
+	requests atomic.Uint32
+}
+
 // startLiveWebTelemt starts the real telemt with an MTProxy listener and a
 // WEB listener on 127.0.0.1, one vhost for webVhostHost and a decoy upstream
-// on 127.0.0.1 answering webDecoyBody. It returns the backend and the WEB
-// listener address.
-func startLiveWebTelemt(t *testing.T, users ...*common.User) (*liveTelemt, string) {
+// on 127.0.0.1 answering webDecoyBody.
+func startLiveWebTelemt(t *testing.T, users ...*common.User) *liveWeb {
 	t.Helper()
 	telemtBinOrSkip(t)
 	decoy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -686,13 +707,94 @@ func startLiveWebTelemt(t *testing.T, users ...*common.User) (*liveTelemt, strin
 			}]}
 		}`, nativePort, webPort, mtprotoTestDC, dc, webVhostHost, decoy.URL)
 	}, users...)
-	return l, fmt.Sprintf("127.0.0.1:%d", webPort)
+	return &liveWeb{liveTelemt: l, webAddr: fmt.Sprintf("127.0.0.1:%d", webPort)}
 }
 
-// webProfileUsers returns the users of the WEB profiles telemt reports for
-// webVhostHost in GET /v1/config.
-func (l *liveTelemt) webProfileUsers() []string {
-	l.t.Helper()
+// get sends GET target for webVhostHost to the WEB listener, as the HTTPS
+// front would with one X-Forwarded-For address, and returns the status, the
+// content type and the body.
+func (w *liveWeb) get(target string) (int, string, string) {
+	w.t.Helper()
+	request, err := http.NewRequestWithContext(w.ctx, http.MethodGet, "http://"+w.webAddr+target, nil)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	request.Host = webVhostHost
+	request.Header.Set("X-Forwarded-For", fmt.Sprintf("198.51.100.%d", w.requests.Add(1)%250+1))
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		w.t.Fatalf("GET %s on the WEB listener: %v", target, err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		w.t.Fatalf("read GET %s on the WEB listener: %v", target, err)
+	}
+	return response.StatusCode, response.Header.Get("Content-Type"), string(body)
+}
+
+// bridgeTarget is the bridge URL Telegram Desktop requests for a dd WEB
+// link of secret on webVhostHost: the capability is HMAC-SHA256 keyed by
+// the client secret (0xdd and the 16-byte secret) over the context and the
+// host (derive_web_capability in telemt's src/config/load/runtime_web.rs).
+func bridgeTarget(t *testing.T, secret string) string {
+	t.Helper()
+	raw, err := hex.DecodeString(secret)
+	if err != nil || len(raw) != 16 {
+		t.Fatalf("secret %q is not 16 hex bytes", secret)
+	}
+	mac := hmac.New(sha256.New, append([]byte{0xdd}, raw...))
+	mac.Write([]byte(webCapabilityContext + webVhostHost))
+	return "/?bridge=" + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// bridgeAnswer is how telemt's WEB listener answers a bridge request.
+type bridgeAnswer string
+
+const (
+	// bridgeServed: the capability is in telemt's running WEB config and
+	// telemt issued a bridge page for it.
+	bridgeServed bridgeAnswer = "bridge page"
+	// bridgeRefused: the capability is in telemt's running WEB config but
+	// telemt issued no bootstrap (a disabled user): telemt answers a
+	// private 404 instead of the decoy (has_internal_credential in telemt's
+	// src/web/http/decoy.rs).
+	bridgeRefused bridgeAnswer = "private 404"
+	// bridgeUnknown: telemt's running WEB config lacks the capability and
+	// the request reaches the decoy.
+	bridgeUnknown bridgeAnswer = "decoy"
+)
+
+// waitBridge waits until telemt answers the bridge request for secret with
+// want.
+func (w *liveWeb) waitBridge(username, secret string, want bridgeAnswer) {
+	w.t.Helper()
+	target := bridgeTarget(w.t, secret)
+	var status int
+	var contentType, body string
+	if !waitUntil(liveWait, func() bool {
+		status, contentType, body = w.get(target)
+		switch want {
+		case bridgeServed:
+			return status == http.StatusOK && contentType == webBridgeContentType && body != webDecoyBody
+		case bridgeRefused:
+			return status == http.StatusNotFound && body == "not found\n"
+		default:
+			return status == http.StatusOK && body == webDecoyBody
+		}
+	}) {
+		w.t.Fatalf("WEB bridge request of %s: telemt answered %d %q with %d bytes, want the %s", username, status, contentType, len(body), want)
+	}
+	w.t.Logf("WEB bridge request of %s: %s (%d %q, %d bytes)", username, want, status, contentType, len(body))
+}
+
+// renderedProfileUsers returns the users of the WEB profiles for
+// webVhostHost in the config file the node rendered, as telemt's
+// GET /v1/config reads them. That route reads the file on disk
+// (get_config_route in telemt's src/api/handler/fixed_routes.rs), not the
+// running config: waitBridge checks that.
+func (w *liveWeb) renderedProfileUsers() []string {
+	w.t.Helper()
 	type configData struct {
 		Web struct {
 			Vhosts []struct {
@@ -703,9 +805,9 @@ func (l *liveTelemt) webProfileUsers() []string {
 			} `json:"vhosts"`
 		} `json:"web"`
 	}
-	data, err := doAPIRequest[configData](l.ctx, l.mt.apiClient, http.MethodGet, "/v1/config", nil)
+	data, err := doAPIRequest[configData](w.ctx, w.mt.apiClient, http.MethodGet, "/v1/config", nil)
 	if err != nil {
-		l.t.Fatalf("GET /v1/config: %v", err)
+		w.t.Fatalf("GET /v1/config: %v", err)
 	}
 	var users []string
 	for _, vhost := range data.Web.Vhosts {
@@ -720,61 +822,74 @@ func (l *liveTelemt) webProfileUsers() []string {
 	return users
 }
 
-// waitWebProfileUsers waits until telemt reports WEB profiles for exactly
-// want, sorted.
-func (l *liveTelemt) waitWebProfileUsers(want ...string) {
-	l.t.Helper()
-	var got []string
-	if !waitUntil(liveWait, func() bool {
-		got = l.webProfileUsers()
-		return slices.Equal(got, want)
-	}) {
-		l.t.Fatalf("telemt WEB profiles of %s = %v, want %v", webVhostHost, got, want)
+// expectRenderedProfiles checks that the rendered config file has WEB
+// profiles for exactly want, sorted.
+func (w *liveWeb) expectRenderedProfiles(want ...string) {
+	w.t.Helper()
+	if got := w.renderedProfileUsers(); !slices.Equal(got, want) {
+		w.t.Fatalf("rendered WEB profiles of %s = %v, want %v", webVhostHost, got, want)
 	}
+	w.t.Logf("rendered WEB profiles: %v", want)
+}
+
+// markerSecret returns the secret of the current marker user.
+func markerSecret(m *MTProto) string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.marker.Secret
 }
 
 // A WEB listener relays a plain request for the vhost to the decoy, telemt
-// runs one WEB profile per user and follows a full sync, and a native
-// session stays open across that sync.
+// serves the bridge only to users with a WEB profile and follows full syncs,
+// and a native session stays open across them.
 func TestIntegrationWebDecoyAndProfiles(t *testing.T) {
 	u1 := mtUser("u1", "mtproto", secretAlice)
-	l, webAddr := startLiveWebTelemt(t, u1)
+	u2 := mtUser("u2", "mtproto", secretBob)
+	w := startLiveWebTelemt(t, u1)
 
-	request, err := http.NewRequestWithContext(l.ctx, http.MethodGet, "http://"+webAddr+"/", nil)
-	if err != nil {
-		t.Fatal(err)
+	if status, _, body := w.get("/"); status != http.StatusOK || body != webDecoyBody {
+		t.Fatalf("GET / on the WEB listener = %d %q, want 200 %q from the decoy", status, body, webDecoyBody)
 	}
-	request.Host = webVhostHost
-	request.Header.Set("X-Forwarded-For", "198.51.100.7")
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatalf("GET / on the WEB listener: %v", err)
-	}
-	body, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
-	if err != nil || response.StatusCode != http.StatusOK || string(body) != webDecoyBody {
-		t.Fatalf("GET / on the WEB listener = %d %q, %v; want 200 %q from the decoy", response.StatusCode, body, err, webDecoyBody)
-	}
-	t.Logf("WEB listener answered %d %q", response.StatusCode, body)
+	t.Logf("WEB listener answered GET / with the decoy %q", webDecoyBody)
 
-	l.waitWebProfileUsers("u1")
-	session := l.expectAdmitted("u1", secretAlice)
+	w.expectRenderedProfiles("u1")
+	w.waitBridge("u1", secretAlice, bridgeServed)
+	w.waitBridge("u2", secretBob, bridgeUnknown)
+	session := w.expectAdmitted("u1", secretAlice)
 
-	if err := l.mt.SyncUsers(l.ctx, []*common.User{u1, mtUser("u2", "mtproto", secretBob)}); err != nil {
+	if err := w.mt.SyncUsers(w.ctx, []*common.User{u1, u2}); err != nil {
 		t.Fatalf("SyncUsers(u1, u2): %v", err)
 	}
-	l.waitWebProfileUsers("u1", "u2")
-	t.Logf("telemt WEB profiles after the sync: %v", l.webProfileUsers())
-	l.expectOpen(session, "u1", 1)
-	l.expectAdmitted("u2", secretBob)
+	w.expectRenderedProfiles("u1", "u2")
+	w.waitBridge("u2", secretBob, bridgeServed)
+	w.waitBridge("u1", secretAlice, bridgeServed)
+	w.expectOpen(session, "u1", 1)
+	w.expectAdmitted("u2", secretBob)
+
+	if err := w.mt.SyncUsers(w.ctx, []*common.User{u1}); err != nil {
+		t.Fatalf("SyncUsers(u1): %v", err)
+	}
+	w.expectRenderedProfiles("u1")
+	w.waitBridge("u2", secretBob, bridgeUnknown)
+	w.waitBridge("u1", secretAlice, bridgeServed)
+	w.expectOpen(session, "u1", 1)
 }
 
 // With no real users, telemt starts with WEB on and the marker's profile as
-// the only one.
+// the only one: telemt runs it but serves no bridge to the disabled marker.
+// A user added later gets a running WEB profile and the old marker's is
+// gone.
 func TestIntegrationWebStartWithoutUsers(t *testing.T) {
-	l, _ := startLiveWebTelemt(t)
+	w := startLiveWebTelemt(t)
 
-	marker := l.mt.markerUsername()
-	l.waitWebProfileUsers(marker)
-	t.Logf("telemt WEB profiles without users: %v", l.webProfileUsers())
+	marker, secret := w.mt.markerUsername(), markerSecret(w.mt)
+	w.expectRenderedProfiles(marker)
+	w.waitBridge(marker, secret, bridgeRefused)
+
+	if err := w.mt.UpdateUsers(w.ctx, []*common.User{mtUser("alice", "mtproto", secretAlice)}); err != nil {
+		t.Fatalf("UpdateUsers(alice): %v", err)
+	}
+	w.expectRenderedProfiles("alice")
+	w.waitBridge("alice", secretAlice, bridgeServed)
+	w.waitBridge(marker, secret, bridgeUnknown)
 }
