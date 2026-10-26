@@ -65,7 +65,6 @@ func TestNewConfigRejectsNodeManagedKeys(t *testing.T) {
 		{`{"server": {"metrics_port": 1}}`, "server.metrics_port"},
 		{`{"server": {"metrics_listen": "0.0.0.0:9090"}}`, "server.metrics_listen"},
 		{`{"server": {"metrics_whitelist": ["0.0.0.0/0"]}}`, "server.metrics_whitelist"},
-		{`{"web": {}}`, "web"},
 		{`{"access": {"user_rate_limits": {}}}`, "access.user_rate_limits"},
 		{`{"access": {"user_source_deny": {}}}`, "access.user_source_deny"},
 		{`{"access": {"users": {}}}`, "access.users"},
@@ -86,6 +85,11 @@ func TestNewConfigRejectsNodeManagedKeys(t *testing.T) {
 				t.Errorf("error %q does not name %s", err, tc.key)
 			}
 		})
+	}
+
+	// An empty web object is not enabled and needs no listener.
+	if _, err := NewConfig(`{"web": {}}`); err != nil {
+		t.Errorf("an empty web object must be accepted, got %v", err)
 	}
 
 	// Keys that only share a prefix with a rejected one stay allowed.
@@ -123,11 +127,9 @@ func TestNewConfigValidatesShapes(t *testing.T) {
 	}
 }
 
-// telemt WEB listeners need [[web.vhosts]], which the node rejects, so a web
-// listener would only crash telemt at startup.
 func TestNewConfigRejectsNonMTProxyListeners(t *testing.T) {
 	cases := map[string]string{
-		"web":        `{"server": {"listeners": [{"ip": "::", "transport": "web"}]}}`,
+		"socks":      `{"server": {"listeners": [{"ip": "::", "transport": "socks"}]}}`,
 		"upper case": `{"server": {"listeners": [{"ip": "::"}, {"ip": "0.0.0.0", "transport": "WEB"}]}}`,
 		"not string": `{"server": {"listeners": [{"ip": "::", "transport": 1}]}}`,
 	}
@@ -419,5 +421,117 @@ func TestSyncUserReturnsValidationError(t *testing.T) {
 	err := m.SyncUser(context.Background(), mtUser("1", "mtproto", testSecret[:31]))
 	if err == nil || !strings.Contains(err.Error(), "invalid secret") {
 		t.Errorf("SyncUser error = %v, want the secret validation error", err)
+	}
+}
+
+const webTestListeners = `"listeners": [{"ip": "0.0.0.0"}, {"ip": "127.0.0.1", "port": 18080, "transport": "web", "web_trusted_proxy_cidrs": ["127.0.0.1/32"]}]`
+
+// webTestConfig builds a WEB config with one vhost; vhostExtra is appended to
+// the vhost object.
+func webTestConfig(vhostExtra string) string {
+	return `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"}` + vhostExtra + `}]}}`
+}
+
+func TestNewConfigAcceptsWeb(t *testing.T) {
+	cfg, err := NewConfig(webTestConfig(`, "user_profile": {"secret_mode": "plain", "max_sessions": 8}`))
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+	if !cfg.HasWeb() {
+		t.Errorf("HasWeb() = false, want true")
+	}
+	want := []webUserProfile{{SecretMode: "plain", MaxSessions: 8}}
+	if !slices.Equal(cfg.webProfiles, want) {
+		t.Errorf("webProfiles = %+v, want %+v", cfg.webProfiles, want)
+	}
+	vhost := cfg.base["web"].(map[string]any)["vhosts"].([]any)[0].(map[string]any)
+	if _, ok := vhost["user_profile"]; ok {
+		t.Errorf("user_profile must be stripped from the stored vhost: %v", vhost)
+	}
+
+	cfg, err = NewConfig(webTestConfig(""))
+	if err != nil {
+		t.Fatalf("NewConfig without user_profile failed: %v", err)
+	}
+	want = []webUserProfile{{SecretMode: "dd"}}
+	if !slices.Equal(cfg.webProfiles, want) {
+		t.Errorf("default webProfiles = %+v, want %+v", cfg.webProfiles, want)
+	}
+
+	cfg, err = NewConfig(`{"server": {"port": 443}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HasWeb() || cfg.webProfiles != nil {
+		t.Errorf("a config without web must not report WEB: HasWeb=%v profiles=%v", cfg.HasWeb(), cfg.webProfiles)
+	}
+}
+
+func TestNewConfigRejectsUnsafeWeb(t *testing.T) {
+	withListener := func(listener string) string {
+		return `{"server": {"port": 443, "listeners": [{"ip": "0.0.0.0"}, ` + listener + `]}, "web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"}}]}}`
+	}
+	withVhost := func(vhost string) string {
+		return `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [` + vhost + `]}}`
+	}
+	withWeb := func(web string) string {
+		return `{"server": {"port": 443, ` + webTestListeners + `}, "web": ` + web + `}`
+	}
+	const host = `"host": "proxy.example.com", "public_addr": "203.0.113.10:443"`
+
+	cases := []struct {
+		name, raw, want string
+	}{
+		{"listener ip any v4", withListener(`{"ip": "0.0.0.0", "port": 18080, "transport": "web"}`), "private"},
+		{"listener ip any v6", withListener(`{"ip": "::", "port": 18080, "transport": "web"}`), "private"},
+		{"listener ip public", withListener(`{"ip": "198.51.100.1", "port": 18080, "transport": "web"}`), "private"},
+		{"listener ip missing", withListener(`{"port": 18080, "transport": "web"}`), "private"},
+		{"listener without port", withListener(`{"ip": "127.0.0.1", "transport": "web"}`), "port"},
+		{"static directory decoy", withVhost(`{` + host + `, "decoy": {"mode": "static_directory", "directory": "/srv"}}`), "static_directory"},
+		{"decoy hostname", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://example.com"}}`), "private"},
+		{"decoy public ip", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://8.8.8.8"}}`), "private"},
+		{"decoy missing", withVhost(`{` + host + `}`), "decoy"},
+		{"vhost profiles", withVhost(`{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}, "profiles": []}`), "must not define web.vhosts[0].profiles"},
+		{"web debug", withWeb(`{"enabled": true, "debug": {}, "vhosts": [{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}}]}`), "must not define web.debug"},
+		{"web max_profiles", withWeb(`{"enabled": true, "limits": {"max_profiles": 9}, "vhosts": [{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}}]}`), "must not define web.limits.max_profiles"},
+		{"secret mode ee", webTestConfig(`, "user_profile": {"secret_mode": "ee"}`), "secret_mode"},
+		{"negative limit", webTestConfig(`, "user_profile": {"max_sessions": -1}`), "max_sessions"},
+		{"fraction limit", webTestConfig(`, "user_profile": {"max_streams": 1.5}`), "max_streams"},
+		{"string limit", webTestConfig(`, "user_profile": {"max_streams_per_session": "4"}`), "max_streams_per_session"},
+		{"enabled without listener", `{"server": {"port": 443}, "web": {"enabled": true, "vhosts": [{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}}]}}`, "web"},
+		{"listener without enabled web", withWeb(`{"enabled": false, "vhosts": [{` + host + `, "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:1"}}]}`), "web"},
+		{"listener without vhost", withWeb(`{"enabled": true, "vhosts": []}`), "web"},
+		{"listener without web", `{"server": {"port": 443, ` + webTestListeners + `}}`, "web"},
+		{"socks listener", `{"server": {"listeners": [{"ip": "::", "transport": "socks"}]}}`, "must be \"mtproxy\""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewConfig(tc.raw)
+			if err == nil {
+				t.Fatalf("NewConfig(%s) succeeded, want an error containing %q", tc.raw, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestWebListenerPortClash(t *testing.T) {
+	const web = `"web": {"enabled": true, "vhosts": [{"host": "proxy.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"}}]}`
+	cases := map[string]string{
+		"server port":          `{"server": {"port": 443, "listeners": [{"ip": "127.0.0.1", "port": 443, "transport": "web"}]}, ` + web + `}`,
+		"native listener port": `{"server": {"port": 443, "listeners": [{"ip": "0.0.0.0", "port": 8443}, {"ip": "10.0.0.5", "port": 8443, "transport": "web"}]}, ` + web + `}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewConfig(raw)
+			if err == nil {
+				t.Fatalf("NewConfig(%s) succeeded, want a port clash error", raw)
+			}
+			if !strings.Contains(err.Error(), "port") {
+				t.Errorf("error %q does not mention the port", err)
+			}
+		})
 	}
 }

@@ -37,7 +37,8 @@ var (
 	// the node manages them, or they would reach past the node.
 	rejectedConfigKeys = []rejectedConfigKey{
 		{path: []string{"include"}, reason: "telemt would read other files on the node host"},
-		{path: []string{"web"}, reason: "the web transport can serve files from the node host"},
+		{path: []string{"web", "debug"}, reason: "the WEB debug endpoint would expose node traffic records"},
+		{path: []string{"web", "limits", "max_profiles"}, reason: "the node sizes it from the WEB profiles it renders"},
 		{path: []string{"server", "api"}, reason: "the node manages the telemt control API"},
 		{path: []string{"server", "admin_api"}, reason: "it is an alias of server.api, which the node manages"},
 		{path: []string{"server", "metrics_port"}, reason: "the node manages the metrics endpoint"},
@@ -53,6 +54,8 @@ var (
 		{"server"},
 		{"access"},
 		{"logging"},
+		{"web"},
+		{"web", "limits"},
 	}
 )
 
@@ -62,8 +65,9 @@ type rejectedConfigKey struct {
 }
 
 type Config struct {
-	base       map[string]any
-	InboundTag string
+	base        map[string]any
+	InboundTag  string
+	webProfiles []webUserProfile
 }
 
 type runtimeUser struct {
@@ -119,6 +123,12 @@ func NewConfig(raw string) (*Config, error) {
 		return nil, err
 	}
 
+	webProfiles, err := takeWebProfiles(cfg.base)
+	if err != nil {
+		return nil, err
+	}
+	cfg.webProfiles = webProfiles
+
 	return cfg, nil
 }
 
@@ -167,10 +177,9 @@ func validateConfigRoot(root map[string]any) error {
 	return validateListenerTransports(root)
 }
 
-// validateListenerTransports allows only MTProxy listeners. telemt WEB
-// listeners need [[web.vhosts]], and the node rejects the web section, so a
-// web listener would only make telemt exit at startup. Call it after
-// listenPorts, which checks the listener shapes.
+// validateListenerTransports allows MTProxy listeners and WEB listeners that
+// pass validateWebListener. Call it after listenPorts, which checks the
+// listener shapes.
 func validateListenerTransports(root map[string]any) error {
 	server, _ := objectAt(root, "server")
 	listeners, _ := server["listeners"].([]any)
@@ -179,8 +188,15 @@ func validateListenerTransports(root map[string]any) error {
 		if !isSet(listener, "transport") {
 			continue
 		}
-		if transport, ok := listener["transport"].(string); !ok || transport != "mtproxy" {
-			return fmt.Errorf("mtproto config field server.listeners[%d].transport must be \"mtproxy\"; the node supports only MTProxy listeners", index)
+		transport, _ := listener["transport"].(string)
+		switch transport {
+		case "mtproxy":
+		case webTransport:
+			if err := validateWebListener(index, listener, server); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("mtproto config field server.listeners[%d].transport must be \"mtproxy\" (or \"web\" for a WEB listener behind an HTTPS front)", index)
 		}
 	}
 	return nil
