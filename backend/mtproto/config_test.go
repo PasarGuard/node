@@ -2,6 +2,8 @@ package mtproto
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -727,5 +729,75 @@ func TestRenderWebConfigSize(t *testing.T) {
 	// Decoding a file this large takes seconds, so count the tables instead.
 	if got := strings.Count(out, "[[web.vhosts.profiles]]"); got != userCount {
 		t.Errorf("rendered %d profiles, want %d", got, userCount)
+	}
+}
+
+// telemt counts WEB profiles across all vhosts and refuses a config above
+// web.limits.max_profiles, so Render refuses it first and names the counts.
+func TestRenderRejectsTooManyWebProfiles(t *testing.T) {
+	const twoVhosts = `{"server": {"port": 443, ` + webTestListeners + `}, "web": {"enabled": true, "vhosts": [` +
+		`{"host": "a.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"}}, ` +
+		`{"host": "b.example.com", "public_addr": "203.0.113.10:443", "decoy": {"mode": "http_upstream", "upstream": "http://127.0.0.1:18081"}}]}}`
+	cfg, err := NewConfig(twoVhosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usersOf := func(count int) map[string]*runtimeUser {
+		users := make(map[string]*runtimeUser, count)
+		for id := 1; id <= count; id++ {
+			username := strconv.Itoa(id)
+			users[username] = &runtimeUser{Username: username, Secret: testSecret}
+		}
+		return users
+	}
+	marker := &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}
+
+	_, err = cfg.Render(usersOf(webMaxProfiles/2+1), marker, 12345, 23456, "Bearer token")
+	if err == nil {
+		t.Fatal("Render with 65538 WEB profiles succeeded, want an error")
+	}
+	for _, part := range []string{"65538 WEB profiles", "32769 users x 2 vhosts", "65536"} {
+		if !strings.Contains(err.Error(), part) {
+			t.Errorf("error %q does not contain %q", err, part)
+		}
+	}
+
+	out, err := cfg.Render(usersOf(webMaxProfiles/2), marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatalf("Render with exactly 65536 WEB profiles failed: %v", err)
+	}
+	if got := strings.Count(out, "[[web.vhosts.profiles]]"); got != webMaxProfiles {
+		t.Errorf("rendered %d profiles, want %d", got, webMaxProfiles)
+	}
+}
+
+// base_path follows telemt's validate_web_base_path: empty, or at most 128
+// ASCII bytes of slash-separated [A-Za-z0-9][A-Za-z0-9_-]* segments.
+func TestNewConfigWebBasePath(t *testing.T) {
+	withBasePath := func(value any) string {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return webTestConfig(`, "base_path": ` + string(encoded))
+	}
+	long := strings.Repeat("a", 129)
+	for _, value := range []any{"/tg", "tg/", "/", "a//b", "-x", "_x", long, "télégram", "tg.app", "tg path", 7} {
+		t.Run(fmt.Sprintf("reject %v", value), func(t *testing.T) {
+			_, err := NewConfig(withBasePath(value))
+			if err == nil {
+				t.Fatalf("NewConfig with base_path %#v succeeded, want an error", value)
+			}
+			if !strings.Contains(err.Error(), "web.vhosts[0].base_path") {
+				t.Errorf("error %q does not name web.vhosts[0].base_path", err)
+			}
+		})
+	}
+	for _, value := range []string{"", "tg", "dobry-cola/super_app", "A1/b-2/c_3", strings.Repeat("a", 128)} {
+		t.Run("accept "+value, func(t *testing.T) {
+			if _, err := NewConfig(withBasePath(value)); err != nil {
+				t.Errorf("NewConfig with base_path %q failed: %v", value, err)
+			}
+		})
 	}
 }

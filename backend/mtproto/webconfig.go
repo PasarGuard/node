@@ -138,6 +138,9 @@ func takeWebProfiles(root map[string]any) ([]webUserProfile, error) {
 		if isSet(vhost, "profiles") {
 			return nil, fmt.Errorf("mtproto config must not define web.vhosts[%d].profiles: the node builds them from its users", index)
 		}
+		if err := validateWebBasePath(index, vhost["base_path"]); err != nil {
+			return nil, err
+		}
 		if err := validateWebDecoy(index, vhost["decoy"]); err != nil {
 			return nil, err
 		}
@@ -149,6 +152,42 @@ func takeWebProfiles(root map[string]any) ([]webUserProfile, error) {
 		delete(rawVhost.(map[string]any), "user_profile")
 	}
 	return profiles, nil
+}
+
+// webBasePathMaxBytes is telemt's length limit for a vhost base_path.
+const webBasePathMaxBytes = 128
+
+// validateWebBasePath applies telemt's validate_web_base_path: base_path is
+// empty, or at most 128 ASCII bytes of slash-separated segments that each
+// match [A-Za-z0-9][A-Za-z0-9_-]*, with no leading or trailing slash. telemt
+// uses the value as is, so a value it refuses at Start is refused here first.
+func validateWebBasePath(index int, rawBasePath any) error {
+	if rawBasePath == nil {
+		return nil
+	}
+	field := fmt.Sprintf("web.vhosts[%d].base_path", index)
+	basePath, ok := rawBasePath.(string)
+	if !ok {
+		return fmt.Errorf("mtproto config field %s must be a string", field)
+	}
+	if basePath == "" {
+		return nil
+	}
+	valid := len(basePath) <= webBasePathMaxBytes
+	for segment := range strings.SplitSeq(basePath, "/") {
+		valid = valid && segment != "" && isASCIIAlphanumeric(segment[0]) &&
+			strings.IndexFunc(segment, func(r rune) bool {
+				return !(r < 0x80 && (isASCIIAlphanumeric(byte(r)) || r == '-' || r == '_'))
+			}) < 0
+	}
+	if !valid {
+		return fmt.Errorf("mtproto config field %s must be empty or at most %d ASCII bytes of slash-separated [A-Za-z0-9][A-Za-z0-9_-]* segments, without a leading or trailing slash", field, webBasePathMaxBytes)
+	}
+	return nil
+}
+
+func isASCIIAlphanumeric(b byte) bool {
+	return ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9')
 }
 
 // validateWebDecoy allows only an http_upstream decoy whose upstream host is a

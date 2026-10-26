@@ -336,10 +336,25 @@ func (c *Config) Render(users map[string]*runtimeUser, marker *runtimeUser, apiP
 		return "", err
 	}
 	if c.HasWeb() {
+		if err := checkWebProfileCount(len(c.webProfiles), len(users)); err != nil {
+			return "", err
+		}
 		applyWebProfiles(root, c.webProfiles, users, marker)
 	}
 
 	return renderTOML(root)
+}
+
+// checkWebProfileCount refuses a render with more WEB profiles than
+// webMaxProfiles. telemt counts profiles across all vhosts and refuses the
+// whole config above web.limits.max_profiles. Every vhost gets one profile per
+// user; the marker's single profile per vhost, used only without users, never
+// reaches the limit.
+func checkWebProfileCount(vhostCount, userCount int) error {
+	if total := vhostCount * userCount; total > webMaxProfiles {
+		return fmt.Errorf("mtproto config would need %d WEB profiles (%d users x %d vhosts), above the %d the node allows", total, userCount, vhostCount, webMaxProfiles)
+	}
+	return nil
 }
 
 // applyWebProfiles gives every WEB vhost one profile per user, built from the
