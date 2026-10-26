@@ -220,7 +220,7 @@ func TestRenderForcesNodeKeys(t *testing.T) {
 				"access.users.alice":             testSecret,
 			}
 			for path, want := range expect {
-				if got := tree.GetPath(strings.Split(path, ".")); got != want {
+				if got := tomlAt(tree, strings.Split(path, ".")...); got != want {
 					t.Errorf("%s = %#v, want %#v\n---\n%s", path, got, want, out)
 				}
 			}
@@ -279,21 +279,21 @@ func TestConfigRender_InjectsManagedSections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		"enabled = true",
-		`listen = "127.0.0.1:12345"`,
-		`auth_header = "Bearer testtoken"`,
-		`metrics_port = 23456`,
-		`metrics_listen = "127.0.0.1:23456"`,
-		"[access.users]",
-		`alice = "` + testSecret + `"`,
-		`tls_domain = "example.com"`,
+	tree := decodeTOML(t, out)
+	for path, want := range map[string]any{
+		"server.api.enabled":     true,
+		"server.api.listen":      "127.0.0.1:12345",
+		"server.api.auth_header": "Bearer testtoken",
+		"server.metrics_port":    int64(23456),
+		"server.metrics_listen":  "127.0.0.1:23456",
+		"access.users.alice":     testSecret,
+		"censorship.tls_domain":  "example.com",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("rendered config missing %q\n---\n%s", want, out)
+		if got := tomlAt(tree, strings.Split(path, ".")...); got != want {
+			t.Errorf("%s = %#v, want %#v\n---\n%s", path, got, want, out)
 		}
 	}
-	if strings.Contains(out, "user_enabled = {") || strings.Contains(out, "[access.user_enabled]") {
+	if tomlAt(tree, "access", "user_enabled") != nil {
 		t.Errorf("real users must not disable anyone via access.user_enabled")
 	}
 
@@ -303,10 +303,11 @@ func TestConfigRender_InjectsManagedSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render with marker failed: %v", err)
 	}
-	if !strings.Contains(out, "pgm_0123456789abcdef") {
+	tree = decodeTOML(t, out)
+	if tomlAt(tree, "access", "users", "pgm_0123456789abcdef") != testSecret {
 		t.Errorf("marker user missing from rendered config")
 	}
-	if !strings.Contains(out, "[access.user_enabled]") || !strings.Contains(out, "pgm_0123456789abcdef = false") {
+	if tomlAt(tree, "access", "user_enabled", "pgm_0123456789abcdef") != false {
 		t.Errorf("marker must be rendered disabled, got:\n%s", out)
 	}
 
@@ -345,6 +346,11 @@ func TestActiveUserFromCommon_Selection(t *testing.T) {
 	// invalid username -> error
 	if _, _, err := activeUserFromCommon(mtUser("has space", "mtproto", testSecret), "mtproto"); err == nil {
 		t.Errorf("expected error for invalid username")
+	}
+
+	// include would render as a telemt file include -> error
+	if _, _, err := activeUserFromCommon(mtUser("include", "mtproto", testSecret), "mtproto"); err == nil {
+		t.Errorf("expected error for the username include")
 	}
 }
 

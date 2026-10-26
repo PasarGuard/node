@@ -3,269 +3,112 @@ package mtproto
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"slices"
-	"strconv"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
+// renderTOML encodes root as TOML. root is the panel JSON (numbers as
+// json.Number, null for "not set") with the node-managed values merged in.
 func renderTOML(root map[string]any) (string, error) {
-	var builder strings.Builder
-	if err := writeTOMLSection(&builder, nil, root, tomlHeaderNone); err != nil {
+	value, err := tomlValue(root, "")
+	if err != nil {
 		return "", err
 	}
-	return builder.String(), nil
+	out, err := toml.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("failed to render telemt config as TOML: %w", err)
+	}
+	rendered := string(out)
+	if err := checkNoIncludeLines(rendered); err != nil {
+		return "", err
+	}
+	return rendered, nil
 }
 
-type tomlHeaderKind uint8
-
-const (
-	tomlHeaderNone tomlHeaderKind = iota
-	tomlHeaderTable
-	tomlHeaderArrayTable
-)
-
-func writeTOMLSection(builder *strings.Builder, path []string, section map[string]any, headerKind tomlHeaderKind) error {
-	scalarKeys, tableKeys, arrayTableKeys := classifyTOMLSection(section)
-
-	if headerKind != tomlHeaderNone {
-		writeSectionSpacing(builder)
-		headerText := joinPath(path)
-		switch headerKind {
-		case tomlHeaderTable:
-			builder.WriteString("[")
-			builder.WriteString(headerText)
-			builder.WriteString("]\n")
-		case tomlHeaderArrayTable:
-			builder.WriteString("[[")
-			builder.WriteString(headerText)
-			builder.WriteString("]]\n")
-		}
-	}
-
-	for _, key := range scalarKeys {
-		inline, err := renderInlineValue(section[key])
-		if err != nil {
-			return fmt.Errorf("failed to render TOML value for %s: %w", joinPath(appendPath(path, key)), err)
-		}
-		builder.WriteString(renderKey(key))
-		builder.WriteString(" = ")
-		builder.WriteString(inline)
-		builder.WriteByte('\n')
-	}
-
-	for _, key := range tableKeys {
-		child, _ := section[key].(map[string]any)
-		if err := writeTOMLSection(builder, appendPath(path, key), child, tomlHeaderTable); err != nil {
-			return err
-		}
-	}
-
-	for _, key := range arrayTableKeys {
-		items, _ := section[key].([]any)
-		for index, rawItem := range items {
-			child, ok := rawItem.(map[string]any)
-			if !ok {
-				return fmt.Errorf("failed to render TOML array table %s[%d]: expected object element", joinPath(appendPath(path, key)), index)
-			}
-			if err := writeTOMLSection(builder, appendPath(path, key), child, tomlHeaderArrayTable); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// classifyTOMLSection sorts the keys of section into scalars (inline
-// values), tables and arrays of tables, each in key order.
-func classifyTOMLSection(section map[string]any) (scalarKeys, tableKeys, arrayTableKeys []string) {
-	keys := make([]string, 0, len(section))
-	for key := range section {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-
-	scalarKeys = make([]string, 0, len(keys))
-	tableKeys = make([]string, 0, len(keys))
-
-	for _, key := range keys {
-		switch value := section[key].(type) {
-		case nil:
-			// JSON null means "not set"; TOML has no null.
-			continue
-		case map[string]any:
-			tableKeys = append(tableKeys, key)
-		case []any:
-			if isArrayOfObjects(value) {
-				arrayTableKeys = append(arrayTableKeys, key)
-				continue
-			}
-			scalarKeys = append(scalarKeys, key)
-		default:
-			scalarKeys = append(scalarKeys, key)
-		}
-	}
-
-	return scalarKeys, tableKeys, arrayTableKeys
-}
-
-func isArrayOfObjects(values []any) bool {
-	if len(values) == 0 {
-		return false
-	}
-	for _, value := range values {
-		if _, ok := value.(map[string]any); !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func renderInlineValue(value any) (string, error) {
+// tomlValue copies value for the TOML encoder. JSON numbers become int64 or
+// float64, since the encoder writes a json.Number as a string. A null map
+// value means "not set" and is dropped; TOML has no null, so a null array
+// element is an error.
+func tomlValue(value any, path string) (any, error) {
 	switch typed := value.(type) {
-	case nil:
-		return "", fmt.Errorf("null array elements are not valid in TOML")
-	case string:
-		return quoteTOMLString(typed), nil
-	case bool:
-		return strconv.FormatBool(typed), nil
-	case json.Number:
-		return typed.String(), nil
-	case []any:
-		rendered := make([]string, 0, len(typed))
-		for _, item := range typed {
-			inline, err := renderInlineValue(item)
-			if err != nil {
-				return "", err
-			}
-			rendered = append(rendered, inline)
-		}
-		return "[" + strings.Join(rendered, ", ") + "]", nil
 	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		slices.Sort(keys)
-
-		parts := make([]string, 0, len(keys))
-		for _, key := range keys {
-			if typed[key] == nil {
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if item == nil {
 				continue
 			}
-			inline, err := renderInlineValue(typed[key])
+			converted, err := tomlValue(item, appendTOMLPath(path, key))
 			if err != nil {
-				return "", err
+				return nil, err
 			}
-			parts = append(parts, fmt.Sprintf("%s = %s", renderKey(key), inline))
+			out[key] = converted
 		}
-		return "{ " + strings.Join(parts, ", ") + " }", nil
+		return out, nil
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			itemPath := fmt.Sprintf("%s[%d]", path, index)
+			if item == nil {
+				return nil, fmt.Errorf("mtproto config field %s is null; TOML arrays cannot hold null", itemPath)
+			}
+			converted, err := tomlValue(item, itemPath)
+			if err != nil {
+				return nil, err
+			}
+			out[index] = converted
+		}
+		return out, nil
+	case json.Number:
+		return tomlNumber(typed, path)
 	default:
-		return renderPrimitiveValue(typed)
+		return value, nil
 	}
 }
 
-func renderPrimitiveValue(value any) (string, error) {
-	typedValue := reflect.ValueOf(value)
-	switch typedValue.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(typedValue.Int(), 10), nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return strconv.FormatUint(typedValue.Uint(), 10), nil
-	case reflect.Float32:
-		return strconv.FormatFloat(typedValue.Float(), 'f', -1, 32), nil
-	case reflect.Float64:
-		return strconv.FormatFloat(typedValue.Float(), 'f', -1, 64), nil
-	default:
-		return "", fmt.Errorf("unsupported TOML value type %T", value)
+// tomlNumber converts a JSON number to the TOML integer or float it spells.
+// TOML integers are signed 64-bit, so a larger integer is an error rather than
+// a float that telemt would reject for an integer field.
+func tomlNumber(number json.Number, path string) (any, error) {
+	if integer, err := number.Int64(); err == nil {
+		return integer, nil
 	}
+	if !strings.ContainsAny(number.String(), ".eE") {
+		return nil, fmt.Errorf("mtproto config field %s: integer %s is outside the TOML 64-bit range", path, number)
+	}
+	float, err := number.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("mtproto config field %s: %s is not a valid TOML float", path, number)
+	}
+	return float, nil
 }
 
-func renderKey(key string) string {
-	// telemt expands any line of the form `include = "<path>"` as a file
-	// include before it parses TOML, in every table. A quoted key is not
-	// matched, so a key named include is always quoted.
-	if isBareKey(key) && key != "include" {
+func appendTOMLPath(path, key string) string {
+	if path == "" {
 		return key
 	}
-	return quoteTOMLString(key)
+	return path + "." + key
 }
 
-// quoteTOMLString renders value as a TOML basic string. strconv.Quote does not
-// fit: it emits Go escapes such as \a, \v and \x01 that TOML rejects.
-func quoteTOMLString(value string) string {
-	var builder strings.Builder
-	builder.Grow(len(value) + 2)
-	builder.WriteByte('"')
-	for _, r := range value {
-		switch r {
-		case '"':
-			builder.WriteString(`\"`)
-		case '\\':
-			builder.WriteString(`\\`)
-		case '\b':
-			builder.WriteString(`\b`)
-		case '\t':
-			builder.WriteString(`\t`)
-		case '\n':
-			builder.WriteString(`\n`)
-		case '\f':
-			builder.WriteString(`\f`)
-		case '\r':
-			builder.WriteString(`\r`)
-		default:
-			if r < 0x20 || r == 0x7f {
-				fmt.Fprintf(&builder, `\u%04X`, r)
-				continue
-			}
-			builder.WriteRune(r)
+// checkNoIncludeLines refuses output that telemt would expand as a file
+// include. Before it parses TOML, telemt reads every line that, trimmed,
+// starts with "include" followed by "=" as an include of the named file, in
+// any table (src/config/load/includes.rs). The encoder writes a key named
+// include bare, so such a key would make telemt read other files on the node
+// host. The check copies telemt's matcher rather than relying on how the
+// encoder quotes keys.
+func checkNoIncludeLines(rendered string) error {
+	table := "the top level"
+	for line := range strings.Lines(rendered) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			table = trimmed
+			continue
+		}
+		rest, found := strings.CutPrefix(trimmed, "include")
+		if found && strings.HasPrefix(strings.TrimSpace(rest), "=") {
+			return fmt.Errorf("mtproto config must not use the key include (found in %s): telemt would read it as a file include", table)
 		}
 	}
-	builder.WriteByte('"')
-	return builder.String()
-}
-
-func isBareKey(key string) bool {
-	if key == "" {
-		return false
-	}
-	for _, r := range key {
-		if !(r >= 'a' && r <= 'z') &&
-			!(r >= 'A' && r <= 'Z') &&
-			!(r >= '0' && r <= '9') &&
-			r != '_' &&
-			r != '-' {
-			return false
-		}
-	}
-	return true
-}
-
-func joinPath(path []string) string {
-	if len(path) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(path))
-	for _, segment := range path {
-		parts = append(parts, renderKey(segment))
-	}
-	return strings.Join(parts, ".")
-}
-
-func appendPath(path []string, key string) []string {
-	result := make([]string, 0, len(path)+1)
-	result = append(result, path...)
-	result = append(result, key)
-	return result
-}
-
-func writeSectionSpacing(builder *strings.Builder) {
-	if builder.Len() == 0 {
-		return
-	}
-	if !strings.HasSuffix(builder.String(), "\n") {
-		builder.WriteByte('\n')
-	}
-	builder.WriteByte('\n')
+	return nil
 }

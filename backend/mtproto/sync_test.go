@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/pkg/logstream"
@@ -213,22 +215,15 @@ func (f *fakeTelemtAPI) editDiskLocked(edit func(users map[string]string)) {
 // parseConfigUsers reads [access.users] from a rendered config.
 func parseConfigUsers(config string) map[string]string {
 	users := make(map[string]string)
-	section := ""
-	for _, line := range strings.Split(config, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[]")
-			continue
+	var tree map[string]any
+	if err := toml.Unmarshal([]byte(config), &tree); err != nil {
+		return users
+	}
+	configured, _ := tomlAt(tree, "access", "users").(map[string]any)
+	for name, value := range configured {
+		if secret, ok := value.(string); ok {
+			users[name] = secret
 		}
-		key, value, ok := strings.Cut(line, "=")
-		if !ok || section != "access.users" {
-			continue
-		}
-		secret, err := strconv.Unquote(strings.TrimSpace(value))
-		if err != nil {
-			continue
-		}
-		users[strings.Trim(strings.TrimSpace(key), `"`)] = secret
 	}
 	return users
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pelletier/go-toml/v2"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/pasarguard/node/backend"
@@ -111,19 +112,20 @@ func fakeTelemtAPIListen(configPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	section := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[]")
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if ok && section == "server.api" && strings.TrimSpace(key) == "listen" {
-			return strconv.Unquote(strings.TrimSpace(value))
-		}
+	var rendered struct {
+		Server struct {
+			API struct {
+				Listen string `toml:"listen"`
+			} `toml:"api"`
+		} `toml:"server"`
 	}
-	return "", errors.New("server.api.listen not found in " + configPath)
+	if err := toml.Unmarshal(data, &rendered); err != nil {
+		return "", err
+	}
+	if rendered.Server.API.Listen == "" {
+		return "", errors.New("server.api.listen not found in " + configPath)
+	}
+	return rendered.Server.API.Listen, nil
 }
 
 // newFakeTelemtController returns a controller whose telemt is the fake. It

@@ -11,12 +11,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/netutil"
@@ -314,17 +315,12 @@ func fakeTelemtAPIListen(configPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	section := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[]")
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if ok && section == "server.api" && strings.TrimSpace(key) == "listen" {
-			return strconv.Unquote(strings.TrimSpace(value))
-		}
+	var tree map[string]any
+	if err := toml.Unmarshal(data, &tree); err != nil {
+		return "", err
+	}
+	if listen, ok := tomlAt(tree, "server", "api", "listen").(string); ok {
+		return listen, nil
 	}
 	return "", errors.New("server.api.listen not found in " + configPath)
 }

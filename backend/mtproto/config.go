@@ -404,6 +404,12 @@ func activeUserFromCommon(user *common.User, inboundTag string) (*runtimeUser, b
 	if !validUsernamePattern.MatchString(username) {
 		return nil, false, fmt.Errorf("invalid mtproto username %q; expected [A-Za-z0-9_.-] and length 1..64", username)
 	}
+	// Usernames are TOML keys, and telemt reads a key named include as a file
+	// include (see checkNoIncludeLines). Skipping the user here keeps one bad
+	// record from failing the whole render.
+	if username == "include" {
+		return nil, false, fmt.Errorf("invalid mtproto username %q; telemt reserves it", username)
+	}
 
 	proxy := user.GetProxies().GetMtproto()
 	if proxy == nil {
