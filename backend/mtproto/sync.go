@@ -118,6 +118,10 @@ func (m *MTProto) updateUsersLocked(ctx context.Context, users []*common.User) (
 	if len(changes) == 0 {
 		return next, false
 	}
+	// telemt's user API creates no WEB profile, and a profile must go before its user (telemt guide).
+	if m.config.HasWeb() {
+		return next, true
+	}
 	if err := m.applyUserChangesLocked(ctx, changes); err != nil {
 		// Some changes may have reached telemt: its users are unknown until
 		// a full apply succeeds.

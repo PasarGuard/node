@@ -419,8 +419,15 @@ func writeFakeError(w http.ResponseWriter, status int, code, message string) {
 // the fake is started on the initial render.
 func newSyncTestBackend(t *testing.T, api *fakeTelemtAPI, users []*common.User) *MTProto {
 	t.Helper()
+	return newSyncTestBackendWithConfig(t, api, `{"inbound_tag": "mtproto", "server": {"port": 8443}}`, users)
+}
 
-	mtConfig, err := NewConfig(`{"inbound_tag": "mtproto", "server": {"port": 8443}}`)
+// newSyncTestBackendWithConfig is newSyncTestBackend with the panel config
+// rawConfig.
+func newSyncTestBackendWithConfig(t *testing.T, api *fakeTelemtAPI, rawConfig string, users []*common.User) *MTProto {
+	t.Helper()
+
+	mtConfig, err := NewConfig(rawConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1064,6 +1071,46 @@ func TestLastRealUserGoesThroughAPI(t *testing.T) {
 	}
 	if markers := api.runtimeMarkers(); len(markers) != 1 {
 		t.Errorf("telemt markers = %q, want one", markers)
+	}
+}
+
+// TestWebConfigAlwaysRendersUsers: telemt's user API creates no WEB profile,
+// so with WEB on even a one-user change goes through a full render, and the
+// rendered profiles follow the user set.
+func TestWebConfigAlwaysRendersUsers(t *testing.T) {
+	api := newFakeTelemtAPI(t)
+	m := newSyncTestBackendWithConfig(t, api, webTestConfig(""), []*common.User{mtUser("u1", "mtproto", testSecret)})
+	ctx := context.Background()
+
+	assertProfiles := func(want ...string) {
+		t.Helper()
+		var got []string
+		for _, raw := range webProfilesAt(t, decodeTOML(t, readConfig(t, api.configPath)), 0) {
+			profile, _ := raw.(map[string]any)
+			user, _ := profile["user"].(string)
+			got = append(got, user)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("rendered profiles = %q, want %q", got, want)
+		}
+	}
+
+	if err := m.SyncUser(ctx, mtUser("u2", "mtproto", testSecret)); err != nil {
+		t.Fatalf("SyncUser adding u2: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
+	assertProfiles("u1", "u2")
+	if !api.connects("u2", testSecret) {
+		t.Error("u2 cannot connect")
+	}
+
+	if err := m.SyncUser(ctx, untagged("u1")); err != nil {
+		t.Fatalf("SyncUser removing u1: %v", err)
+	}
+	assertCalls(t, api.takeCalls(), "GET /v1/users")
+	assertProfiles("u2")
+	if got := desiredNames(m); !slices.Equal(got, []string{"u2"}) {
+		t.Errorf("desired = %q, want u2", got)
 	}
 }
 
