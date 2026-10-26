@@ -54,6 +54,15 @@ func TestBuildPatchUserRequest_ClearsOptionalFields(t *testing.T) {
 		}
 	}
 
+	// No secret: the patch leaves telemt's secret as it is.
+	noSecret, err := buildPatchUserRequest(&runtimeUser{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded, _ := json.Marshal(noSecret); strings.Contains(string(encoded), "secret") {
+		t.Errorf("patch JSON without a secret sends one: %s", encoded)
+	}
+
 	tag := "aabbccddeeff00112233445566778899"
 	setPayload, err := buildPatchUserRequest(&runtimeUser{
 		Username:     "alice",
@@ -83,6 +92,13 @@ func TestBuildCreateUserRequest_OmitsUnsetFields(t *testing.T) {
 	}
 	if got, want := string(encoded), `{"username":"alice","secret":"`+testSecret+`"}`; got != want {
 		t.Errorf("create JSON = %s, want %s", got, want)
+	}
+	encoded, err = json.Marshal(buildCreateUserRequest(&runtimeUser{Username: "alice"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(encoded), `{"username":"alice"}`; got != want {
+		t.Errorf("create JSON without a secret = %s, want %s", got, want)
 	}
 
 	tag := "aabbccddeeff00112233445566778899"

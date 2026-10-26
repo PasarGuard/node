@@ -58,6 +58,8 @@ func TestNewConfigRejectsNodeManagedKeys(t *testing.T) {
 		key string
 	}{
 		{`{"include": "x"}`, "include"},
+		{`{"general": {"include": "x"}}`, "general.include"},
+		{`{"server": {"listeners": [{"ip": "::", "include": "x"}]}}`, "server.listeners[0].include"},
 		{`{"server": {"api": {"read_only": true}}}`, "server.api"},
 		{`{"server": {"admin_api": {}}}`, "server.admin_api"},
 		{`{"server": {"metrics_port": 1}}`, "server.metrics_port"},

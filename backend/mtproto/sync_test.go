@@ -217,7 +217,9 @@ func parseConfigUsers(config string) map[string]string {
 	users := make(map[string]string)
 	var tree map[string]any
 	if err := toml.Unmarshal([]byte(config), &tree); err != nil {
-		return users
+		// Every config here is rendered by the node or rewritten by a fake;
+		// a decode failure is a bug, not a config without users.
+		panic(fmt.Sprintf("parseConfigUsers: config does not decode: %v\n---\n%s", err, config))
 	}
 	configured, _ := tomlAt(tree, "access", "users").(map[string]any)
 	for name, value := range configured {

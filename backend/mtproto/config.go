@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -150,6 +151,13 @@ func validateConfigRoot(root map[string]any) error {
 		if isSet(parent, rejected.path[last]) {
 			return fmt.Errorf("mtproto config must not define %s: %s", strings.Join(rejected.path, "."), rejected.reason)
 		}
+	}
+
+	// telemt reads a key named include in any table as a file include (see
+	// checkNoIncludeLines). The render refuses one too; rejecting it here
+	// tells the panel at once.
+	if path, found := findKey(root, "include", ""); found {
+		return fmt.Errorf("mtproto config must not define %s: telemt would read other files on the node host", path)
 	}
 
 	if _, err := listenPorts(root); err != nil {
@@ -458,6 +466,30 @@ func objectAt(root map[string]any, path ...string) (map[string]any, error) {
 
 func isSet(object map[string]any, key string) bool {
 	return object != nil && object[key] != nil
+}
+
+// findKey returns the path of the first set key named key at any depth of
+// value, tables inside arrays included.
+func findKey(value any, key, path string) (string, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, name := range slices.Sorted(maps.Keys(typed)) {
+			namePath := appendTOMLPath(path, name)
+			if name == key && typed[name] != nil {
+				return namePath, true
+			}
+			if found, ok := findKey(typed[name], key, namePath); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for index, item := range typed {
+			if found, ok := findKey(item, key, fmt.Sprintf("%s[%d]", path, index)); ok {
+				return found, true
+			}
+		}
+	}
+	return "", false
 }
 
 func ensureObject(target map[string]any, key string) map[string]any {

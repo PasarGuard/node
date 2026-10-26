@@ -2,6 +2,7 @@ package mtproto
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -163,6 +164,123 @@ func TestTOMLArrayOfTables(t *testing.T) {
 	}
 	if got := tomlAt(tree, "server", "port"); got != int64(443) {
 		t.Errorf("server.port = %#v, want 443", got)
+	}
+}
+
+func TestTOMLSignedZero(t *testing.T) {
+	out, err := renderTOML(decodeJSONObject(t, `{"general": {"int_zero": -0, "float_zero": -0.0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := decodeTOML(t, out)
+	if got := tomlAt(tree, "general", "int_zero"); got != int64(0) {
+		t.Errorf("general.int_zero = %#v, want 0", got)
+	}
+	if got, ok := tomlAt(tree, "general", "float_zero").(float64); !ok || got != 0 || !math.Signbit(got) {
+		t.Errorf("general.float_zero = %#v, want -0.0\n---\n%s", tomlAt(tree, "general", "float_zero"), out)
+	}
+}
+
+func TestTOMLRefusesUnconvertedContainers(t *testing.T) {
+	// A typed container could hold a json.Number the conversion never sees.
+	if out, err := renderTOML(map[string]any{"server": map[string]any{"listeners": []map[string]any{{"port": json.Number("443")}}}}); err == nil {
+		t.Errorf("typed container rendered without error\n---\n%s", out)
+	}
+}
+
+// TestRenderGolden pins the whole rendered file, so a go-toml upgrade that
+// changes the output shows up here.
+func TestRenderGolden(t *testing.T) {
+	cfg, err := NewConfig(`{"general": {"ad_tag": null, "modes": {"classic": false, "secure": false, "tls": true}}, "censorship": {"tls_domain": "example.com"}, "server": {"port": 443, "listeners": [{"ip": "0.0.0.0"}, {"ip": "::", "port": 8443}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cfg.Render(map[string]*runtimeUser{
+		"1": {Username: "1", Secret: testSecret, MaxTCPConns: 4},
+		"2": {Username: "2", Secret: otherSecret, UserAdTag: thirdSecret},
+	}, &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const want = `[access]
+[access.user_ad_tags]
+2 = '0123456789abcdef0123456789abcdef'
+
+[access.user_enabled]
+pgm_0123456789abcdef = false
+
+[access.user_max_tcp_conns]
+1 = 4
+
+[access.users]
+1 = '00112233445566778899aabbccddeeff'
+2 = 'ffeeddccbbaa00112233445566778899'
+pgm_0123456789abcdef = '0123456789abcdef0123456789abcdef'
+
+[censorship]
+tls_domain = 'example.com'
+
+[general]
+disable_colors = true
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[general.telemetry]
+user_enabled = true
+
+[logging]
+destination = 'stderr'
+
+[server]
+metrics_listen = '127.0.0.1:23456'
+metrics_port = 23456
+metrics_whitelist = ['127.0.0.1/32', '::1/128']
+port = 443
+
+[server.api]
+auth_header = 'Bearer token'
+enabled = true
+listen = '127.0.0.1:12345'
+read_only = false
+whitelist = ['127.0.0.1/32', '::1/128']
+
+[[server.listeners]]
+ip = '0.0.0.0'
+
+[[server.listeners]]
+ip = '::'
+port = 8443
+`
+	if out != want {
+		t.Errorf("rendered config changed\n--- got\n%s\n--- want\n%s", out, want)
+	}
+}
+
+// checkNoIncludeLines must match exactly the lines telemt's
+// preprocess_includes expands: trimmed, "include", optional space, "=".
+func TestCheckNoIncludeLines(t *testing.T) {
+	for line, expanded := range map[string]bool{
+		"include = 'x'":     true,
+		"include='x'":       true,
+		"\tinclude = 'x'":   true,
+		"  include\t= 'x'":  true,
+		"include = 'x'\r":   true,
+		"include_x = 1":     false,
+		"included = 1":      false,
+		"Include = 1":       false,
+		"'include' = 'x'":   false,
+		`"include" = 'x'`:   false,
+		"x = 'include = y'": false,
+		"[include]":         false,
+	} {
+		err := checkNoIncludeLines("[general]\n" + line + "\n")
+		if got := err != nil; got != expanded {
+			t.Errorf("%q: refused = %v, want %v (err %v)", line, got, expanded, err)
+		}
 	}
 }
 

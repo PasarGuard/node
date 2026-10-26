@@ -3,6 +3,7 @@ package mtproto
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -62,6 +63,12 @@ func tomlValue(value any, path string) (any, error) {
 	case json.Number:
 		return tomlNumber(typed, path)
 	default:
+		// Any other container could hide a json.Number from the conversion
+		// above, so it is refused rather than passed through.
+		switch reflect.ValueOf(value).Kind() {
+		case reflect.Map, reflect.Slice, reflect.Array, reflect.Struct, reflect.Pointer, reflect.Interface:
+			return nil, fmt.Errorf("mtproto config field %s has unsupported type %T", path, value)
+		}
 		return value, nil
 	}
 }
