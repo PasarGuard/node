@@ -313,3 +313,88 @@ func TestTOMLRejectsIncludeKeys(t *testing.T) {
 		t.Errorf("general.included = %#v, want x", got)
 	}
 }
+
+// TestRenderWebGolden pins a whole render with one WEB vhost.
+func TestRenderWebGolden(t *testing.T) {
+	cfg, err := NewConfig(webTestConfig(`, "user_profile": {"secret_mode": "plain", "max_sessions": 8, "max_streams_per_session": 4}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cfg.Render(map[string]*runtimeUser{
+		"1": {Username: "1", Secret: testSecret},
+		"2": {Username: "2", Secret: otherSecret},
+	}, &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const want = `[access]
+[access.user_enabled]
+pgm_0123456789abcdef = false
+
+[access.users]
+1 = '00112233445566778899aabbccddeeff'
+2 = 'ffeeddccbbaa00112233445566778899'
+pgm_0123456789abcdef = '0123456789abcdef0123456789abcdef'
+
+[general]
+disable_colors = true
+
+[general.telemetry]
+user_enabled = true
+
+[logging]
+destination = 'stderr'
+
+[server]
+metrics_listen = '127.0.0.1:23456'
+metrics_port = 23456
+metrics_whitelist = ['127.0.0.1/32', '::1/128']
+port = 443
+
+[server.api]
+auth_header = 'Bearer token'
+enabled = true
+listen = '127.0.0.1:12345'
+read_only = false
+whitelist = ['127.0.0.1/32', '::1/128']
+
+[[server.listeners]]
+ip = '0.0.0.0'
+
+[[server.listeners]]
+ip = '127.0.0.1'
+port = 18080
+transport = 'web'
+web_trusted_proxy_cidrs = ['127.0.0.1/32']
+
+[web]
+enabled = true
+
+[web.limits]
+max_profiles = 262144
+
+[[web.vhosts]]
+host = 'proxy.example.com'
+public_addr = '203.0.113.10:443'
+
+[web.vhosts.decoy]
+mode = 'http_upstream'
+upstream = 'http://127.0.0.1:18081'
+
+[[web.vhosts.profiles]]
+max_sessions = 8
+max_streams_per_session = 4
+secret_mode = 'plain'
+user = '1'
+
+[[web.vhosts.profiles]]
+max_sessions = 8
+max_streams_per_session = 4
+secret_mode = 'plain'
+user = '2'
+`
+	if out != want {
+		t.Errorf("rendered config changed\n--- got\n%s\n--- want\n%s", out, want)
+	}
+}

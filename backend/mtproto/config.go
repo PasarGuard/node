@@ -20,6 +20,11 @@ const (
 	loopbackV6CIDR    = "::1/128"
 	// telemtDefaultPort is the server.port telemt uses when the config omits it.
 	telemtDefaultPort = 443
+	// webMaxProfiles is the web.limits.max_profiles the node renders. telemt
+	// reads it only at start, so it is fixed well above any user count rather
+	// than sized per sync. Each profile reserves 64 bytes of telemt's WEB
+	// memory envelope, so this reserves 16 MiB.
+	webMaxProfiles = 262144
 )
 
 var (
@@ -324,8 +329,45 @@ func (c *Config) Render(users map[string]*runtimeUser, marker *runtimeUser, apiP
 	if err := applyUsersToAccess(access, users, marker); err != nil {
 		return "", err
 	}
+	if c.HasWeb() {
+		applyWebProfiles(root, c.webProfiles, users, marker)
+	}
 
 	return renderTOML(root)
+}
+
+// applyWebProfiles gives every WEB vhost one profile per user, built from the
+// vhost's user_profile template, and sets web.limits.max_profiles. With no
+// users the marker gets the profile instead: telemt rejects an enabled vhost
+// without profiles.
+func applyWebProfiles(root map[string]any, profiles []webUserProfile, users map[string]*runtimeUser, marker *runtimeUser) {
+	usernames := slices.Sorted(maps.Keys(users))
+	if len(usernames) == 0 && marker != nil {
+		usernames = []string{marker.Username}
+	}
+
+	web := ensureObject(root, "web")
+	vhosts, _ := web["vhosts"].([]any)
+	for index, rawVhost := range vhosts {
+		vhost, _ := rawVhost.(map[string]any)
+		template := profiles[index]
+		rendered := make([]any, 0, len(usernames))
+		for _, username := range usernames {
+			profile := map[string]any{"user": username, "secret_mode": template.SecretMode}
+			if template.MaxSessions > 0 {
+				profile["max_sessions"] = template.MaxSessions
+			}
+			if template.MaxStreams > 0 {
+				profile["max_streams"] = template.MaxStreams
+			}
+			if template.MaxStreamsPerSession > 0 {
+				profile["max_streams_per_session"] = template.MaxStreamsPerSession
+			}
+			rendered = append(rendered, profile)
+		}
+		vhost["profiles"] = rendered
+	}
+	ensureObject(web, "limits")["max_profiles"] = webMaxProfiles
 }
 
 func applyUsersToAccess(access map[string]any, users map[string]*runtimeUser, marker *runtimeUser) error {

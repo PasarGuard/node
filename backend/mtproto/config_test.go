@@ -535,3 +535,132 @@ func TestWebListenerPortClash(t *testing.T) {
 		})
 	}
 }
+
+// webProfilesAt returns web.vhosts[index].profiles of a decoded render.
+func webProfilesAt(t *testing.T, tree map[string]any, index int) []any {
+	t.Helper()
+	vhosts, ok := tomlAt(tree, "web", "vhosts").([]any)
+	if !ok || len(vhosts) <= index {
+		t.Fatalf("web.vhosts = %#v, want at least %d entries", tomlAt(tree, "web", "vhosts"), index+1)
+	}
+	vhost, _ := vhosts[index].(map[string]any)
+	profiles, _ := vhost["profiles"].([]any)
+	return profiles
+}
+
+func TestRenderWebProfiles(t *testing.T) {
+	cfg, err := NewConfig(webTestConfig(`, "user_profile": {"secret_mode": "plain", "max_sessions": 8}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := map[string]*runtimeUser{
+		"2": {Username: "2", Secret: otherSecret},
+		"1": {Username: "1", Secret: testSecret},
+	}
+	marker := &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}
+	out, err := cfg.Render(users, marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := decodeTOML(t, out)
+
+	profiles := webProfilesAt(t, tree, 0)
+	want := []map[string]any{
+		{"user": "1", "secret_mode": "plain", "max_sessions": int64(8)},
+		{"user": "2", "secret_mode": "plain", "max_sessions": int64(8)},
+	}
+	if len(profiles) != len(want) {
+		t.Fatalf("profiles = %#v, want %#v\n---\n%s", profiles, want, out)
+	}
+	for index, raw := range profiles {
+		profile, _ := raw.(map[string]any)
+		if !mapsEqual(profile, want[index]) {
+			t.Errorf("profiles[%d] = %#v, want %#v", index, profile, want[index])
+		}
+	}
+	if got := tomlAt(tree, "web", "limits", "max_profiles"); got != int64(262144) {
+		t.Errorf("web.limits.max_profiles = %#v, want 262144", got)
+	}
+	if _, ok := tomlAt(tree, "web", "vhosts").([]any)[0].(map[string]any)["user_profile"]; ok {
+		t.Errorf("user_profile must not reach telemt\n---\n%s", out)
+	}
+}
+
+func mapsEqual(a, b map[string]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if other, ok := b[key]; !ok || other != value {
+			return false
+		}
+	}
+	return true
+}
+
+func TestRenderWebMarkerProfileOnlyWithoutUsers(t *testing.T) {
+	cfg, err := NewConfig(webTestConfig(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}
+
+	// telemt rejects an enabled vhost without profiles, so the marker fills in
+	// while the node has no users.
+	out, err := cfg.Render(nil, marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := webProfilesAt(t, decodeTOML(t, out), 0)
+	wantMarker := map[string]any{"user": marker.Username, "secret_mode": "dd"}
+	if len(profiles) != 1 || !mapsEqual(profiles[0].(map[string]any), wantMarker) {
+		t.Errorf("profiles without users = %#v, want only %#v", profiles, wantMarker)
+	}
+
+	out, err = cfg.Render(map[string]*runtimeUser{"1": {Username: "1", Secret: testSecret}}, marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles = webProfilesAt(t, decodeTOML(t, out), 0)
+	wantUser := map[string]any{"user": "1", "secret_mode": "dd"}
+	if len(profiles) != 1 || !mapsEqual(profiles[0].(map[string]any), wantUser) {
+		t.Errorf("profiles with one user = %#v, want only %#v", profiles, wantUser)
+	}
+}
+
+// TestRenderWebConfigSize checks that 50,000 users with one WEB vhost stay
+// under telemt's 8 MiB config limit. Users carry a secret only and the vhost
+// sets one profile limit, the common case; the logged bytes per user give the
+// largest user count that fits.
+func TestRenderWebConfigSize(t *testing.T) {
+	const userCount = 50000
+	const sizeLimit = 8388608
+	cfg, err := NewConfig(webTestConfig(`, "user_profile": {"secret_mode": "plain", "max_sessions": 8}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := make(map[string]*runtimeUser, userCount)
+	for id := 1; id <= userCount; id++ {
+		username := strconv.Itoa(id)
+		users[username] = &runtimeUser{Username: username, Secret: testSecret}
+	}
+	marker := &runtimeUser{Username: "pgm_0123456789abcdef", Secret: thirdSecret}
+
+	out, err := cfg.Render(users, marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := cfg.Render(nil, marker, 12345, 23456, "Bearer token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	perUser := float64(len(out)-len(empty)) / userCount
+	t.Logf("%d users: %d bytes, %.1f bytes per user, about %d users fit in %d bytes", userCount, len(out), perUser, int(float64(sizeLimit-len(empty))/perUser), sizeLimit)
+	if len(out) >= sizeLimit {
+		t.Errorf("rendered config is %d bytes, want under %d", len(out), sizeLimit)
+	}
+	// Decoding a file this large takes seconds, so count the tables instead.
+	if got := strings.Count(out, "[[web.vhosts.profiles]]"); got != userCount {
+		t.Errorf("rendered %d profiles, want %d", got, userCount)
+	}
+}
