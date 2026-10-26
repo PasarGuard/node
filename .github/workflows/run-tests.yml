@@ -31,6 +31,9 @@ jobs:
       - name: Install xray-core
         run: make install_xray
 
+      - name: Install telemt
+        run: make install_telemt
+
       - name: install wg
         run: make install_wg
 
@@ -41,6 +44,8 @@ jobs:
           make generate_client_cert
 
       - name: Run regular test suite
+        env:
+          MTPROTO_TELEMT_BIN: /usr/local/bin/telemt
         run: TEST_INTEGRATION=true go test ./... -v -p 1
 
       - name: Check Xray process status races

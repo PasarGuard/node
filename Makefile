@@ -46,6 +46,29 @@ GEOFILES_DIR ?= /usr/local/share/xray
 GEOFILES_XRAY ?= /usr/local/bin/xray
 GEOFILES_CHECK_CONFIG ?= $(CURDIR)/testdata/geofiles-check.json
 
+# telemt (MTProto backend): pinned release, static musl tarball.
+# 3.5.14 is also the floor: the node refuses to start an older telemt.
+# The tarball is checked against our own SHA256 per arch below, never the .sha256 file of the release.
+# Any other version also needs its checksum, and "latest" is always refused:
+#   make install_telemt TELEMT_VERSION=X.Y.Z TELEMT_SHA256=<sha256 of telemt-<arch>-linux-musl.tar.gz>
+# On a bump, update TELEMT_PINNED_VERSION, both checksums and third_party/telemt/ together.
+TELEMT_REPOSITORY     ?= telemt/telemt
+TELEMT_PINNED_VERSION := 3.5.14
+TELEMT_VERSION        ?= $(TELEMT_PINNED_VERSION)
+TELEMT_SHA256         ?=
+TELEMT_SHA256_PINNED_x86_64  := 71c1454f79cf755edea0985500629daba553002f9863be754e8e38a418822773
+TELEMT_SHA256_PINNED_aarch64 := 21795430c4165cf964405459714d08eea319edaa5c9027beac4de373c356d84d
+TELEMT_INSTALL_DIR    ?= /usr/local/bin
+TELEMT_OS   ?=
+TELEMT_ARCH ?=
+TELEMT_ARCH_MAP_amd64 = x86_64
+TELEMT_ARCH_MAP_arm64 = aarch64
+TELEMT_GOOS   := $(if $(GOOS),$(GOOS),$(shell go env GOOS))
+TELEMT_GOARCH := $(if $(GOARCH),$(GOARCH),$(shell go env GOARCH))
+TELEMT_OS_EFFECTIVE      := $(if $(TELEMT_OS),$(TELEMT_OS),$(TELEMT_GOOS))
+TELEMT_ARCH_EFFECTIVE    := $(if $(TELEMT_ARCH),$(TELEMT_ARCH),$(TELEMT_ARCH_MAP_$(TELEMT_GOARCH)))
+TELEMT_GOARCH_EFFECTIVE  := $(TELEMT_GOARCH)
+
 ifeq ($(GOOS),windows)
 OUTPUT = $(NAME).exe
 ADDITION = go build -o w$(NAME).exe -trimpath -ldflags "-H windowsgui $(LDFLAGS)" -v $(MAIN)
@@ -58,7 +81,7 @@ ADDITION = GOMIPS=softfloat go build -o $(NAME)_softfloat -trimpath -ldflags "$(
 endif
 
 .PHONY: clean build test test-race-wireguard test-integration test-integration-full test-integration-wireguard \
-	install_geofiles check_geofiles update_geofiles_pin
+	install_geofiles check_geofiles update_geofiles_pin install_telemt
 
 build:
 	CGO_ENABLED=0 go build -o $(OUTPUT) $(PARAMS) $(MAIN)
@@ -259,6 +282,66 @@ ifeq ($(UNAME_S),Linux)
 	fi
 	@echo "WireGuard installed successfully"
 	@wg --version
+else
+	@echo "Unsupported operating system: $(UNAME_S)"
+	@exit 1
+endif
+
+install_telemt: update_os
+ifeq ($(UNAME_S),Linux)
+	@if [ "$(TELEMT_OS_EFFECTIVE)" != "linux" ]; then \
+		echo "Unsupported TELEMT target OS: $(TELEMT_OS_EFFECTIVE)"; \
+		exit 1; \
+	fi
+	@if [ -z "$(TELEMT_ARCH_EFFECTIVE)" ]; then \
+		echo "Unsupported TELEMT target architecture: $(TELEMT_GOARCH_EFFECTIVE) (telemt is installed for amd64 and arm64 only)"; \
+		exit 1; \
+	fi
+	@set -eu; \
+		telemt_asset="telemt-$(TELEMT_ARCH_EFFECTIVE)-linux-musl.tar.gz"; \
+		telemt_release="$(TELEMT_VERSION)"; \
+		telemt_sha256="$(TELEMT_SHA256)"; \
+		case "$$telemt_release" in \
+			""|latest|*[!0-9A-Za-z._-]*) \
+				echo "TELEMT_VERSION must name a telemt release such as $(TELEMT_PINNED_VERSION), got '$$telemt_release'" >&2; \
+				exit 1;; \
+		esac; \
+		if [ -z "$$telemt_sha256" ]; then \
+			if [ "$$telemt_release" != "$(TELEMT_PINNED_VERSION)" ]; then \
+				echo "telemt $$telemt_release is not the pinned $(TELEMT_PINNED_VERSION): also pass TELEMT_SHA256=<sha256 of $$telemt_asset>" >&2; \
+				exit 1; \
+			fi; \
+			telemt_sha256="$(TELEMT_SHA256_PINNED_$(TELEMT_ARCH_EFFECTIVE))"; \
+			if [ -z "$$telemt_sha256" ]; then \
+				echo "no pinned SHA256 for $$telemt_asset: pass TELEMT_SHA256" >&2; \
+				exit 1; \
+			fi; \
+		fi; \
+		telemt_sha256="$$(printf '%s' "$$telemt_sha256" | tr 'A-F' 'a-f')"; \
+		case "$$telemt_sha256" in \
+			*[!0-9a-f]*) echo "TELEMT_SHA256 must be 64 hex characters" >&2; exit 1;; \
+		esac; \
+		if [ "$${#telemt_sha256}" -ne 64 ]; then \
+			echo "TELEMT_SHA256 must be 64 hex characters" >&2; \
+			exit 1; \
+		fi; \
+		echo "Installing telemt $$telemt_release ($$telemt_asset)"; \
+		tmp_dir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmp_dir"' EXIT; \
+		curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 10 --max-time 600 \
+			-o "$$tmp_dir/$$telemt_asset" \
+			"https://github.com/$(TELEMT_REPOSITORY)/releases/download/$$telemt_release/$$telemt_asset"; \
+		printf '%s  %s\n' "$$telemt_sha256" "$$telemt_asset" > "$$tmp_dir/$$telemt_asset.sha256"; \
+		( cd "$$tmp_dir" && sha256sum -c "$$telemt_asset.sha256" ); \
+		tar -xzf "$$tmp_dir/$$telemt_asset" -C "$$tmp_dir" telemt; \
+		test -f "$$tmp_dir/telemt"; \
+		if [ -w "$(TELEMT_INSTALL_DIR)" ]; then install_cmd="install"; else install_cmd="sudo install"; fi; \
+		$$install_cmd -m 0755 "$$tmp_dir/telemt" "$(TELEMT_INSTALL_DIR)/telemt"
+	@if [ "$(TELEMT_ARCH_EFFECTIVE)" = "$(UNAME_M)" ]; then \
+		"$(TELEMT_INSTALL_DIR)/telemt" --version; \
+	else \
+		echo "Skipping telemt --version: $(TELEMT_ARCH_EFFECTIVE) binary on a $(UNAME_M) host"; \
+	fi
 else
 	@echo "Unsupported operating system: $(UNAME_S)"
 	@exit 1
