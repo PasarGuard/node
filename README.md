@@ -81,6 +81,7 @@ Minimal example: native MTProto on 8443, WEB on `127.0.0.1:18080`, a decoy site 
       }
     ]
   },
+  "censorship": {"tls_domain": "www.microsoft.com"},
   "web": {
     "enabled": true,
     "carrier": "https",
@@ -95,7 +96,7 @@ Minimal example: native MTProto on 8443, WEB on `127.0.0.1:18080`, a decoy site 
   }
 }
 ```
-`"carrier": "https"` keeps iOS working. `https-lanes` needs public HTTP/2 and is not supported by iOS.
+The panel requires `censorship.tls_domain` while fake TLS mode is on (telemt's default); it is the site that native fake TLS clients present. `"carrier": "https"` keeps iOS working. `https-lanes` needs public HTTP/2 and is not supported by iOS.
 
 ### Front examples
 Both forward the whole domain to telemt, overwrite `X-Forwarded-For` with one address, and turn off response buffering. Timeouts must stay above telemt's 25 s long poll and twice the WebSocket liveness interval; 65 s covers the defaults. Do not enable upstream retries. Keep request URLs and the `Authorization` header out of access logs: they carry the users' WEB credentials.
