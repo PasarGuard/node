@@ -13,6 +13,40 @@ type InterfaceCountersTracker struct {
 	baseRx  int64
 	baseTx  int64
 	baseSet bool
+
+	usageSet     bool
+	usageLastRx  int64
+	usageLastTx  int64
+	usageTotalRx int64
+	usageTotalTx int64
+}
+
+// Cumulative preserves observed traffic across interface counter resets without
+// changing the legacy reset baseline. Activation includes only traffic since
+// the last legacy reset, avoiding double billing during protocol migration.
+func (t *InterfaceCountersTracker) Cumulative(rx, tx int64) (int64, int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.usageSet {
+		t.usageSet = true
+		if t.baseSet {
+			t.usageTotalRx = max(0, rx-t.baseRx)
+			t.usageTotalTx = max(0, tx-t.baseTx)
+		}
+	} else {
+		if rx >= t.usageLastRx {
+			t.usageTotalRx += rx - t.usageLastRx
+		} else {
+			t.usageTotalRx += max(0, rx)
+		}
+		if tx >= t.usageLastTx {
+			t.usageTotalTx += tx - t.usageLastTx
+		} else {
+			t.usageTotalTx += max(0, tx)
+		}
+	}
+	t.usageLastRx, t.usageLastTx = rx, tx
+	return t.usageTotalRx, t.usageTotalTx
 }
 
 func NewInterfaceCountersTracker() *InterfaceCountersTracker {

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
@@ -26,6 +28,7 @@ type Xray struct {
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
 	syncMu     sync.Mutex
+	usageEpoch string
 	closed     bool // set by Shutdown under mu
 }
 
@@ -60,6 +63,7 @@ func New(ctx context.Context, xrayConfig *Config, users []*common.User, apiPort,
 	xCtx, xCancel := context.WithCancel(context.Background())
 
 	xray := &Xray{
+		usageEpoch: uuid.NewString(),
 		cancelFunc: xCancel,
 		cfg:        cfg,
 		apiPort:    apiPort,
@@ -187,6 +191,7 @@ func (x *Xray) restartCoreWithConfig(config *Config) error {
 	if err := x.core.Restart(config, x.cfg.Debug); err != nil {
 		return err
 	}
+	x.usageEpoch = uuid.NewString()
 	return nil
 }
 
