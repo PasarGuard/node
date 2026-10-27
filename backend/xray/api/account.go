@@ -209,6 +209,9 @@ func (ma *MasqueAccount) Message() (*serial.TypedMessage, error) {
 }
 
 func NewMasqueAccount(user *common.User) *MasqueAccount {
+	if user.GetProxies().GetMasque().GetPass() == "" {
+		return nil
+	}
 	return &MasqueAccount{
 		BaseAccount: BaseAccount{Email: user.GetEmail(), Level: 0},
 		Pass:        user.GetProxies().GetMasque().GetPass(),

@@ -227,7 +227,9 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				continue
 			}
 			if slices.Contains(user.Inbounds, i.Tag) {
-				i.clients[user.GetEmail()] = api.NewMasqueAccount(user)
+				if account := api.NewMasqueAccount(user); account != nil {
+					i.clients[user.GetEmail()] = account
+				}
 			}
 		}
 

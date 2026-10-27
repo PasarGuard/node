@@ -108,6 +108,20 @@ func TestMasqueConfigSyncAndClone(t *testing.T) {
 	assertMasqueClients(t, cloned, map[string]string{})
 }
 
+func TestMasqueEmptyPassDoesNotBlockValidUsers(t *testing.T) {
+	cfg, err := NewConfig(masqueConfig, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	empty := masqueUser("empty", "")
+	cfg.syncUsers([]*common.User{empty, masqueUser("alice", "secret")})
+	assertMasqueClients(t, cfg, map[string]string{"alice": "secret"})
+
+	cfg.updateUsers([]*common.User{empty, masqueUser("bob", "new")})
+	assertMasqueClients(t, cfg, map[string]string{"alice": "secret", "bob": "new"})
+}
+
 func TestMasqueLiveUserManagement(t *testing.T) {
 	for _, batch := range []bool{false, true} {
 		name := "SyncUser"
