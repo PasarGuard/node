@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -13,8 +14,10 @@ import (
 	"github.com/pasarguard/node/common"
 )
 
-func setupUserAccount(user *common.User) (api.ProxySettings, error) {
-	settings := api.ProxySettings{}
+// setupUserAccount builds the user's account for every protocol it has usable
+// credentials for. wireguardErr reports WireGuard settings that carry a key but
+// are invalid; the other accounts are still set up.
+func setupUserAccount(user *common.User) (settings api.ProxySettings, wireguardErr error) {
 	if user.GetProxies().GetVmess() != nil {
 		if vmessAccount, err := api.NewVmessAccount(user); err == nil {
 			settings.Vmess = vmessAccount
@@ -43,7 +46,17 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 		settings.Masque = api.NewMasqueAccount(user)
 	}
 
-	return settings, nil
+	// Panels send an empty WireGuard message for every user without WireGuard
+	// keys, so a message without a public key means no WireGuard account.
+	if user.GetProxies().GetWireguard().GetPublicKey() != "" {
+		if wgAccount, err := api.NewWireguardAccount(user); err == nil {
+			settings.Wireguard = wgAccount
+		} else {
+			wireguardErr = err
+		}
+	}
+
+	return settings, wireguardErr
 }
 
 func inboundFlow(inbound *Inbound) string {
@@ -68,6 +81,69 @@ func accountForAPI(inbound *Inbound, account api.Account) api.Account {
 	copy := *vlessAccount
 	copy.Flow = overrideFlow
 	return &copy
+}
+
+func wireguardInboundNetwork(address string) *net.IPNet {
+	address = strings.TrimSpace(address)
+	if _, network, err := net.ParseCIDR(address); err == nil {
+		return network
+	}
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return nil
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return &net.IPNet{IP: ipv4, Mask: net.CIDRMask(32, 32)}
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}
+}
+
+func (i *Inbound) wireguardAccountForInbound(account *api.WireguardAccount) (*api.WireguardAccount, bool) {
+	addresses, hasAddress := i.Settings["address"]
+	var interfaceNets []*net.IPNet
+	switch values := addresses.(type) {
+	case []any:
+		for _, address := range values {
+			if value, ok := address.(string); ok {
+				if network := wireguardInboundNetwork(value); network != nil {
+					interfaceNets = append(interfaceNets, network)
+				}
+			}
+		}
+	case []string:
+		for _, address := range values {
+			if network := wireguardInboundNetwork(address); network != nil {
+				interfaceNets = append(interfaceNets, network)
+			}
+		}
+	}
+
+	allowed := make([]string, 0, len(account.AllowedIPs))
+	for _, cidr := range account.AllowedIPs {
+		_, peerNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("skipping wireguard user %s with invalid peer IP %s: %v", account.GetEmail(), cidr, err)
+			return nil, false
+		}
+		if !hasAddress {
+			allowed = append(allowed, cidr)
+			continue
+		}
+		for _, pool := range interfaceNets {
+			peerBits, _ := peerNet.Mask.Size()
+			poolBits, _ := pool.Mask.Size()
+			if len(peerNet.IP) == len(pool.IP) && pool.Contains(peerNet.IP) && peerBits >= poolBits {
+				allowed = append(allowed, cidr)
+				break
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, false
+	}
+	filtered := *account
+	filtered.AllowedIPs = allowed
+	return &filtered, true
 }
 
 func checkShadowsocks2022(method string, account api.ShadowsocksAccount) api.ShadowsocksAccount {
@@ -123,19 +199,51 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Masque, true
+
+		case Wireguard:
+			if settings.Wireguard == nil {
+				return nil, false
+			}
+			account, ok := inbound.wireguardAccountForInbound(settings.Wireguard)
+			if !ok {
+				return nil, false
+			}
+			return account, true
 		}
 	}
 	return nil, false
+}
+
+func wireguardPeerReplaced(current, next *api.WireguardAccount) bool {
+	return current.PublicKey != next.PublicKey || (current.PreSharedKey != "" && next.PreSharedKey == "")
+}
+
+func (i *Inbound) removeBeforeAdd(account api.Account) bool {
+	next, ok := account.(*api.WireguardAccount)
+	if !ok {
+		return true
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	// AddUser в Xray обновляет пир по публичному ключу: старый ключ остаётся авторизованным,
+	// а пустой PSK не затирает прежний, поэтому в этих случаях пир нужно удалить явно
+	current, ok := i.clients[next.GetEmail()].(*api.WireguardAccount)
+	return ok && wireguardPeerReplaced(current, next)
 }
 
 func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
-	proxySetting, err := setupUserAccount(user)
-	if err != nil {
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	proxySetting, wireguardErr := setupUserAccount(user)
 
 	handler := x.handler
 	inbounds := x.config.InboundConfigs
@@ -145,7 +253,16 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	userInbounds := user.GetInbounds()
 
 	for _, inbound := range inbounds {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
+			continue
+		}
+
+		// Invalid WireGuard settings must not drop the live peer of an inbound
+		// the user stays on; its other inbounds are still applied.
+		if wireguardErr != nil && inbound.Protocol == Wireguard && slices.Contains(userInbounds, inbound.Tag) {
+			err := fmt.Errorf("wireguard user %s on inbound %s: %w", user.GetEmail(), inbound.Tag, wireguardErr)
+			log.Println(err)
+			errMessage.WriteString("\n" + err.Error())
 			continue
 		}
 
@@ -154,16 +271,22 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 			continue
 		}
 
-		_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.Email)
 		if isActive {
+			removeFirst := inbound.removeBeforeAdd(account)
+			if removeFirst {
+				if err := handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					return fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", user.GetEmail(), inbound.Tag, err)
+				}
+			}
 			inbound.updateUser(account)
-			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
+			err := handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				inbound.removeUser(user.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
 			}
 		} else {
+			_ = handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail())
 			inbound.removeUser(user.GetEmail())
 		}
 	}
@@ -177,6 +300,12 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 func (x *Xray) SyncUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	candidate, err := x.config.Clone()
 	if err != nil {
@@ -197,7 +326,13 @@ func (x *Xray) applyConfigWithRestart(ctx context.Context, candidate *Config) er
 		return err
 	}
 
-	if err := x.checkXrayStatus(ctx); err != nil {
+	// The new core is already booting. Rolling back because the panel gave up
+	// on its RPC timeout would restart xray a second time and leave it on the
+	// old users, so wait for it regardless; Shutdown still ends the wait, since
+	// checkXrayStatus sees the core stop.
+	readyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fullSyncReadyTimeout)
+	defer cancel()
+	if err := x.checkXrayStatus(readyCtx); err != nil {
 		if restoreErr := x.restorePreviousConfig(previous); restoreErr != nil {
 			return fmt.Errorf("%w; failed to restore previous xray config: %v", err, restoreErr)
 		}
@@ -232,6 +367,12 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
 	var errMessage strings.Builder
@@ -244,18 +385,31 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		inbound := inboundByTag[tag]
 		accounts := inbound.changedAccounts(update.accounts)
-		inbound.updateUsers(accounts, removeEmails)
+		removeFirst := make([]bool, len(accounts))
+		for n, account := range accounts {
+			removeFirst[n] = inbound.removeBeforeAdd(account)
+		}
+		inbound.updateUsers(nil, removeEmails)
 
 		for _, email := range removeEmails {
 			handler.RemoveInboundUser(ctx, tag, email)
 		}
 
-		for _, account := range accounts {
-			_ = handler.RemoveInboundUser(ctx, tag, account.GetEmail())
+		for n, account := range accounts {
+			if removeFirst[n] {
+				if err := handler.RemoveInboundUser(ctx, tag, account.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+					removeErr := fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", account.GetEmail(), tag, err)
+					log.Println(removeErr)
+					errMessage.WriteString("\n" + removeErr.Error())
+					continue
+				}
+			}
 			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
 				inbound.removeUser(account.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
+			} else {
+				inbound.updateUser(account)
 			}
 		}
 	}
@@ -270,6 +424,12 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 func (x *Xray) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	candidate, err := x.config.Clone()
 	if err != nil {

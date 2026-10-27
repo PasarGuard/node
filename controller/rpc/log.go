@@ -13,7 +13,7 @@ func (s *Service) GetLogs(_ *common.Empty, stream common.NodeService_GetLogsServ
 		return err
 	}
 
-	logChan := backend.Logs()
+	logChan := backend.SubscribeLogs(stream.Context())
 
 	for {
 		select {

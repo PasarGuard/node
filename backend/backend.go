@@ -9,7 +9,7 @@ import (
 type Backend interface {
 	Started() bool
 	Version() string
-	Logs() <-chan string
+	SubscribeLogs(context.Context) <-chan string
 	Restart() error
 	Shutdown()
 	SyncUser(context.Context, *common.User) error
@@ -33,6 +33,15 @@ type RoutingBackend interface {
 	AddRoutingRule(ctx context.Context, ruleJSON string, shouldAppend bool) error
 	RemoveRoutingRule(ctx context.Context, ruleTag string) error
 	OverrideBalancerTarget(ctx context.Context, balancerTag, target string) error
+}
+
+// LiveConfigApplier is implemented by backends that can take some config
+// changes without restarting the core. Only *xray.Xray implements it.
+type LiveConfigApplier interface {
+	// ApplyConfigLive reports false when the change needs a restart. An error
+	// means a live update was tried and failed, so the core may hold a mix of
+	// the old and the new config until it is restarted.
+	ApplyConfigLive(ctx context.Context, config string, exclude []string) (bool, error)
 }
 
 type ConfigKey struct{}

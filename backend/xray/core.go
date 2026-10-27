@@ -16,6 +16,7 @@ import (
 	"time"
 
 	nodeLogger "github.com/pasarguard/node/logger"
+	"github.com/pasarguard/node/pkg/logstream"
 )
 
 type Core struct {
@@ -23,12 +24,13 @@ type Core struct {
 	assetsPath                string
 	configPath                string
 	version                   string
+	executable                os.FileInfo
 	process                   *exec.Cmd
 	processPID                int
 	restarting                bool
 	stopping                  bool
 	waitDone                  chan struct{}
-	logsChan                  chan string
+	logs                      *logstream.Buffer
 	logPhase                  uint32
 	startupLogs               *startupLogRing
 	startupLogSize            int
@@ -52,7 +54,7 @@ func NewXRayCore(executablePath, assetsPath, configPath string, logBufferSize, s
 		executablePath: executablePath,
 		assetsPath:     assetsPath,
 		configPath:     configPath,
-		logsChan:       make(chan string, logBufferSize),
+		logs:           logstream.NewBuffer(logBufferSize),
 		logPhase:       logPhaseRuntime,
 		startupLogSize: startupLogTailSize,
 		runtimeLogs:    newStartupLogRing(10),
@@ -114,13 +116,24 @@ func (c *Core) Version() string {
 }
 
 func (c *Core) Started() bool {
-	if c.process == nil || c.process.Process == nil {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.startedLocked()
+}
+
+// startedLocked requires c.mu. Wait closes waitDone without taking c.mu, so
+// callers can observe process exit even while Stop holds the lock to reap it.
+func (c *Core) startedLocked() bool {
+	if c.process == nil || c.process.Process == nil || c.waitDone == nil {
 		return false
 	}
-	if c.process.ProcessState == nil {
+	// exec.Cmd.Wait writes ProcessState outside c.mu; never read it here.
+	select {
+	case <-c.waitDone:
+		return false
+	default:
 		return true
 	}
-	return false
 }
 
 func (c *Core) Stopping() bool {
@@ -197,7 +210,7 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	defer c.mu.Unlock()
 
 	// Check if already started after acquiring lock to prevent race condition
-	if c.Started() {
+	if c.startedLocked() {
 		return errors.New("xray is started already")
 	}
 
@@ -247,6 +260,9 @@ func (c *Core) Start(xConfig *Config, debugMode bool) error {
 	}
 	c.process = cmd
 	c.processPID = cmd.Process.Pid
+	// Lets a live config update tell whether the binary on disk is still the
+	// one that is running.
+	c.executable, _ = os.Stat(c.executablePath)
 	c.stopping = false
 	c.waitDone = make(chan struct{})
 	c.unixSocketPaths = socketPaths
@@ -293,7 +309,7 @@ func (c *Core) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	started := c.Started()
+	started := c.startedLocked()
 	if !started && c.process == nil && c.cancelFunc == nil && c.logger == nil && len(c.unixSocketPaths) == 0 {
 		return
 	}
@@ -375,10 +391,28 @@ func (c *Core) Restarting() bool {
 	return c.restarting
 }
 
-func (c *Core) Logs() <-chan string {
+func (c *Core) SubscribeLogs(ctx context.Context) <-chan string {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.logsChan
+	logs := c.logs
+	c.mu.Unlock()
+
+	if logs == nil {
+		ch := make(chan string)
+		close(ch)
+		return ch
+	}
+
+	return logs.Subscribe(ctx)
+}
+
+func (c *Core) CloseLogs() {
+	c.mu.Lock()
+	logs := c.logs
+	c.mu.Unlock()
+
+	if logs != nil {
+		logs.Close()
+	}
 }
 
 // ProcessInfo holds information about a process

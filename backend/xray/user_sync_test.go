@@ -30,9 +30,10 @@ var recordingTags = []string{"vless", "vmess", "trojan", "ss", "ss2022", "hyster
 
 type recordingInboundService struct {
 	command.UnimplementedHandlerServiceServer
-	mu         sync.Mutex
-	operations []string
-	failAdds   int
+	mu          sync.Mutex
+	operations  []string
+	failAdds    int
+	failRemoves int
 }
 
 func (s *recordingInboundService) AlterInbound(_ context.Context, request *command.AlterInboundRequest) (*command.AlterInboundResponse, error) {
@@ -52,6 +53,10 @@ func (s *recordingInboundService) AlterInbound(_ context.Context, request *comma
 		s.failAdds--
 		return nil, errors.New("add rejected")
 	}
+	if operation == "remove" && s.failRemoves > 0 {
+		s.failRemoves--
+		return nil, errors.New("remove rejected")
+	}
 	return &command.AlterInboundResponse{}, nil
 }
 
@@ -69,6 +74,12 @@ func (s *recordingInboundService) rejectNextAdd() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failAdds++
+}
+
+func (s *recordingInboundService) rejectNextRemove() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failRemoves++
 }
 
 func newRecordingXray(t *testing.T) (*Xray, *recordingInboundService) {
@@ -284,4 +295,67 @@ func TestUpdateUsersRetriesAnAddThatFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOperations(t, service.take(), operations(removed("vless", "vmess", "ss", "ss2022", "hysteria")...))
+}
+
+const recordingInboundsWithoutUsers = `{"inbounds":[
+	{"tag":"vless","protocol":"vless","settings":{"clients":[],"decryption":"none"}},
+	{"tag":"tunnel","protocol":"dokodemo-door","settings":{"address":"127.0.0.1","port":80}},
+	{"tag":"socks","protocol":"socks","settings":{"auth":"noauth"}},
+	{"tag":"http","protocol":"http","settings":{}}
+]}`
+
+func TestCanHoldUsersOnlyExcludesProtocolsWithoutUsers(t *testing.T) {
+	// Every inbound protocol Xray accepts, plus one it does not know yet. A
+	// protocol that is not known to lack users counts as holding them, so
+	// removals reach a protocol the node starts managing without a change here.
+	for protocol, want := range map[string]bool{
+		Vmess:               true,
+		Vless:               true,
+		Trojan:              true,
+		Shadowsocks:         true,
+		Hysteria:            true,
+		Wireguard:           true,
+		"masque":            true,
+		"some-new-protocol": true,
+		"dokodemo-door":     false,
+		"tunnel":            false,
+		"socks":             false,
+		"mixed":             false,
+		"http":              false,
+		"tun":               false,
+		"Dokodemo-Door":     false,
+		"SOCKS":             false,
+	} {
+		inbound := &Inbound{Protocol: protocol}
+		if got := inbound.canHoldUsers(); got != want {
+			t.Errorf("canHoldUsers() for protocol %q = %v, want %v", protocol, got, want)
+		}
+	}
+}
+
+func TestUserSyncsSkipInboundsThatCannotHoldUsers(t *testing.T) {
+	x, service := newRecordingXray(t)
+	ctx := syncContext(t)
+
+	cfg, err := NewConfig(recordingInboundsWithoutUsers, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ApplyAPI adds the node's own API_INBOUND (dokodemo-door).
+	if err := cfg.ApplyAPI(10085, 10086); err != nil {
+		t.Fatal(err)
+	}
+	x.config = cfg
+
+	alice := recordingUser("1.alice", "vless")
+	bob := recordingUser("2.bob")
+	if err := x.UpdateUsers(ctx, []*common.User{alice, bob}); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove", "vless:add", "vless:remove"))
+
+	if err := x.SyncUser(ctx, bob); err != nil {
+		t.Fatal(err)
+	}
+	assertOperations(t, service.take(), operations("vless:remove"))
 }

@@ -137,7 +137,7 @@ func TestXrayBackend(t *testing.T) {
 	ctx1, cancel = context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	logs := back.Logs()
+	logs := back.SubscribeLogs(ctx1)
 loop:
 	for {
 		select {

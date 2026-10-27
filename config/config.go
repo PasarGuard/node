@@ -1,10 +1,13 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"net/netip"
 	"os"
-	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -68,23 +71,41 @@ func Load() (*Config, error) {
 		cfg.LogBufferSize = 1
 	}
 
-	cfg.ApiKey, err = GetEnvAsUUID("API_KEY")
-	if err != nil {
-		log.Printf("[Error] Failed to load API Key, error: %v", err)
-	}
-
-	nodeHostStr := GetEnv("NODE_HOST", "0.0.0.0")
-	ipPattern := `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`
-	re := regexp.MustCompile(ipPattern)
-
-	if re.MatchString(nodeHostStr) {
-		cfg.NodeHost = nodeHostStr
+	// The API key is the node's only authentication. A missing, malformed or all-zero key
+	// would leave the node accepting the all-zero UUID, so Load reports it as an error
+	// (main exits). cfg is still returned complete for NewTestConfig, which sets its own key.
+	var apiKeyErr error
+	if GetEnv("API_KEY", "") == "" {
+		apiKeyErr = errors.New("API_KEY is not set")
 	} else {
-		log.Println(nodeHostStr, " is not a valid IP address.\n NODE_HOST will be set to 127.0.0.1")
-		cfg.NodeHost = "127.0.0.1"
+		cfg.ApiKey, apiKeyErr = GetEnvAsUUID("API_KEY")
+	}
+	if apiKeyErr == nil && cfg.ApiKey == uuid.Nil {
+		apiKeyErr = errors.New("must not be the all-zero UUID")
+	}
+	if apiKeyErr != nil {
+		apiKeyErr = fmt.Errorf("invalid API_KEY: %w", apiKeyErr)
 	}
 
-	return cfg, nil
+	cfg.NodeHost = parseNodeHost(GetEnv("NODE_HOST", "0.0.0.0"))
+
+	return cfg, apiKeyErr
+}
+
+// parseNodeHost returns the IPv4 or IPv6 address to listen on; "localhost" means 127.0.0.1.
+// A scoped IPv6 address (fe80::1%eth0) is accepted too, since net.Listen takes the zone.
+// Any other value keeps the old fallback to 127.0.0.1, so a node that started before still
+// starts, but it is logged as an error: the panel usually cannot reach a loopback-only node.
+func parseNodeHost(value string) string {
+	host := strings.TrimSpace(value)
+	if strings.EqualFold(host, "localhost") {
+		return "127.0.0.1"
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		log.Printf("[Error] NODE_HOST %q is not an IP address (for example 0.0.0.0 or ::). Falling back to 127.0.0.1: only clients on this host can reach the node.", value)
+		return "127.0.0.1"
+	}
+	return host
 }
 
 // NewTestConfig creates a config for testing

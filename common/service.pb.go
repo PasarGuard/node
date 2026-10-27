@@ -1205,6 +1205,7 @@ type Wireguard struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicKey     string                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	PeerIps       []string               `protobuf:"bytes,2,rep,name=peer_ips,json=peerIps,proto3" json:"peer_ips,omitempty"`
+	PreSharedKey  string                 `protobuf:"bytes,3,opt,name=pre_shared_key,json=preSharedKey,proto3" json:"pre_shared_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1251,6 +1252,13 @@ func (x *Wireguard) GetPeerIps() []string {
 		return x.PeerIps
 	}
 	return nil
+}
+
+func (x *Wireguard) GetPreSharedKey() string {
+	if x != nil {
+		return x.PreSharedKey
+	}
+	return ""
 }
 
 type Hysteria struct {
@@ -2214,11 +2222,12 @@ const file_common_service_proto_rawDesc = "" +
 	"\bpassword\x18\x01 \x01(\tR\bpassword\"A\n" +
 	"\vShadowsocks\x12\x1a\n" +
 	"\bpassword\x18\x01 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06method\x18\x02 \x01(\tR\x06method\"E\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\"k\n" +
 	"\tWireguard\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x19\n" +
-	"\bpeer_ips\x18\x02 \x03(\tR\apeerIps\"\x1e\n" +
+	"\bpeer_ips\x18\x02 \x03(\tR\apeerIps\x12$\n" +
+	"\x0epre_shared_key\x18\x03 \x01(\tR\fpreSharedKey\"\x1e\n" +
 	"\bHysteria\x12\x12\n" +
 	"\x04auth\x18\x01 \x01(\tR\x04auth\"\x1c\n" +
 	"\x06Masque\x12\x12\n" +

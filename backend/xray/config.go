@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -27,6 +29,7 @@ const (
 	Shadowsocks = "shadowsocks"
 	Hysteria    = "hysteria"
 	Masque      = "masque"
+	Wireguard   = "wireguard"
 )
 
 type Config struct {
@@ -73,10 +76,26 @@ type inboundUpdate struct {
 	removeEmailSet map[string]struct{}
 }
 
+// canHoldUsers reports whether this inbound may hold users the node manages.
+// It lists the Xray inbound protocols that never take users from the node
+// (dokodemo-door and its alias tunnel, which the node's own API_INBOUND uses,
+// socks and mixed, http, tun): removing a user from them is a wasted Xray API
+// call. Every other protocol counts as holding users, so a protocol added to
+// isActiveInbound, syncUsers, updateUsers and the ToBytes switch gets its
+// removals without a change here; one the node does not manage yet only costs
+// a remove call that fails. Xray matches protocol names case-insensitively.
+func (i *Inbound) canHoldUsers() bool {
+	switch strings.ToLower(i.Protocol) {
+	case "dokodemo-door", "tunnel", "socks", "mixed", "http", "tun":
+		return false
+	}
+	return true
+}
+
 func (c *Config) buildInboundUpdates(users []*common.User) (map[string]*Inbound, map[string]*inboundUpdate) {
 	inboundByTag := make(map[string]*Inbound)
 	for _, inbound := range c.InboundConfigs {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
 			continue
 		}
 		inboundByTag[inbound.Tag] = inbound
@@ -211,6 +230,24 @@ func (i *Inbound) syncUsers(users []*common.User) {
 				i.clients[user.GetEmail()] = api.NewMasqueAccount(user)
 			}
 		}
+
+	case Wireguard:
+		for _, user := range users {
+			// No public key means no WireGuard account, as in setupUserAccount.
+			if user.GetProxies().GetWireguard().GetPublicKey() == "" {
+				continue
+			}
+			if slices.Contains(user.Inbounds, i.Tag) {
+				account, err := api.NewWireguardAccount(user)
+				if err != nil {
+					log.Println("error for user", user.GetEmail(), ":", err)
+					continue
+				}
+				if filtered, ok := i.wireguardAccountForInbound(account); ok {
+					i.clients[filtered.GetEmail()] = filtered
+				}
+			}
+		}
 	}
 }
 
@@ -249,6 +286,9 @@ func (i *Inbound) updateUser(account api.Account) {
 		i.clients[email] = a
 
 	case *api.MasqueAccount:
+		i.clients[email] = a
+
+	case *api.WireguardAccount:
 		i.clients[email] = a
 	}
 }
@@ -313,6 +353,13 @@ func (i *Inbound) updateUsers(accounts []api.Account, removeEmails []string) {
 				i.clients[account.GetEmail()] = a
 			}
 		}
+
+	case Wireguard:
+		for _, account := range accounts {
+			if a, ok := account.(*api.WireguardAccount); ok {
+				i.clients[account.GetEmail()] = a
+			}
+		}
 	}
 
 	for _, email := range removeEmails {
@@ -353,111 +400,166 @@ func (i *Inbound) removeUser(email string) {
 
 type Stats struct{}
 
+// shadowsocks2022PlaceholderKey is random per process and never leaves it.
+var shadowsocks2022PlaceholderKey = func() string {
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	return base64.StdEncoding.EncodeToString(key)
+}()
+
+// shadowsocks2022Placeholder returns a client for a Shadowsocks 2022 inbound without
+// users. Xray builds such an inbound as a single-user server, which accepts the bare
+// server key (part of every Shadowsocks 2022 link) and rejects every later AddUser.
+// A client whose key nobody holds keeps the inbound multi-user. Xray has no multi-user
+// mode for chacha20, so there is no placeholder for it.
+func shadowsocks2022Placeholder(inbound *Inbound) *api.ShadowsocksAccount {
+	method, _ := inbound.Settings["method"].(string)
+	if inbound.Protocol != Shadowsocks || !strings.HasPrefix(method, "2022-blake3-aes") {
+		return nil
+	}
+	return &api.ShadowsocksAccount{
+		BaseAccount: api.BaseAccount{Email: "pasarguard-placeholder"},
+		Password:    common.EnsureBase64Password(shadowsocks2022PlaceholderKey, method),
+	}
+}
+
+func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
+	inbound.mu.RLock()
+	defer inbound.mu.RUnlock()
+
+	snap := &Inbound{
+		Tag:            inbound.Tag,
+		Listen:         inbound.Listen,
+		Port:           inbound.Port,
+		Protocol:       inbound.Protocol,
+		StreamSettings: inbound.StreamSettings,
+		Sniffing:       inbound.Sniffing,
+		Allocation:     inbound.Allocation,
+		exclude:        inbound.exclude,
+	}
+
+	// Shallow copy: values share references with the original map. This is safe
+	// because Settings values are primitives or read-only config data (strings,
+	// ints, nested map[string]any from JSON unmarshal). If the data model ever
+	// adds mutable nested types (e.g., pointers to structs that get mutated),
+	// this loop must switch to a deep copy.
+	snap.Settings = make(map[string]any, len(inbound.Settings)+1)
+	for k, v := range inbound.Settings {
+		snap.Settings[k] = v
+	}
+
+	// Excluded inbounds are managed by hand: serialize their settings unchanged.
+	if inbound.exclude {
+		return snap
+	}
+
+	if len(inbound.clients) == 0 {
+		if inbound.Protocol == Wireguard {
+			snap.Settings["peers"] = []any{}
+		} else if placeholder := shadowsocks2022Placeholder(inbound); placeholder != nil {
+			snap.Settings["clients"] = []*api.ShadowsocksAccount{placeholder}
+		} else {
+			snap.Settings["clients"] = []any{}
+		}
+		return snap
+	}
+
+	switch inbound.Protocol {
+	case Vmess:
+		clients := make([]*api.VmessAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.VmessAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Vless:
+		clients := make([]*api.VlessAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.VlessAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Trojan:
+		clients := make([]*api.TrojanAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.TrojanAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Shadowsocks:
+		method, methodOk := inbound.Settings["method"].(string)
+		if methodOk && strings.HasPrefix(method, "2022-blake3") {
+			clients := make([]*api.ShadowsocksAccount, 0, len(inbound.clients))
+			for _, account := range inbound.clients {
+				if a, ok := account.(*api.ShadowsocksAccount); ok {
+					clients = append(clients, a)
+				}
+			}
+			snap.Settings["clients"] = clients
+		} else {
+			clients := make([]*api.ShadowsocksTcpAccount, 0, len(inbound.clients))
+			for _, account := range inbound.clients {
+				if a, ok := account.(*api.ShadowsocksTcpAccount); ok {
+					clients = append(clients, a)
+				}
+			}
+			snap.Settings["clients"] = clients
+		}
+
+	case Hysteria:
+		clients := make([]*api.HysteriaAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.HysteriaAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Masque:
+		clients := make([]*api.MasqueAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.MasqueAccount); ok {
+				clients = append(clients, a)
+			}
+		}
+		snap.Settings["clients"] = clients
+
+	case Wireguard:
+		peers := make([]*api.WireguardAccount, 0, len(inbound.clients))
+		for _, account := range inbound.clients {
+			if a, ok := account.(*api.WireguardAccount); ok {
+				peers = append(peers, a)
+			}
+		}
+		snap.Settings["peers"] = peers
+	}
+
+	return snap
+}
+
 func (c *Config) ToBytes() ([]byte, error) {
-	// Acquire read locks for all inbounds
-	for _, i := range c.InboundConfigs {
-		i.mu.RLock()
+	snapInbounds := make([]*Inbound, len(c.InboundConfigs))
+	for idx, inbound := range c.InboundConfigs {
+		snapInbounds[idx] = snapshotInboundForSerialization(inbound)
 	}
 
-	// Build slices from maps for serialization
-	for _, i := range c.InboundConfigs {
-		if i.exclude {
-			continue
-		}
+	snapConfig := *c
+	snapConfig.InboundConfigs = snapInbounds
 
-		if i.Settings == nil {
-			i.Settings = make(map[string]any)
-		}
-
-		if len(i.clients) == 0 {
-			i.Settings["clients"] = []any{}
-			continue
-		}
-
-		switch i.Protocol {
-		case Vmess:
-			clients := make([]*api.VmessAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if vmessAccount, ok := account.(*api.VmessAccount); ok {
-					clients = append(clients, vmessAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Vless:
-			clients := make([]*api.VlessAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if vlessAccount, ok := account.(*api.VlessAccount); ok {
-					clients = append(clients, vlessAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Trojan:
-			clients := make([]*api.TrojanAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if trojanAccount, ok := account.(*api.TrojanAccount); ok {
-					clients = append(clients, trojanAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Shadowsocks:
-			method, methodOk := i.Settings["method"].(string)
-			if methodOk && strings.HasPrefix(method, "2022-blake3") {
-				clients := make([]*api.ShadowsocksAccount, 0, len(i.clients))
-				for _, account := range i.clients {
-					if ssAccount, ok := account.(*api.ShadowsocksAccount); ok {
-						clients = append(clients, ssAccount)
-					}
-				}
-				i.Settings["clients"] = clients
-			} else {
-				clients := make([]*api.ShadowsocksTcpAccount, 0, len(i.clients))
-				for _, account := range i.clients {
-					if ssTcpAccount, ok := account.(*api.ShadowsocksTcpAccount); ok {
-						clients = append(clients, ssTcpAccount)
-					}
-				}
-				i.Settings["clients"] = clients
-			}
-
-		case Hysteria:
-			clients := make([]*api.HysteriaAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if hyAccount, ok := account.(*api.HysteriaAccount); ok {
-					clients = append(clients, hyAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-
-		case Masque:
-			clients := make([]*api.MasqueAccount, 0, len(i.clients))
-			for _, account := range i.clients {
-				if masqueAccount, ok := account.(*api.MasqueAccount); ok {
-					clients = append(clients, masqueAccount)
-				}
-			}
-			i.Settings["clients"] = clients
-		}
+	if c.LogConfig != nil {
+		snapLog := *c.LogConfig
+		snapLog.AccessLog = ""
+		snapLog.ErrorLog = ""
+		snapConfig.LogConfig = &snapLog
 	}
 
-	// Save Variables for next use
-	aLog := c.LogConfig.AccessLog
-	eLog := c.LogConfig.ErrorLog
-	c.LogConfig.AccessLog = ""
-	c.LogConfig.ErrorLog = ""
-
-	b, err := json.Marshal(c)
-
-	// Restore variables to prevent conflict on next run
-	c.LogConfig.AccessLog = aLog
-	c.LogConfig.ErrorLog = eLog
-
-	// Release all locks
-	for _, i := range c.InboundConfigs {
-		i.mu.RUnlock()
-	}
+	b, err := json.Marshal(&snapConfig)
 
 	if err != nil {
 		return nil, err
@@ -597,8 +699,9 @@ var canonicalAPIServices = map[string]string{
 
 // requiredAPIServices are always present — the node's own gRPC clients depend on
 // HandlerService (users/inbounds) and StatsService (traffic); LoggerService
-// preserves current behavior.
-var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService"}
+// preserves current behavior; RoutingService lets a core config edit replace
+// the routing rules of the running xray without a restart.
+var requiredAPIServices = []string{"HandlerService", "LoggerService", "StatsService", "RoutingService"}
 
 // sanitizeAPIServices returns the required API services plus any valid
 // user-provided extras (canonicalized, deduped case-insensitively, sorted).

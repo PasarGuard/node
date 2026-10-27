@@ -15,8 +15,6 @@ type Entry struct {
 	CurrentTx      int64
 	BaseRx         int64
 	BaseTx         int64
-	LastDeltaRx    int64
-	LastDeltaTx    int64
 	LastActiveTime time.Time
 	EndpointIP     string
 	IsDeleted      bool
@@ -71,34 +69,17 @@ func (st *Tracker) applySampleLocked(sample Sample, activeAt time.Time) {
 	entry.Email = sample.Email
 	entry.IsDeleted = false
 
-	// Restore pending delta baseline when a deleted entry is re-added.
-	readded := false
-	if entry.LastDeltaRx != 0 || entry.LastDeltaTx != 0 {
-		entry.BaseRx = sample.Rx - entry.LastDeltaRx
-		entry.BaseTx = sample.Tx - entry.LastDeltaTx
-		entry.LastDeltaRx = 0
-		entry.LastDeltaTx = 0
-		readded = true
+	// Kernel counters only go down when the peer was re-created. The backend marks the
+	// resets it causes itself; this catches any other one (it cannot see a new counter
+	// that already passed the old value).
+	if sample.Rx < entry.CurrentRx || sample.Tx < entry.CurrentTx {
+		rebaseForCounterReset(entry)
 	}
 
 	// Skip update if values haven't changed
 	if entry.CurrentRx == sample.Rx && entry.CurrentTx == sample.Tx {
 		entry.EndpointIP = sample.EndpointIP
 		return
-	}
-
-	// Detect kernel counter rollback/reset and preserve pending deltas
-	if !readded && (sample.Rx < entry.CurrentRx || sample.Tx < entry.CurrentTx) {
-		pendingRx := entry.CurrentRx - entry.BaseRx
-		pendingTx := entry.CurrentTx - entry.BaseTx
-		if pendingRx < 0 {
-			pendingRx = 0
-		}
-		if pendingTx < 0 {
-			pendingTx = 0
-		}
-		entry.BaseRx = sample.Rx - pendingRx
-		entry.BaseTx = sample.Tx - pendingTx
 	}
 
 	// Any traffic growth implies peer is active.
@@ -201,8 +182,6 @@ func (st *Tracker) GetStatsEntries(keys []string) map[string]*Entry {
 				CurrentTx:      entry.CurrentTx,
 				BaseRx:         entry.BaseRx,
 				BaseTx:         entry.BaseTx,
-				LastDeltaRx:    entry.LastDeltaRx,
-				LastDeltaTx:    entry.LastDeltaTx,
 				LastActiveTime: entry.LastActiveTime,
 				EndpointIP:     entry.EndpointIP,
 				IsDeleted:      entry.IsDeleted,
@@ -257,6 +236,33 @@ func (st *Tracker) EndpointActivity(keys []string) map[string]int64 {
 	return result
 }
 
+// rebaseForCounterReset keeps the unreported delta across a kernel counter reset: the
+// counter restarts at zero and the baseline becomes -pending, so the next sample is
+// reported in full on top of what was still pending. Calling it again before a new
+// sample changes nothing.
+func rebaseForCounterReset(entry *Entry) {
+	entry.BaseRx = -max(entry.CurrentRx-entry.BaseRx, 0)
+	entry.BaseTx = -max(entry.CurrentTx-entry.BaseTx, 0)
+	entry.CurrentRx = 0
+	entry.CurrentTx = 0
+}
+
+// MarkCounterReset records that the kernel re-created these peers, so their counters
+// restarted at zero. Pending traffic is kept and the next sample counts in full, even
+// when it is already above the old counter. Only mark peers that really were re-created,
+// and never apply a sample read before the reset after this call: either would report
+// the old counter a second time.
+func (st *Tracker) MarkCounterReset(keys []string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	for _, key := range keys {
+		if entry, exists := st.stats[key]; exists {
+			rebaseForCounterReset(entry)
+		}
+	}
+}
+
 // RemoveStats marks a peer as deleted but keeps counters until a reset reports them.
 func (st *Tracker) RemoveStats(publicKey string) {
 	st.mu.Lock()
@@ -267,9 +273,9 @@ func (st *Tracker) RemoveStats(publicKey string) {
 		return
 	}
 
-	// Persist pending deltas so re-add before stats pull won't lose data.
-	entry.LastDeltaRx = entry.CurrentRx - entry.BaseRx
-	entry.LastDeltaTx = entry.CurrentTx - entry.BaseTx
+	// The kernel peer is gone with its counters: a re-add of this key starts a new
+	// counter at zero, while the pending delta stays reportable.
+	rebaseForCounterReset(entry)
 
 	// Mark deleted and clear active time so online checks return offline immediately.
 	entry.IsDeleted = true

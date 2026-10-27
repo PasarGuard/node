@@ -2,6 +2,8 @@ FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+# Empty resolves the newest Xray release including pre-releases (the WireGuard UserManager API ships only in pre-releases); set --build-arg XRAY_TAG=vX.Y.Z to pin
+ARG XRAY_TAG=
 
 RUN apk update && apk add --no-cache make
 
@@ -12,7 +14,8 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_xray
+# install_xray also installs the pinned geo files (Makefile install_geofiles) and fails the build unless xray loads them
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} XRAY_TAG=${XRAY_TAG} make install_xray
 
 FROM alpine:latest
 

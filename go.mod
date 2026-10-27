@@ -3,14 +3,14 @@ module github.com/pasarguard/node
 go 1.27.1
 
 require (
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/vishvananda/netlink v1.3.1
 	github.com/xtls/xray-core v1.260327.1-0.20260930074004-b26a91de4f32
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12

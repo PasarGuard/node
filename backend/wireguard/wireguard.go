@@ -13,6 +13,7 @@ import (
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
+	"github.com/pasarguard/node/pkg/logstream"
 	"github.com/pasarguard/node/pkg/stats"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -34,7 +35,7 @@ var (
 
 // WireGuard locking hierarchy — must always be acquired in this order:
 //
-//	wg.syncMu  serialises all peer sync/remove operations
+//	wg.syncMu  serialises all peer sync/remove operations and stats sampling
 //	wg.mu      guards lifecycle state (manager, state, config, version)
 //	m.mu       guards Manager internals (client, configure, nl)
 //
@@ -53,7 +54,7 @@ type WireGuard struct {
 	// Stats update config
 	updateInterval time.Duration
 
-	logChan        chan string
+	logs           *logstream.Buffer
 	cancelFunc     context.CancelFunc
 	startTime      time.Time
 	version        string
@@ -133,7 +134,7 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 		statsTracker:   stats.New(),
 		interfaceStats: stats.NewInterfaceCountersTracker(),
 		peerStore:      NewPeerStore(),
-		logChan:        make(chan string, cfg.LogBufferSize),
+		logs:           logstream.NewBuffer(cfg.LogBufferSize),
 		startTime:      time.Now(),
 		version:        version,
 		newManager:     managerFactory,
@@ -221,11 +222,18 @@ func (wg *WireGuard) Version() string {
 	return wg.version
 }
 
-// Logs returns the log channel as a receive-only channel.
-// The channel is closed when Shutdown is called; callers should use range
-// so they naturally stop reading once it is closed.
-func (wg *WireGuard) Logs() <-chan string {
-	return wg.logChan
+func (wg *WireGuard) SubscribeLogs(ctx context.Context) <-chan string {
+	wg.mu.RLock()
+	logs := wg.logs
+	wg.mu.RUnlock()
+
+	if logs == nil {
+		ch := make(chan string)
+		close(ch)
+		return ch
+	}
+
+	return logs.Subscribe(ctx)
 }
 
 // Restart applies a new configuration dynamically to the WireGuard interface without tearing it down.
@@ -271,6 +279,9 @@ func (wg *WireGuard) restartLocked() error {
 	manager := wg.manager
 	wg.mu.Unlock()
 
+	// ReplacePeers destroys every counter: count the traffic since the last stats tick first.
+	wg.samplePeersLocked(context.Background(), true)
+
 	log.Println("dynamically reconfiguring wireguard interface")
 	wg.emitInfoLogf("dynamically reconfiguring wireguard interface")
 
@@ -284,6 +295,13 @@ func (wg *WireGuard) restartLocked() error {
 	if err := manager.applyConfig(config, cfg.MTU); err != nil {
 		return fmt.Errorf("failed to reconfigure interface during restart: %w", err)
 	}
+
+	// ReplacePeers re-created every peer, so their counters restarted at zero.
+	resetKeys := make([]string, 0, len(allPeers))
+	for _, peer := range allPeers {
+		resetKeys = append(resetKeys, peer.PublicKey.String())
+	}
+	wg.statsTracker.MarkCounterReset(resetKeys)
 
 	log.Println("wireguard interface reconfigured successfully without downtime")
 	wg.emitInfoLogf("wireguard interface reconfigured successfully without downtime")
@@ -348,9 +366,9 @@ func (wg *WireGuard) shutdownLocked() {
 	wg.state = lifecycleStopped
 	wg.version = ""
 	wg.emitLogLocked(logSeverityInfo, "wireguard shutdown complete")
-	if wg.logChan != nil {
-		close(wg.logChan)
-		wg.logChan = nil
+	if wg.logs != nil {
+		wg.logs.Close()
+		wg.logs = nil
 	}
 
 	log.Println("wireguard shutdown complete")

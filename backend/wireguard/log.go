@@ -43,14 +43,11 @@ func (wg *WireGuard) emitLog(severity logSeverity, message string) {
 	wg.emitLogLocked(severity, message)
 }
 
-// emitLogLocked sends to the backend log channel while the caller already holds wg.mu.
+// emitLogLocked publishes to the backend log buffer while the caller already holds wg.mu.
 func (wg *WireGuard) emitLogLocked(severity logSeverity, message string) {
-	if wg.logChan == nil {
+	if wg.logs == nil {
 		return
 	}
 
-	select {
-	case wg.logChan <- formatWireGuardLogLine(severity, message):
-	default:
-	}
+	wg.logs.Publish(formatWireGuardLogLine(severity, message))
 }
