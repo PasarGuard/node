@@ -42,6 +42,9 @@ func setupUserAccount(user *common.User) (settings api.ProxySettings, wireguardE
 	if user.GetProxies().GetHysteria() != nil {
 		settings.Hysteria = api.NewHysteriaAccount(user)
 	}
+	if user.GetProxies().GetMasque() != nil {
+		settings.Masque = api.NewMasqueAccount(user)
+	}
 
 	// Panels send an empty WireGuard message for every user without WireGuard
 	// keys, so a message without a public key means no WireGuard account.
@@ -190,6 +193,12 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 				return nil, false
 			}
 			return settings.Hysteria, true
+
+		case Masque:
+			if settings.Masque == nil {
+				return nil, false
+			}
+			return settings.Masque, true
 
 		case Wireguard:
 			if settings.Wireguard == nil {
