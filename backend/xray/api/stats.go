@@ -99,7 +99,7 @@ func (x *XrayHandler) GetUsersOnlineIpListStats(ctx context.Context) (*common.St
 		for _, entry := range u.GetIps() {
 			ips[normalizeIP(entry.GetIp())] = entry.GetLastSeen()
 		}
-		users[u.GetEmail()] = &common.StatsOnlineIpListResponse{Ips: ips}
+		users[u.GetEmail()] = &common.StatsOnlineIpListResponse{Name: u.GetEmail(), Ips: ips}
 	}
 
 	return &common.StatsAllOnlineIpListResponse{Users: users}, nil

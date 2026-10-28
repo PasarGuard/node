@@ -166,7 +166,8 @@ func (wg *WireGuard) GetUsersOnlineIpListStats(ctx context.Context) (*common.Sta
 			continue
 		}
 		users[peer.Email] = &common.StatsOnlineIpListResponse{
-			Ips: ips,
+			Name: peer.Email,
+			Ips:  ips,
 		}
 	}
 
