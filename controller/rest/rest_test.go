@@ -246,6 +246,13 @@ func TestREST_GetUsersStats(t *testing.T) {
 	}
 }
 
+func TestREST_GetUsersOnlineIpListStats(t *testing.T) {
+	var usersIps common.StatsAllOnlineIpListResponse
+	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats/users/online_ip", &common.Empty{}, &usersIps); err != nil {
+		t.Fatalf("Failed to get users online ip stats: %v", err)
+	}
+}
+
 func TestREST_GetBackendStats(t *testing.T) {
 	var backendStats common.BackendStatsResponse
 	if err := sharedTestCtx.createAuthenticatedRequest("GET", "/stats/backend", &common.Empty{}, &backendStats); err != nil {
