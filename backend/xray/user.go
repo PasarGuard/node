@@ -14,8 +14,10 @@ import (
 	"github.com/pasarguard/node/common"
 )
 
-func setupUserAccount(user *common.User) (api.ProxySettings, error) {
-	settings := api.ProxySettings{}
+// setupUserAccount builds the user's account for every protocol it has usable
+// credentials for. wireguardErr reports WireGuard settings that carry a key but
+// are invalid; the other accounts are still set up.
+func setupUserAccount(user *common.User) (settings api.ProxySettings, wireguardErr error) {
 	if user.GetProxies().GetVmess() != nil {
 		if vmessAccount, err := api.NewVmessAccount(user); err == nil {
 			settings.Vmess = vmessAccount
@@ -40,16 +42,21 @@ func setupUserAccount(user *common.User) (api.ProxySettings, error) {
 	if user.GetProxies().GetHysteria() != nil {
 		settings.Hysteria = api.NewHysteriaAccount(user)
 	}
-
-	if user.GetProxies().GetWireguard() != nil {
-		wgAccount, err := api.NewWireguardAccount(user)
-		if err != nil {
-			return settings, err
-		}
-		settings.Wireguard = wgAccount
+	if user.GetProxies().GetMasque() != nil {
+		settings.Masque = api.NewMasqueAccount(user)
 	}
 
-	return settings, nil
+	// Panels send an empty WireGuard message for every user without WireGuard
+	// keys, so a message without a public key means no WireGuard account.
+	if user.GetProxies().GetWireguard().GetPublicKey() != "" {
+		if wgAccount, err := api.NewWireguardAccount(user); err == nil {
+			settings.Wireguard = wgAccount
+		} else {
+			wireguardErr = err
+		}
+	}
+
+	return settings, wireguardErr
 }
 
 func inboundFlow(inbound *Inbound) string {
@@ -187,6 +194,12 @@ func isActiveInbound(inbound *Inbound, inbounds []string, settings api.ProxySett
 			}
 			return settings.Hysteria, true
 
+		case Masque:
+			if settings.Masque == nil {
+				return nil, false
+			}
+			return settings.Masque, true
+
 		case Wireguard:
 			if settings.Wireguard == nil {
 				return nil, false
@@ -224,10 +237,13 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
-	proxySetting, err := setupUserAccount(user)
-	if err != nil {
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
 		return err
 	}
+
+	proxySetting, wireguardErr := setupUserAccount(user)
 
 	handler := x.handler
 	inbounds := x.config.InboundConfigs
@@ -237,7 +253,16 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	userInbounds := user.GetInbounds()
 
 	for _, inbound := range inbounds {
-		if inbound.exclude {
+		if inbound.exclude || !inbound.canHoldUsers() {
+			continue
+		}
+
+		// Invalid WireGuard settings must not drop the live peer of an inbound
+		// the user stays on; its other inbounds are still applied.
+		if wireguardErr != nil && inbound.Protocol == Wireguard && slices.Contains(userInbounds, inbound.Tag) {
+			err := fmt.Errorf("wireguard user %s on inbound %s: %w", user.GetEmail(), inbound.Tag, wireguardErr)
+			log.Println(err)
+			errMessage.WriteString("\n" + err.Error())
 			continue
 		}
 
@@ -254,7 +279,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 				}
 			}
 			inbound.updateUser(account)
-			err = handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
+			err := handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
 			if err != nil {
 				inbound.removeUser(user.GetEmail())
 				log.Println(err)
@@ -276,6 +301,12 @@ func (x *Xray) SyncUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
 
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	candidate, err := x.config.Clone()
 	if err != nil {
 		return err
@@ -295,7 +326,13 @@ func (x *Xray) applyConfigWithRestart(ctx context.Context, candidate *Config) er
 		return err
 	}
 
-	if err := x.checkXrayStatus(ctx); err != nil {
+	// The new core is already booting. Rolling back because the panel gave up
+	// on its RPC timeout would restart xray a second time and leave it on the
+	// old users, so wait for it regardless; Shutdown still ends the wait, since
+	// checkXrayStatus sees the core stop.
+	readyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fullSyncReadyTimeout)
+	defer cancel()
+	if err := x.checkXrayStatus(readyCtx); err != nil {
 		if restoreErr := x.restorePreviousConfig(previous); restoreErr != nil {
 			return fmt.Errorf("%w; failed to restore previous xray config: %v", err, restoreErr)
 		}
@@ -329,6 +366,12 @@ func (x *Xray) restorePreviousConfig(previous *Config) error {
 func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
@@ -381,6 +424,12 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 func (x *Xray) UpdateUsersAndRestart(ctx context.Context, users []*common.User) error {
 	x.syncMu.Lock()
 	defer x.syncMu.Unlock()
+
+	// The request may have been abandoned while it queued behind a restart or
+	// another sync; running it now would only cause pointless work.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	candidate, err := x.config.Clone()
 	if err != nil {

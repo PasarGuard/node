@@ -27,6 +27,9 @@ func cloneAccount(account api.Account) api.Account {
 	case *api.HysteriaAccount:
 		copy := *a
 		return &copy
+	case *api.MasqueAccount:
+		copy := *a
+		return &copy
 	default:
 		return account
 	}

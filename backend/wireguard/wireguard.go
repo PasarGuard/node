@@ -35,7 +35,7 @@ var (
 
 // WireGuard locking hierarchy — must always be acquired in this order:
 //
-//	wg.syncMu  serialises all peer sync/remove operations
+//	wg.syncMu  serialises all peer sync/remove operations and stats sampling
 //	wg.mu      guards lifecycle state (manager, state, config, version)
 //	m.mu       guards Manager internals (client, configure, nl)
 //
@@ -279,6 +279,9 @@ func (wg *WireGuard) restartLocked() error {
 	manager := wg.manager
 	wg.mu.Unlock()
 
+	// ReplacePeers destroys every counter: count the traffic since the last stats tick first.
+	wg.samplePeersLocked(context.Background(), true)
+
 	log.Println("dynamically reconfiguring wireguard interface")
 	wg.emitInfoLogf("dynamically reconfiguring wireguard interface")
 
@@ -292,6 +295,13 @@ func (wg *WireGuard) restartLocked() error {
 	if err := manager.applyConfig(config, cfg.MTU); err != nil {
 		return fmt.Errorf("failed to reconfigure interface during restart: %w", err)
 	}
+
+	// ReplacePeers re-created every peer, so their counters restarted at zero.
+	resetKeys := make([]string, 0, len(allPeers))
+	for _, peer := range allPeers {
+		resetKeys = append(resetKeys, peer.PublicKey.String())
+	}
+	wg.statsTracker.MarkCounterReset(resetKeys)
 
 	log.Println("wireguard interface reconfigured successfully without downtime")
 	wg.emitInfoLogf("wireguard interface reconfigured successfully without downtime")
