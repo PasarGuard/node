@@ -39,7 +39,24 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	disableAppArmorForWireGuard()
+
 	os.Exit(m.Run())
+}
+
+func disableAppArmorForWireGuard() {
+	profiles := []string{
+		"/etc/apparmor.d/wg",
+		"/etc/apparmor.d/usr.bin.wg",
+		"/etc/apparmor.d/wg-quick",
+		"/etc/apparmor.d/usr.bin.wg-quick",
+	}
+	for _, profile := range profiles {
+		if _, err := os.Stat(profile); err == nil {
+			_ = exec.Command("apparmor_parser", "-R", profile).Run()
+			_ = exec.Command("aa-disable", profile).Run()
+		}
+	}
 }
 
 type namespaceFixture struct {
@@ -285,6 +302,40 @@ func mustUserPeerIP(t *testing.T, wg *WireGuard, email string) string {
 	return mustUserPeerIPByFamily(t, wg, email, false)
 }
 
+func writeTempClientKey(t *testing.T, clientPrivateKey string) string {
+	t.Helper()
+
+	dir := "/etc/wireguard"
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		dir = ""
+	}
+
+	keyFile, err := os.CreateTemp(dir, "wg-client-key-*")
+	if err != nil {
+		keyFile, err = os.CreateTemp("", "wg-client-key-*")
+		if err != nil {
+			t.Fatalf("failed to create temp key file: %v", err)
+		}
+	}
+
+	if _, err = keyFile.WriteString(clientPrivateKey + "\n"); err != nil {
+		_ = keyFile.Close()
+		_ = os.Remove(keyFile.Name())
+		t.Fatalf("failed to write temp key file: %v", err)
+	}
+	if err = keyFile.Close(); err != nil {
+		_ = os.Remove(keyFile.Name())
+		t.Fatalf("failed to close temp key file: %v", err)
+	}
+	_ = os.Chmod(keyFile.Name(), 0600)
+
+	t.Cleanup(func() {
+		_ = os.Remove(keyFile.Name())
+	})
+
+	return keyFile.Name()
+}
+
 func configureNamespaceWGClient(
 	t *testing.T,
 	ns *namespaceFixture,
@@ -297,20 +348,7 @@ func configureNamespaceWGClient(
 ) {
 	t.Helper()
 
-	keyFile, err := os.CreateTemp("", "wg-client-key-*")
-	if err != nil {
-		t.Fatalf("failed to create temp key file: %v", err)
-	}
-	if _, err = keyFile.WriteString(clientPrivateKey + "\n"); err != nil {
-		_ = keyFile.Close()
-		t.Fatalf("failed to write temp key file: %v", err)
-	}
-	if err = keyFile.Close(); err != nil {
-		t.Fatalf("failed to close temp key file: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Remove(keyFile.Name())
-	})
+	keyFilePath := writeTempClientKey(t, clientPrivateKey)
 
 	runCommand(t, "ip", "netns", "exec", ns.name, "ip", "link", "add", "dev", iface, "type", "wireguard")
 	runCommand(t, "ip", "netns", "exec", ns.name, "ip", "address", "add", clientWGIP+"/32", "dev", iface)
@@ -320,7 +358,7 @@ func configureNamespaceWGClient(
 		t,
 		"ip", "netns", "exec", ns.name,
 		"wg", "set", iface,
-		"private-key", keyFile.Name(),
+		"private-key", keyFilePath,
 		"peer", serverPublicKey,
 		"endpoint", endpoint,
 		"allowed-ips", serverWGIP+"/32",
@@ -344,20 +382,7 @@ func configureNamespaceWGClientDualStack(
 ) {
 	t.Helper()
 
-	keyFile, err := os.CreateTemp("", "wg-client-key-*")
-	if err != nil {
-		t.Fatalf("failed to create temp key file: %v", err)
-	}
-	if _, err = keyFile.WriteString(clientPrivateKey + "\n"); err != nil {
-		_ = keyFile.Close()
-		t.Fatalf("failed to write temp key file: %v", err)
-	}
-	if err = keyFile.Close(); err != nil {
-		t.Fatalf("failed to close temp key file: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Remove(keyFile.Name())
-	})
+	keyFilePath := writeTempClientKey(t, clientPrivateKey)
 
 	runCommand(t, "ip", "netns", "exec", ns.name, "ip", "link", "add", "dev", iface, "type", "wireguard")
 	runCommand(t, "ip", "netns", "exec", ns.name, "ip", "address", "add", clientWGIPv4+"/32", "dev", iface)
@@ -369,7 +394,7 @@ func configureNamespaceWGClientDualStack(
 		t,
 		"ip", "netns", "exec", ns.name,
 		"wg", "set", iface,
-		"private-key", keyFile.Name(),
+		"private-key", keyFilePath,
 		"peer", serverPublicKey,
 		"endpoint", endpoint,
 		"allowed-ips", allowedIPs,

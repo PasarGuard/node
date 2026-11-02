@@ -243,6 +243,12 @@ ifeq ($(UNAME_S),Linux)
 	@echo "Installing WireGuard for $(DISTRO)..."
 	if [ "$(DISTRO)" = "debian" ] || [ "$(DISTRO)" = "ubuntu" ]; then \
 		sudo apt-get update && sudo apt-get install -y wireguard wireguard-tools; \
+		for profile in /etc/apparmor.d/wg /etc/apparmor.d/usr.bin.wg /etc/apparmor.d/wg-quick /etc/apparmor.d/usr.bin.wg-quick; do \
+			if [ -f "$$profile" ]; then \
+				sudo ln -sf "$$profile" /etc/apparmor.d/disable/ 2>/dev/null || true; \
+				sudo apparmor_parser -R "$$profile" 2>/dev/null || true; \
+			fi; \
+		done; \
 	elif [ "$(DISTRO)" = "centos" ] || [ "$(DISTRO)" = "rhel" ]; then \
 		sudo yum install -y epel-release && sudo yum install -y wireguard-tools; \
 	elif [ "$(DISTRO)" = "fedora" ]; then \
