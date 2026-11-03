@@ -85,10 +85,10 @@ func TestGetStatsOutboundsUsesInterfaceDeltaAndLink(t *testing.T) {
 		t.Fatalf("GetStats failed: %v", err)
 	}
 
-	if got := statValueByType(t, resp, "downlink"); got != 50 {
+	if got := statValueByType(t, resp, "uplink"); got != 50 {
 		t.Fatalf("unexpected downlink delta: got %d want 50", got)
 	}
-	if got := statValueByType(t, resp, "uplink"); got != 60 {
+	if got := statValueByType(t, resp, "downlink"); got != 60 {
 		t.Fatalf("unexpected uplink delta: got %d want 60", got)
 	}
 
@@ -126,10 +126,10 @@ func TestGetStatsOutboundsResetBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats failed: %v", err)
 	}
-	if got := statValueByType(t, resp, "downlink"); got != 40 {
+	if got := statValueByType(t, resp, "uplink"); got != 40 {
 		t.Fatalf("unexpected downlink delta before reset: got %d want 40", got)
 	}
-	if got := statValueByType(t, resp, "uplink"); got != 60 {
+	if got := statValueByType(t, resp, "downlink"); got != 60 {
 		t.Fatalf("unexpected uplink delta before reset: got %d want 60", got)
 	}
 
@@ -140,10 +140,10 @@ func TestGetStatsOutboundsResetBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats reset failed: %v", err)
 	}
-	if got := statValueByType(t, resp, "downlink"); got != 60 {
+	if got := statValueByType(t, resp, "uplink"); got != 60 {
 		t.Fatalf("unexpected downlink delta on reset: got %d want 60", got)
 	}
-	if got := statValueByType(t, resp, "uplink"); got != 100 {
+	if got := statValueByType(t, resp, "downlink"); got != 100 {
 		t.Fatalf("unexpected uplink delta on reset: got %d want 100", got)
 	}
 
@@ -151,10 +151,10 @@ func TestGetStatsOutboundsResetBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats post-reset failed: %v", err)
 	}
-	if got := statValueByType(t, resp, "downlink"); got != 10 {
+	if got := statValueByType(t, resp, "uplink"); got != 10 {
 		t.Fatalf("unexpected downlink delta after reset: got %d want 10", got)
 	}
-	if got := statValueByType(t, resp, "uplink"); got != 10 {
+	if got := statValueByType(t, resp, "downlink"); got != 10 {
 		t.Fatalf("unexpected uplink delta after reset: got %d want 10", got)
 	}
 }
@@ -190,10 +190,10 @@ func TestGetStatsOutboundsRebasesOnCounterRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStats after rollback failed: %v", err)
 	}
-	if got := statValueByType(t, resp, "downlink"); got != 20 {
+	if got := statValueByType(t, resp, "uplink"); got != 20 {
 		t.Fatalf("unexpected downlink delta after rollback rebase: got %d want 20", got)
 	}
-	if got := statValueByType(t, resp, "uplink"); got != 10 {
+	if got := statValueByType(t, resp, "downlink"); got != 10 {
 		t.Fatalf("unexpected uplink delta after rollback rebase: got %d want 10", got)
 	}
 }
