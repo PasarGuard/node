@@ -300,3 +300,42 @@ func TestHealthLoopReplacesTheCoreAfterAbortingAUserSyncEvenWhenTheCoreAnswersAg
 		t.Fatal("the health loop aborted a user sync and then skipped the restart because the core answered the re-probe: the core may now lack users that x.config holds")
 	}
 }
+
+func TestRestartDuringAUserSyncKeepsTheUserForTheRebuiltCore(t *testing.T) {
+	x, hung, stats := newHungInboundXray(t)
+	stats.healthy.Store(true)
+	_, synced := startHungUserSync(t, x, hung)
+
+	restarted := make(chan error, 1)
+	go func() { restarted <- x.Restart() }()
+	select {
+	case <-restarted:
+	case <-time.After(45 * time.Second):
+		t.Fatal("the restart never returned")
+	}
+	select {
+	case err := <-synced:
+		if !errors.Is(err, errSyncAborted) {
+			t.Fatalf("the aborted user sync returned %v, want errSyncAborted", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the user sync never returned after the restart")
+	}
+
+	x.mu.RLock()
+	cfg := x.config
+	x.mu.RUnlock()
+	for _, inbound := range cfg.InboundConfigs {
+		if inbound.Tag != "vless" {
+			continue
+		}
+		inbound.mu.RLock()
+		_, ok := inbound.clients["1.alice"]
+		inbound.mu.RUnlock()
+		if !ok {
+			t.Fatal("Restart aborted the user sync and the sync dropped 1.alice from x.config, so the rebuilt core does not have the user")
+		}
+		return
+	}
+	t.Fatal("no vless inbound in x.config")
+}
