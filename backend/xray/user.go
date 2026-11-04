@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
 )
@@ -294,7 +295,7 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	}
 
 	if syncAborted(ctx) {
-		return fmt.Errorf("failed to sync user %s: %w", user.GetEmail(), errSyncAborted)
+		return backend.RetryLater(fmt.Errorf("failed to sync user %s: %w", user.GetEmail(), errSyncAborted))
 	}
 	if errMessage.String() != "" {
 		return errors.New("failed to add user:" + errMessage.String())
@@ -422,7 +423,7 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	}
 
 	if syncAborted(ctx) {
-		return fmt.Errorf("failed to update users: %w", errSyncAborted)
+		return backend.RetryLater(fmt.Errorf("failed to update users: %w", errSyncAborted))
 	}
 	if errMessage.String() != "" {
 		return errors.New("failed to update users:" + errMessage.String())

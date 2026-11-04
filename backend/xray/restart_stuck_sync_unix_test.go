@@ -17,7 +17,9 @@ import (
 	statsCommand "github.com/xtls/xray-core/app/stats/command"
 	"google.golang.org/grpc"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray/api"
+	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/pkg/logstream"
 )
@@ -318,6 +320,9 @@ func TestRestartDuringAUserSyncKeepsTheUserForTheRebuiltCore(t *testing.T) {
 		if !errors.Is(err, errSyncAborted) {
 			t.Fatalf("the aborted user sync returned %v, want errSyncAborted", err)
 		}
+		if !backend.IsRetryLater(err) {
+			t.Fatalf("the aborted user sync returned %v as a plain error, which the node answers as Internal / 500: want a backend.RetryLaterError, answered as Unavailable / 503", err)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the user sync never returned after the restart")
 	}
@@ -338,4 +343,38 @@ func TestRestartDuringAUserSyncKeepsTheUserForTheRebuiltCore(t *testing.T) {
 		return
 	}
 	t.Fatal("no vless inbound in x.config")
+}
+
+func TestRestartDuringAUserUpdateAbortsItAsRetryLater(t *testing.T) {
+	x, hung, stats := newHungInboundXray(t)
+	stats.healthy.Store(true)
+
+	updated := make(chan error, 1)
+	go func() {
+		updated <- x.UpdateUsers(context.Background(), []*common.User{recordingUser("1.alice", "vless")})
+	}()
+	select {
+	case <-hung.reached:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the user update never reached the core")
+	}
+
+	restarted := make(chan error, 1)
+	go func() { restarted <- x.Restart() }()
+	select {
+	case <-restarted:
+	case <-time.After(45 * time.Second):
+		t.Fatal("the restart never returned")
+	}
+	select {
+	case err := <-updated:
+		if !errors.Is(err, errSyncAborted) {
+			t.Fatalf("the aborted user update returned %v, want errSyncAborted", err)
+		}
+		if !backend.IsRetryLater(err) {
+			t.Fatalf("the aborted user update returned %v as a plain error, which the node answers as Internal / 500: want a backend.RetryLaterError, answered as Unavailable / 503", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the user update never returned after the restart")
+	}
 }
