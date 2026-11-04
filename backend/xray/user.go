@@ -242,6 +242,8 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx, endSync := x.beginSync(ctx)
+	defer endSync()
 
 	proxySetting, wireguardErr := setupUserAccount(user)
 
@@ -291,6 +293,9 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		}
 	}
 
+	if syncAborted(ctx) {
+		return fmt.Errorf("failed to sync user %s: %w", user.GetEmail(), errSyncAborted)
+	}
 	if errMessage.String() != "" {
 		return errors.New("failed to add user:" + errMessage.String())
 	}
@@ -372,6 +377,8 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx, endSync := x.beginSync(ctx)
+	defer endSync()
 
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
@@ -414,6 +421,9 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		}
 	}
 
+	if syncAborted(ctx) {
+		return fmt.Errorf("failed to update users: %w", errSyncAborted)
+	}
 	if errMessage.String() != "" {
 		return errors.New("failed to update users:" + errMessage.String())
 	}
