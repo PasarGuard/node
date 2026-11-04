@@ -24,15 +24,32 @@ func TestParseStatNameValid(t *testing.T) {
 
 func TestParseStatNameRejectsMalformed(t *testing.T) {
 	tests := []string{
-		"user>>>alice@example.com>>>online",  // too short
-		"user>>>>>>traffic>>>uplink",         // empty name
-		"user>>>alice@example.com>>>>>>uplink", // empty link
+		"user>>>alice@example.com>>>online",     // too short
+		"user>>>>>>traffic>>>uplink",            // empty name
+		"user>>>alice@example.com>>>>>>uplink",  // empty link
 		"user>>>alice@example.com>>>traffic>>>", // empty type
 	}
 
 	for _, raw := range tests {
 		if _, _, _, ok := parseStatName(raw); ok {
 			t.Fatalf("expected malformed stat name to be rejected: %q", raw)
+		}
+	}
+}
+
+func TestNormalizeIPStripsIPv6Brackets(t *testing.T) {
+	tests := map[string]string{
+		"[2001:db8::1]": "2001:db8::1",
+		"[::1]":         "::1",
+		"1.2.3.4":       "1.2.3.4",
+		"2001:db8::1":   "2001:db8::1",
+		"":              "",
+		"[]":            "",
+	}
+
+	for input, want := range tests {
+		if got := normalizeIP(input); got != want {
+			t.Fatalf("normalizeIP(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

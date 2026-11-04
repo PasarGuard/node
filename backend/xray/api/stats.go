@@ -71,7 +71,38 @@ func (x *XrayHandler) GetUserOnlineIpListStats(ctx context.Context, email string
 		return nil, err
 	}
 
-	return &common.StatsOnlineIpListResponse{Name: email, Ips: resp.GetIps()}, nil
+	ips := make(map[string]int64, len(resp.GetIps()))
+	for ip, lastSeen := range resp.GetIps() {
+		ips[normalizeIP(ip)] = lastSeen
+	}
+
+	return &common.StatsOnlineIpListResponse{Name: email, Ips: ips}, nil
+}
+
+func normalizeIP(ip string) string {
+	if len(ip) >= 2 && ip[0] == '[' && ip[len(ip)-1] == ']' {
+		return ip[1 : len(ip)-1]
+	}
+	return ip
+}
+
+func (x *XrayHandler) GetUsersOnlineIpListStats(ctx context.Context) (*common.StatsAllOnlineIpListResponse, error) {
+	client := *x.StatsServiceClient
+	resp, err := client.GetUsersStats(ctx, &command.GetUsersStatsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	users := make(map[string]*common.StatsOnlineIpListResponse, len(resp.GetUsers()))
+	for _, u := range resp.GetUsers() {
+		ips := make(map[string]int64, len(u.GetIps()))
+		for _, entry := range u.GetIps() {
+			ips[normalizeIP(entry.GetIp())] = entry.GetLastSeen()
+		}
+		users[u.GetEmail()] = &common.StatsOnlineIpListResponse{Name: u.GetEmail(), Ips: ips}
+	}
+
+	return &common.StatsAllOnlineIpListResponse{Users: users}, nil
 }
 
 func (x *XrayHandler) GetUsersStats(ctx context.Context, reset bool) (*common.StatResponse, error) {

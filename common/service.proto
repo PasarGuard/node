@@ -68,6 +68,10 @@ message StatsOnlineIpListResponse {
   map<string, int64> ips = 2;
 }
 
+message StatsAllOnlineIpListResponse {
+  map<string, StatsOnlineIpListResponse> users = 1;
+}
+
 message Latency {
   string name = 1;
   bool alive = 2;
@@ -230,6 +234,7 @@ service NodeService {
 
   rpc GetUserOnlineStats (StatRequest) returns (OnlineStatResponse) {}
   rpc GetUserOnlineIpListStats(StatRequest) returns (StatsOnlineIpListResponse) {}
+  rpc GetUsersOnlineIpListStats(Empty) returns (StatsAllOnlineIpListResponse) {}
 
   rpc SyncUser (stream User) returns (Empty) {}
   rpc SyncUsers (Users) returns (Empty) {}
