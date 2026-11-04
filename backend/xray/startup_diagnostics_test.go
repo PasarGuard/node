@@ -106,12 +106,13 @@ func TestIsStartupFailureLog(t *testing.T) {
 		{line: "2026/02/21 [Info] app/stats: create new counter", want: false},
 		{line: "Failed to start: main: failed to load config files: [stdin:] > infra/conf: failed to build inbound config with tag in", want: true},
 		{line: "Failed to start: app/proxyman/inbound: failed to listen TCP on 443 > listen tcp 0.0.0.0:443: bind: address already in use", want: true},
-		// Clients reconnect while Xray starts. Their access entries and Info lines may contain
-		// any keyword; they must not fail the start.
+		// Clients reconnect while Xray starts. Their access entries and Info/Debug lines may
+		// contain any keyword; they must not fail the start.
 		{line: "2026/11/04 07:27:53.032627 from 203.0.113.7:57056 accepted tcp:fatal-error.example:443 [in >> direct] email: user1", want: false},
 		{line: "2026/11/04 07:27:53.040211 from tcp:203.0.113.8:8436 accepted udp:panic.example:53 [in >> direct] email: user2", want: false},
 		{line: "2026/11/04 07:27:53.051118 from 198.51.100.4:54596 rejected  proxy/vless/encoding: invalid request user id: 00000000-0000-0000-0000-000000000000", want: false},
 		{line: "2026/11/04 04:48:07.229696 [Info] [3000105832] app/proxyman/outbound: app/proxyman/outbound: failed to process outbound traffic > proxy/freedom: failed to open connection to tcp:203.0.113.10:443 > dial tcp 203.0.113.10:443: connect: connection refused", want: false},
+		{line: "2026/11/04 04:48:07.300512 [Debug] [3000105832] transport/internet/tcp: dialing TCP to tcp:fatal-error.example:443", want: false},
 	}
 
 	for _, tt := range tests {
