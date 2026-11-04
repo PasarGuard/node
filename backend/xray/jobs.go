@@ -97,12 +97,12 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 	restart := func(reason string) {
 		// Lock order: syncMu, then mu, then core.mu, as in the user syncs.
 		// syncMu keeps user syncs off the new core until its API answers.
-		syncAborted := x.lockSyncForRestart()
+		aborted := x.lockSyncForRestart()
 		defer x.syncMu.Unlock()
 
 		// A full sync may have replaced the core while this restart waited
 		// for syncMu: leave a core that answers alone.
-		if !syncAborted && x.Started() && probe() == nil {
+		if !aborted && x.Started() && probe() == nil {
 			log.Println("xray answers again, health restart skipped")
 			consecutiveFailures = 0
 			return

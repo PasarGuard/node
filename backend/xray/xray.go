@@ -55,7 +55,7 @@ func (x *Xray) beginSync(ctx context.Context) (context.Context, func()) {
 	}
 }
 
-func (x *Xray) lockSyncForRestart() (syncAborted bool) {
+func (x *Xray) lockSyncForRestart() (aborted bool) {
 	x.abortMu.Lock()
 	x.restarts++
 	if x.abortSync != nil {
@@ -69,11 +69,9 @@ func (x *Xray) lockSyncForRestart() (syncAborted bool) {
 	x.abortMu.Lock()
 	defer x.abortMu.Unlock()
 	x.restarts--
-	syncAborted = x.aborted
-	if x.restarts == 0 {
-		x.aborted = false
-	}
-	return syncAborted
+	aborted = x.aborted
+	x.aborted = false
+	return aborted
 }
 
 func syncAborted(ctx context.Context) bool {
