@@ -154,7 +154,8 @@ func TestToBytesDropsLogFilesWithoutChangingTheConfig(t *testing.T) {
 	}
 }
 
-// "none" turns a log off in Xray; clearing it like a file path would switch that log to stdout.
+// TestToBytesKeepsDisabledLogs checks that "none" reaches Xray unchanged. Clearing it like a file
+// path would make Xray print that log to stdout.
 func TestToBytesKeepsDisabledLogs(t *testing.T) {
 	const fileLogs = `"access":"/var/log/xray/access.log","error":"/var/log/xray/error.log"`
 	tests := []struct {

@@ -112,6 +112,8 @@ func TestDetectLogType(t *testing.T) {
 	}
 }
 
+// TestIsAccessLogEntry checks accepted and rejected entries, including the two spaces Xray writes
+// after "rejected", and that error lines mentioning "from" or "rejected" are not access entries.
 func TestIsAccessLogEntry(t *testing.T) {
 	tests := []struct {
 		line string

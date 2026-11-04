@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TestSetLogFileTreatsNoneAsDisabled checks that "none" opens no file. The node used to create
+// ./none and append every access entry to it.
 func TestSetLogFileTreatsNoneAsDisabled(t *testing.T) {
 	t.Chdir(t.TempDir())
 

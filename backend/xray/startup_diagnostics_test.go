@@ -94,6 +94,8 @@ func TestStartupErrorWithTailPrefersMatchedFailure(t *testing.T) {
 	}
 }
 
+// TestIsStartupFailureLog checks which startup lines fail the start: Xray's failure messages and
+// panics do; access entries and Info/Debug lines do not, whatever words they contain.
 func TestIsStartupFailureLog(t *testing.T) {
 	tests := []struct {
 		line string
