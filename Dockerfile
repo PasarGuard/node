@@ -16,6 +16,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} make NAME=main build
 # install_xray also installs the pinned geo files (Makefile install_geofiles) and fails the build unless xray loads them
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} XRAY_TAG=${XRAY_TAG} make install_xray
+# MTProto backend: the telemt version and SHA256 per arch are pinned in the Makefile (amd64 and arm64 only)
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} make install_telemt
 
 FROM alpine:latest
 
@@ -27,5 +29,7 @@ WORKDIR /app
 COPY --from=builder /src/main /app/main
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=builder /usr/local/share/xray /usr/local/share/xray
+COPY --from=builder /usr/local/bin/telemt /usr/local/bin/telemt
+COPY third_party/telemt/ /usr/share/licenses/telemt/
 
 ENTRYPOINT ["./main"]

@@ -1,0 +1,605 @@
+//go:build !windows
+
+package mtproto
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/pasarguard/node/common"
+	"github.com/pasarguard/node/config"
+)
+
+// newTestBackend starts the backend against the fake telemt and shuts it
+// down when the test ends.
+func newTestBackend(t *testing.T, cfg *config.Config, users []*common.User) *MTProto {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mt, err := New(ctx, cfg, testMTConfig(t), users)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(mt.Shutdown)
+	return mt
+}
+
+func TestStartFailureIncludesLogTail(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{
+		NoAPI:     true,
+		Stderr:    []string{"[telemt] Error: Config error: bad listener"},
+		ExitAfter: 10 * time.Millisecond,
+		ExitCode:  1,
+	})
+
+	mt, err := New(context.Background(), testNodeConfig(t, exe), testMTConfig(t), nil)
+	if err == nil {
+		mt.Shutdown()
+		t.Fatal("New succeeded although telemt exited")
+	}
+	if !strings.Contains(err.Error(), "bad listener") {
+		t.Errorf("error %q does not include telemt's output", err)
+	}
+	if strings.TrimSpace(err.Error()) == "exit status 1" {
+		t.Error("the startup error is a bare exit status")
+	}
+}
+
+// TestStartTimeoutIncludesLogTail covers telemt that never binds its API
+// (Telegram unreachable): New gives up after telemtStartupTimeout, reports
+// the output so far, and leaves no telemt running.
+func TestStartTimeoutIncludesLogTail(t *testing.T) {
+	// Long enough for the fake (a race-instrumented test binary) to start and
+	// print its line before the deadline.
+	lowerStartupTimeout(t, 5*time.Second)
+	record := filepath.Join(t.TempDir(), "record.json")
+	exe := writeFakeTelemt(t, fakeTelemt{
+		NoAPI:      true,
+		RecordFile: record,
+		Stderr:     []string{"checking Telegram DC connectivity"},
+	})
+
+	mt, err := New(context.Background(), testNodeConfig(t, exe), testMTConfig(t), nil)
+	if err == nil {
+		mt.Shutdown()
+		t.Fatal("New succeeded although the telemt API never came up")
+	}
+	for _, want := range []string{"did not become healthy within 5s", "checking Telegram DC connectivity"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+
+	pid := readFakeTelemtRecord(t, record).PID
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("telemt %d is still running after the failed start (kill 0: %v)", pid, err)
+	}
+}
+
+func TestStartWaitsForSlowAPI(t *testing.T) {
+	// The API binds 2 s after the fake starts; the timeout leaves room for a
+	// slow start of the fake itself under -race.
+	lowerStartupTimeout(t, 10*time.Second)
+	exe := writeFakeTelemt(t, fakeTelemt{HealthDelay: 2 * time.Second})
+
+	mt := newTestBackend(t, testNodeConfig(t, exe), nil)
+	if !mt.Started() {
+		t.Fatal("backend not started")
+	}
+	if got := mt.Version(); got != "3.5.14" {
+		t.Errorf("Version() = %q, want 3.5.14", got)
+	}
+}
+
+func TestGeneratedDirSymlinkResolved(t *testing.T) {
+	realDir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "generated")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(t.TempDir(), "record.json")
+	cfg := testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{RecordFile: record}))
+	cfg.GeneratedConfigPath = link
+
+	newTestBackend(t, cfg, nil)
+
+	args := readFakeTelemtRecord(t, record).Args
+	if len(args) != 2 {
+		t.Fatalf("telemt argv = %q", args)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(realDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(resolvedRoot, "telemt", "config.toml"); args[1] != want {
+		t.Errorf("config path = %q, want %q", args[1], want)
+	}
+	if resolved, err := filepath.EvalSymlinks(args[1]); err != nil || resolved != args[1] {
+		t.Errorf("config path %q still has a symlink component (resolves to %q, %v)", args[1], resolved, err)
+	}
+}
+
+func TestTelemtDirIsPrivate(t *testing.T) {
+	cfg := testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{}))
+	telemtDir := filepath.Join(cfg.GeneratedConfigPath, "telemt")
+	// A directory left by an older node build may be world readable.
+	if err := os.MkdirAll(telemtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	newTestBackend(t, cfg, nil)
+
+	info, err := os.Stat(telemtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Errorf("telemt dir mode = %o, want 700", mode)
+	}
+}
+
+func TestShutdownRemovesRenderedConfig(t *testing.T) {
+	cfg := testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{}))
+	mt := newTestBackend(t, cfg, []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	configPath := mt.configPath
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("rendered config missing while running: %v", err)
+	}
+
+	mt.Shutdown()
+
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("config.toml still exists after Shutdown (stat: %v)", err)
+	}
+	if mt.Started() {
+		t.Error("Started() is true after Shutdown")
+	}
+	mt.Shutdown() // a second Shutdown is a no-op
+}
+
+// TestSyncAfterShutdownReturnsErrClosed is the regression for a sync that
+// reached a shut-down backend, started a new telemt and crashed the node
+// with "send on closed channel".
+func TestSyncAfterShutdownReturnsErrClosed(t *testing.T) {
+	cfg := testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{}))
+	mt := newTestBackend(t, cfg, nil)
+	mt.Shutdown()
+
+	ctx := context.Background()
+	users := []*common.User{mtUser("alice", "mtproto", testSecret)}
+	calls := map[string]func() error{
+		"SyncUsers":             func() error { return mt.SyncUsers(ctx, users) },
+		"UpdateUsers":           func() error { return mt.UpdateUsers(ctx, users) },
+		"SyncUser":              func() error { return mt.SyncUser(ctx, users[0]) },
+		"UpdateUsersAndRestart": func() error { return mt.UpdateUsersAndRestart(ctx, users) },
+		"Restart":               mt.Restart,
+	}
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, errClosed) {
+			t.Errorf("%s after Shutdown = %v, want errClosed", name, err)
+		}
+	}
+
+	if mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("a telemt was started after Shutdown (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if _, err := os.Stat(mt.configPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a call after Shutdown wrote the config again (stat: %v)", err)
+	}
+}
+
+func TestSupervisorRestartsCrashedTelemt(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{
+		ExitAfter:    time.Second,
+		ExitCode:     1,
+		ExitOnceFile: filepath.Join(t.TempDir(), "crashed-once"),
+	})
+	mt := newTestBackend(t, testNodeConfig(t, exe), nil)
+	if mt.process.Generation() != 1 {
+		t.Fatalf("Generation() = %d after New, want 1", mt.process.Generation())
+	}
+
+	waitFor(t, 10*time.Second, "the supervisor to restart telemt", func() bool {
+		return mt.Started() && mt.process.Generation() == 2
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	logs := mt.SubscribeLogs(ctx)
+	for {
+		select {
+		case line := <-logs:
+			if strings.HasPrefix(line, "telemt exited unexpectedly: exit status 1") {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal(`no "telemt exited unexpectedly" line was published`)
+		}
+	}
+}
+
+func TestPickInternalPorts(t *testing.T) {
+	sequence := func(ports ...int) func() int {
+		return func() int {
+			port := ports[0]
+			if len(ports) > 1 {
+				ports = ports[1:]
+			}
+			return port
+		}
+	}
+
+	apiPort, metricsPort, err := pickInternalPorts([]int{443, 8443}, sequence(443, 65536, 20000, 20000, 8443, 30000))
+	if err != nil {
+		t.Fatalf("pickInternalPorts: %v", err)
+	}
+	if apiPort != 20000 || metricsPort != 30000 {
+		t.Errorf("ports = %d, %d; want 20000, 30000", apiPort, metricsPort)
+	}
+
+	if _, _, err := pickInternalPorts([]int{443}, sequence(443)); err == nil || !strings.Contains(err.Error(), "API port") {
+		t.Errorf("an endless clash with the listen port must fail naming the API port, got %v", err)
+	}
+	if _, _, err := pickInternalPorts([]int{443}, sequence(20000)); err == nil || !strings.Contains(err.Error(), "metrics port") {
+		t.Errorf("an endless clash with the API port must fail naming the metrics port, got %v", err)
+	}
+}
+
+func TestAPIClientReady(t *testing.T) {
+	status := http.StatusServiceUnavailable
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health/ready" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":true,"status":"ready"},"revision":"r"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":false,"status":"not_ready","reason":"admission_closed"},"revision":"r"}`))
+	}))
+	defer server.Close()
+
+	client := newAPIClient(server.URL, "Bearer test")
+	err := client.Ready(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "admission_closed") {
+		t.Errorf("Ready on 503 = %v, want an error naming the reason", err)
+	}
+
+	status = http.StatusOK
+	if err := client.Ready(context.Background()); err != nil {
+		t.Errorf("Ready on 200 = %v, want nil", err)
+	}
+}
+
+// TestWaitForReadyGivesUp checks the readiness wait is bounded and reports
+// the reason; New only logs this, so Start never fails on Telegram egress.
+func TestWaitForReadyGivesUp(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"ready":false,"reason":"no_healthy_upstreams"},"revision":"r"}`))
+	}))
+	defer server.Close()
+
+	lifetime, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mt := &MTProto{apiClient: newAPIClient(server.URL, ""), lifetime: lifetime}
+
+	err := mt.waitForReady(context.Background(), 300*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "no_healthy_upstreams") {
+		t.Errorf("waitForReady = %v, want an error naming the reason", err)
+	}
+}
+
+// TestCancelledStartStopsTelemt: the controller runs New under a context that
+// outlives the panel's request (controller.StartOrAttach) and cancels it only
+// to abort the start, on Disconnect. New must then stop waiting for telemt's
+// API at once and leave no telemt running, not wait for telemtStartupTimeout.
+func TestCancelledStartStopsTelemt(t *testing.T) {
+	lowerStartupTimeout(t, 20*time.Second)
+	record := filepath.Join(t.TempDir(), "record.json")
+	exe := writeFakeTelemt(t, fakeTelemt{NoAPI: true, RecordFile: record})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		mt  *MTProto
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		mt, err := New(ctx, testNodeConfig(t, exe), testMTConfig(t), nil)
+		done <- result{mt, err}
+	}()
+
+	pid := readFakeTelemtRecord(t, record).PID
+	cancel()
+
+	var r result
+	select {
+	case r = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("New still waits for telemt 5s after its context was cancelled")
+	}
+	if r.err == nil {
+		r.mt.Shutdown()
+		t.Fatal("New succeeded although its context was cancelled before telemt's API came up")
+	}
+	if !errors.Is(r.err, context.Canceled) {
+		t.Errorf("New error = %v, want one wrapping context.Canceled", r.err)
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("telemt %d is still running after the cancelled start (kill 0: %v)", pid, err)
+	}
+}
+
+// TestStartDoesNotWaitForReadiness: telemt is healthy but not ready (no
+// Telegram upstream); New must return right after health, not after the
+// readiness budget.
+func TestStartDoesNotWaitForReadiness(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{ReadyStatus: http.StatusServiceUnavailable})
+
+	started := time.Now()
+	mt := newTestBackend(t, testNodeConfig(t, exe), nil)
+	if elapsed := time.Since(started); elapsed >= 10*time.Second {
+		t.Errorf("New took %s with /v1/health/ready answering 503; readiness must not block start", elapsed)
+	}
+	if !mt.Started() {
+		t.Error("backend not started")
+	}
+}
+
+// TestCancelledSyncKeepsTelemtRunning: a sync whose request already expired
+// (it queued on syncMu) must not restart a healthy telemt.
+func TestCancelledSyncKeepsTelemtRunning(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	users := []*common.User{mtUser("alice", "mtproto", testSecret)}
+	for name, call := range map[string]func() error{
+		"SyncUsers":             func() error { return mt.SyncUsers(ctx, users) },
+		"UpdateUsers":           func() error { return mt.UpdateUsers(ctx, users) },
+		"SyncUser":              func() error { return mt.SyncUser(ctx, users[0]) },
+		"UpdateUsersAndRestart": func() error { return mt.UpdateUsersAndRestart(ctx, users) },
+	} {
+		if err := call(); !errors.Is(err, context.Canceled) {
+			t.Errorf("%s with a cancelled ctx = %v, want context.Canceled", name, err)
+		}
+	}
+
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+}
+
+// TestFullSyncSignalsTelemt: a full apply makes telemt reload with SIGHUP
+// and returns once the render's marker user is in telemt's running config.
+// This fake has no config watcher, so only the signal can confirm it.
+func TestFullSyncSignalsTelemt(t *testing.T) {
+	lowerSignalGrace(t, 0)
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, SignalFile: signals})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if data, _ := os.ReadFile(signals); !strings.Contains(string(data), "SIGHUP") {
+		t.Errorf("telemt got no SIGHUP (signal log %q)", data)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// telemt installs its SIGHUP handler at the end of its config watcher's
+// setup, which can finish after its API first answers, and a SIGHUP before
+// that ends it. A sync right after the start must leave the reload to the
+// watcher instead of killing telemt.
+func TestSyncRightAfterStartDoesNotSignalTelemt(t *testing.T) {
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, WatchConfig: true, SignalDelay: time.Second, SignalFile: signals})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if data, _ := os.ReadFile(signals); len(data) != 0 {
+		t.Errorf("telemt got a SIGHUP right after its start (signal log %q)", data)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// telemt's config watcher misses a render written while it sets itself up
+// right after the start, and only SIGHUP makes telemt load it then. Where
+// the node cannot read telemt's signal handlers, it sends SIGHUP once
+// telemtSignalGrace has passed. The watcher's setup outlasts the grace, so
+// the render is missed whenever the sync lands.
+func TestRenderMissedByWatcherGetsSIGHUPAfterGrace(t *testing.T) {
+	withoutSIGHUPProbe(t)
+	lowerSignalGrace(t, 1500*time.Millisecond)
+	lowerMarkerConfirmTimeout(t, 10*time.Second)
+	signals := filepath.Join(t.TempDir(), "signals")
+	exe := writeFakeTelemt(t, fakeTelemt{
+		ServeUsers:  true,
+		WatchConfig: true,
+		WatchSetup:  2 * time.Second,
+		SignalDelay: 700 * time.Millisecond,
+		SignalFile:  signals,
+	})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 1 {
+		t.Errorf("telemt was restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if data, _ := os.ReadFile(signals); strings.Count(string(data), "SIGHUP") != 1 {
+		t.Errorf("signal log %q, want one SIGHUP", data)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// TestUsersAPIUnreachableRestartsTelemt: when telemt's API keeps getting no
+// answer (markerUnreachablePolls polls in a row) while the node waits for a
+// reload, the node restarts telemt on the new config, and that start
+// confirms it.
+func TestUsersAPIUnreachableRestartsTelemt(t *testing.T) {
+	exe := writeFakeTelemt(t, fakeTelemt{DropUsers: true})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := mt.SyncUsers(ctx, []*common.User{mtUser("bob", "mtproto", testSecret)}); err != nil {
+		t.Fatalf("SyncUsers: %v", err)
+	}
+	if !mt.Started() || mt.process.Generation() != 2 {
+		t.Errorf("telemt was not restarted (started %v, generation %d)", mt.Started(), mt.process.Generation())
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"bob"}) {
+		t.Errorf("desired = %q, want bob", got)
+	}
+}
+
+// TestShutdownEndsApplyInMarkerWait: Shutdown while a full apply waits for
+// telemt to load its render returns at once instead of after
+// markerConfirmTimeout. The apply ends with errClosed and leaves
+// needsFullApply set, desired keeps the confirmed users, and telemt is not
+// restarted. telemt here never loads the render: it has no config watcher
+// and never handles SIGHUP, so the node never sends it.
+func TestShutdownEndsApplyInMarkerWait(t *testing.T) {
+	lowerSignalGrace(t, time.Hour)
+	polls := filepath.Join(t.TempDir(), "polls")
+	exe := writeFakeTelemt(t, fakeTelemt{ServeUsers: true, SignalDelay: time.Hour, UsersRequestFile: polls})
+	mt := newTestBackend(t, testNodeConfig(t, exe), []*common.User{mtUser("alice", "mtproto", testSecret)})
+
+	applied := make(chan error, 1)
+	go func() {
+		applied <- mt.SyncUsers(context.Background(), []*common.User{mtUser("bob", "mtproto", testSecret)})
+	}()
+	// Only the marker wait lists users here.
+	waitFor(t, 10*time.Second, "the marker wait to poll telemt", func() bool {
+		data, _ := os.ReadFile(polls)
+		return len(data) > 0
+	})
+
+	started := time.Now()
+	mt.Shutdown()
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("Shutdown took %s during an apply", elapsed)
+	}
+	select {
+	case err := <-applied:
+		if !errors.Is(err, errClosed) {
+			t.Errorf("SyncUsers = %v, want errClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the apply did not end on Shutdown")
+	}
+
+	mt.syncMu.Lock()
+	closed, needsFullApply := mt.closed, mt.needsFullApply
+	mt.syncMu.Unlock()
+	if !closed || !needsFullApply {
+		t.Errorf("closed %v, needsFullApply %v after Shutdown cut an apply; want both", closed, needsFullApply)
+	}
+	if got := desiredNames(mt); !slices.Equal(got, []string{"alice"}) {
+		t.Errorf("desired = %q, want the confirmed alice", got)
+	}
+	if generation := mt.process.Generation(); generation != 1 {
+		t.Errorf("telemt was restarted during Shutdown (generation %d)", generation)
+	}
+}
+
+// TestCancelledContextNeverRestartsTelemt covers the paths below the entry
+// check: a reload whose caller is gone keeps telemt, and a start with a done
+// context spawns nothing.
+func TestCancelledContextNeverRestartsTelemt(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mt.syncMu.Lock()
+	defer mt.syncMu.Unlock()
+
+	if err := mt.reloadLocked(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("reloadLocked with a cancelled ctx = %v, want context.Canceled", err)
+	}
+	if !mt.process.Started() || mt.process.Generation() != 1 {
+		t.Fatalf("reloadLocked restarted telemt (started %v, generation %d)", mt.process.Started(), mt.process.Generation())
+	}
+
+	mt.process.Stop()
+	if err := mt.startLocked(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("startLocked with a cancelled ctx = %v, want context.Canceled", err)
+	}
+	if mt.process.Generation() != 1 {
+		t.Errorf("startLocked spawned telemt for a cancelled ctx (generation %d)", mt.process.Generation())
+	}
+}
+
+// TestGetSysStatsDoesNotWaitOnTelemt: the controller treats a same-config
+// Start (the panel's retry or repair Start) as a heartbeat only when
+// GetSysStats answers within its 3 s budget, and restarts the backend
+// otherwise. GetSysStats must stay a local read of telemt's process: no
+// telemt API call and no syncMu, so a stuck telemt API or a full apply in
+// progress never turns a heartbeat into a restart that cuts every session.
+func TestGetSysStatsDoesNotWaitOnTelemt(t *testing.T) {
+	mt := newTestBackend(t, testNodeConfig(t, writeFakeTelemt(t, fakeTelemt{})), nil)
+	pid := mt.process.PID()
+
+	// Freeze telemt: its API cannot answer while its process still runs.
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGCONT) })
+	// A full apply in progress holds syncMu.
+	mt.syncMu.Lock()
+	defer mt.syncMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	started := time.Now()
+	stats, err := mt.GetSysStats(ctx)
+	if err != nil {
+		t.Fatalf("GetSysStats with telemt's API stuck and syncMu held = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Errorf("GetSysStats took %s with telemt's API stuck and syncMu held", elapsed)
+	}
+	if stats.GetAlloc() == 0 {
+		t.Error("GetSysStats reported no memory for the running telemt")
+	}
+}
