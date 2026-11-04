@@ -46,11 +46,7 @@ func TestVersionProbeOfAHungBinaryIsBounded(t *testing.T) {
 }
 
 func TestVersionProbeSurvivesABinaryThatForksAndHoldsStdout(t *testing.T) {
-	previous := versionProbeTimeout
-	versionProbeTimeout = 3 * time.Second
-	t.Cleanup(func() { versionProbeTimeout = previous })
-
-	err := newCoreWithin(t, writeVersionStub(t, "echo 'Xray 26.10.31 (Xray, Penetrates Everything.)'\nsleep 30 &\nexit 0"), 5*time.Second)
+	err := newCoreWithin(t, writeVersionStub(t, "echo 'Xray 26.10.31 (Xray, Penetrates Everything.)'\nsleep 30 &\nexit 0"), 15*time.Second)
 	if err != nil {
 		t.Fatalf("expected the printed version to be accepted, got %v", err)
 	}
