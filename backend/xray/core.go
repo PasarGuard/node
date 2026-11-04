@@ -91,7 +91,7 @@ func (c *Core) GenerateConfigFile(config []byte) error {
 	return err
 }
 
-var versionProbeTimeout = 10 * time.Second
+var versionProbeTimeout = 30 * time.Second
 
 func (c *Core) refreshVersion() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)

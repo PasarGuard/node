@@ -62,3 +62,11 @@ func TestVersionProbeOfAWorkingBinaryStillParses(t *testing.T) {
 		t.Fatalf("version = %q", core.Version())
 	}
 }
+
+func TestVersionProbeWaitsForASlowButHealthyBinary(t *testing.T) {
+	t.Parallel()
+	err := newCoreWithin(t, writeVersionStub(t, "sleep 11\necho 'Xray 26.10.31 (Xray, Penetrates Everything.)'"), 40*time.Second)
+	if err != nil {
+		t.Fatalf("a version probe that answers after 11 s must still be accepted, got %v", err)
+	}
+}
