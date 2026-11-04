@@ -4,10 +4,12 @@ package xray
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +36,13 @@ func (s *hungInboundService) AlterInbound(ctx context.Context, _ *command.AlterI
 
 func newHungInboundXray(t *testing.T) (*Xray, *hungInboundService, *fakeStatsService) {
 	t.Helper()
+	stats := &fakeStatsService{}
+	x, hung := newHungInboundXrayWithStats(t, stats)
+	return x, hung, stats
+}
+
+func newHungInboundXrayWithStats(t *testing.T, stats statsCommand.StatsServiceServer) (*Xray, *hungInboundService) {
+	t.Helper()
 
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "xray")
@@ -46,7 +55,6 @@ func newHungInboundXray(t *testing.T) (*Xray, *hungInboundService, *fakeStatsSer
 		t.Fatal(err)
 	}
 	hung := &hungInboundService{reached: make(chan struct{})}
-	stats := &fakeStatsService{}
 	server := grpc.NewServer()
 	command.RegisterHandlerServiceServer(server, hung)
 	statsCommand.RegisterStatsServiceServer(server, stats)
@@ -73,7 +81,7 @@ func newHungInboundXray(t *testing.T) (*Xray, *hungInboundService, *fakeStatsSer
 		runtimeLogs:    newStartupLogRing(10),
 	}
 	t.Cleanup(core.Stop)
-	return &Xray{config: cfg, cfg: &config.Config{}, core: core, handler: handler}, hung, stats
+	return &Xray{config: cfg, cfg: &config.Config{}, core: core, handler: handler}, hung
 }
 
 func startHungUserSync(t *testing.T, x *Xray, hung *hungInboundService) (context.CancelFunc, <-chan error) {
@@ -199,5 +207,96 @@ func TestHealthLoopRestartsAnUnresponsiveCoreWithNoUserSyncInFlight(t *testing.T
 
 	if !replaced {
 		t.Fatal("the health loop did not replace the unresponsive core within 60s")
+	}
+}
+
+func TestRestartIsNotBlockedByAUserSyncQueuedBehindAStuckOne(t *testing.T) {
+	x, hung, stats := newHungInboundXray(t)
+	stopSync, synced := startHungUserSync(t, x, hung)
+
+	queuedCtx, stopQueued := context.WithCancel(context.Background())
+	t.Cleanup(stopQueued)
+	queued := make(chan error, 1)
+	go func() { queued <- x.SyncUser(queuedCtx, recordingUser("2.bob", "vless")) }()
+	time.Sleep(300 * time.Millisecond)
+
+	restarted := make(chan error, 1)
+	go func() { restarted <- x.Restart() }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !x.core.Started() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	blocked := !x.core.Started()
+
+	stopSync()
+	stopQueued()
+	stats.healthy.Store(true)
+	select {
+	case <-restarted:
+	case <-time.After(45 * time.Second):
+		t.Fatal("the restart never returned after the user syncs were cancelled")
+	}
+	<-synced
+	<-queued
+
+	if blocked {
+		t.Fatal("Restart did not start a new core within 10s: a second user sync queued on syncMu took the lock after the first one was aborted and is now stuck on the unresponsive core")
+	}
+}
+
+type healingStatsService struct {
+	*fakeStatsService
+	failuresLeft atomic.Int32
+}
+
+func (s *healingStatsService) GetSysStats(ctx context.Context, req *statsCommand.SysStatsRequest) (*statsCommand.SysStatsResponse, error) {
+	if s.failuresLeft.Add(-1) >= 0 {
+		return nil, errors.New("core busy")
+	}
+	return s.fakeStatsService.GetSysStats(ctx, req)
+}
+
+func TestHealthLoopReplacesTheCoreAfterAbortingAUserSyncEvenWhenTheCoreAnswersAgain(t *testing.T) {
+	stats := &healingStatsService{fakeStatsService: &fakeStatsService{}}
+	stats.healthy.Store(true)
+	x, hung := newHungInboundXrayWithStats(t, stats)
+	if err := x.Restart(); err != nil {
+		t.Fatal(err)
+	}
+	first := corePID(x)
+
+	stopSync, synced := startHungUserSync(t, x, hung)
+	stats.failuresLeft.Store(10)
+
+	loopCtx, stopLoop := context.WithCancel(context.Background())
+	t.Cleanup(stopLoop)
+	looped := make(chan struct{})
+	go func() {
+		x.checkXrayHealth(loopCtx)
+		close(looped)
+	}()
+
+	replaced := false
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		if pid := corePID(x); pid != 0 && pid != first {
+			replaced = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	stopLoop()
+	stopSync()
+	select {
+	case <-looped:
+	case <-time.After(45 * time.Second):
+		t.Fatal("the health loop never returned after it was cancelled")
+	}
+	<-synced
+
+	if !replaced {
+		t.Fatal("the health loop aborted a user sync and then skipped the restart because the core answered the re-probe: the core may now lack users that x.config holds")
 	}
 }

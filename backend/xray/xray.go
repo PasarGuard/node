@@ -28,6 +28,8 @@ type Xray struct {
 	syncMu     sync.Mutex
 	abortMu    sync.Mutex
 	abortSync  context.CancelCauseFunc
+	restarts   int
+	aborted    bool
 	closed     bool // set by Shutdown under mu
 }
 
@@ -38,7 +40,12 @@ var errSyncAborted = errors.New("user sync aborted by a core restart")
 func (x *Xray) beginSync(ctx context.Context) (context.Context, func()) {
 	syncCtx, cancel := context.WithCancelCause(ctx)
 	x.abortMu.Lock()
-	x.abortSync = cancel
+	if x.restarts > 0 {
+		x.aborted = true
+		cancel(errSyncAborted)
+	} else {
+		x.abortSync = cancel
+	}
 	x.abortMu.Unlock()
 	return syncCtx, func() {
 		x.abortMu.Lock()
@@ -48,12 +55,25 @@ func (x *Xray) beginSync(ctx context.Context) (context.Context, func()) {
 	}
 }
 
-func (x *Xray) abortRunningSync() {
+func (x *Xray) lockSyncForRestart() (syncAborted bool) {
 	x.abortMu.Lock()
-	defer x.abortMu.Unlock()
+	x.restarts++
 	if x.abortSync != nil {
 		x.abortSync(errSyncAborted)
+		x.aborted = true
 	}
+	x.abortMu.Unlock()
+
+	x.syncMu.Lock()
+
+	x.abortMu.Lock()
+	defer x.abortMu.Unlock()
+	x.restarts--
+	syncAborted = x.aborted
+	if x.restarts == 0 {
+		x.aborted = false
+	}
+	return syncAborted
 }
 
 func syncAborted(ctx context.Context) bool {
@@ -181,8 +201,7 @@ func (x *Xray) Started() bool {
 // Restart restarts the core from the current config and waits until its API
 // answers.
 func (x *Xray) Restart() error {
-	x.abortRunningSync()
-	x.syncMu.Lock()
+	x.lockSyncForRestart()
 	defer x.syncMu.Unlock()
 
 	return x.restartLocked(context.Background())
