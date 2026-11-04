@@ -16,6 +16,7 @@ import (
 
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
+	nodeLogger "github.com/pasarguard/node/logger"
 
 	"github.com/xtls/xray-core/infra/conf"
 )
@@ -556,8 +557,14 @@ func (c *Config) ToBytes() ([]byte, error) {
 
 	if c.LogConfig != nil {
 		snapLog := *c.LogConfig
-		snapLog.AccessLog = ""
-		snapLog.ErrorLog = ""
+		// The node reads Xray's stdout and writes the log files itself, so Xray gets no file
+		// paths. "none" is not a path: Xray uses it to turn that log off, so pass it through.
+		if snapLog.AccessLog != nodeLogger.DisabledLog {
+			snapLog.AccessLog = ""
+		}
+		if snapLog.ErrorLog != nodeLogger.DisabledLog {
+			snapLog.ErrorLog = ""
+		}
 		snapConfig.LogConfig = &snapLog
 	}
 

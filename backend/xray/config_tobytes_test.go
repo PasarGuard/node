@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -150,6 +151,41 @@ func TestToBytesDropsLogFilesWithoutChangingTheConfig(t *testing.T) {
 	}
 	if cfg.LogConfig.AccessLog != "/var/log/xray/access.log" || cfg.LogConfig.ErrorLog != "/var/log/xray/error.log" {
 		t.Fatalf("ToBytes changed the stored log files: access %q, error %q", cfg.LogConfig.AccessLog, cfg.LogConfig.ErrorLog)
+	}
+}
+
+// "none" turns a log off in Xray; clearing it like a file path would switch that log to stdout.
+func TestToBytesKeepsDisabledLogs(t *testing.T) {
+	const fileLogs = `"access":"/var/log/xray/access.log","error":"/var/log/xray/error.log"`
+	tests := []struct {
+		name       string
+		logs       string
+		wantAccess string
+		wantError  string
+	}{
+		{name: "both off", logs: `"access":"none","error":"none"`, wantAccess: "none", wantError: "none"},
+		{name: "access off, error to a file", logs: `"access":"none","error":"/var/log/xray/error.log"`, wantAccess: "none", wantError: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := strings.Replace(toBytesConfig, fileLogs, tt.logs, 1)
+			if raw == toBytesConfig {
+				t.Fatal("toBytesConfig no longer contains the log files this test replaces")
+			}
+			cfg, err := NewConfig(raw, []string{"static"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := serializeConfig(t, cfg)
+
+			if access, _ := out.Log["access"].(string); access != tt.wantAccess {
+				t.Fatalf("serialized access log = %q, want %q", access, tt.wantAccess)
+			}
+			if errorLog, _ := out.Log["error"].(string); errorLog != tt.wantError {
+				t.Fatalf("serialized error log = %q, want %q", errorLog, tt.wantError)
+			}
+		})
 	}
 }
 
