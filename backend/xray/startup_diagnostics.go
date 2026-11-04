@@ -182,6 +182,18 @@ func (c *Core) RuntimeLogTail(n int) []string {
 }
 
 func isStartupFailureLog(line string) bool {
+	// Access entries describe client connections. A destination such as
+	// "tcp:fatal-error.example:443" says nothing about whether Xray started.
+	if isAccessLogEntry(line) {
+		return false
+	}
+	// Info and Debug lines are per-connection details, e.g. "proxy/freedom: failed to open
+	// connection to ...", which appear as soon as clients reconnect. A failed start shows up
+	// as Xray's "Failed to start:" message, a panic, or a Warning/Error line.
+	if strings.Contains(line, "[Info]") || strings.Contains(line, "[Debug]") {
+		return false
+	}
+
 	lower := strings.ToLower(line)
 
 	// Client authentication/rejection logs can include "invalid" and are not startup-fatal.
