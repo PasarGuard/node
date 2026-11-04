@@ -37,6 +37,8 @@ func New(outputLogs bool) *Logger {
 	}
 }
 
+// openLogFile opens path for appending, creating the file and its directory if needed.
+// An empty path or DisabledLog means no file: it returns nil, nil.
 func openLogFile(path string) (*os.File, error) {
 	if path == "" || path == DisabledLog {
 		return nil, nil

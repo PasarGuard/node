@@ -181,6 +181,8 @@ func (c *Core) RuntimeLogTail(n int) []string {
 	return c.runtimeLogs.tail(n)
 }
 
+// isStartupFailureLog reports whether line, printed before Xray's API answers, means that
+// Xray failed to start. Access entries and Info/Debug lines never do.
 func isStartupFailureLog(line string) bool {
 	// Access entries describe client connections. A destination such as
 	// "tcp:fatal-error.example:443" says nothing about whether Xray started.

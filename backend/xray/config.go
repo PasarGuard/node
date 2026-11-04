@@ -546,6 +546,7 @@ func snapshotInboundForSerialization(inbound *Inbound) *Inbound {
 	return snap
 }
 
+// ToBytes returns the config as the JSON Xray reads on start. It does not modify c.
 func (c *Config) ToBytes() ([]byte, error) {
 	snapInbounds := make([]*Inbound, len(c.InboundConfigs))
 	for idx, inbound := range c.InboundConfigs {
