@@ -18,7 +18,7 @@ import (
 
 var (
 	panelKeepaliveEnforcement = keepalive.EnforcementPolicy{MinTime: 5 * time.Second, PermitWithoutStream: true}
-	panelKeepalive            = keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}
+	panelKeepalive            = keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 20 * time.Second}
 )
 
 type Service struct {

@@ -221,10 +221,12 @@ func TestNodeClosesAConnectionWhosePanelStoppedAnswering(t *testing.T) {
 	started := time.Now()
 	select {
 	case <-proxy.serverClosed:
-		if elapsed := time.Since(started); elapsed < 30*time.Second {
+		elapsed := time.Since(started)
+		if elapsed < 30*time.Second {
 			t.Fatalf("the node closed a merely idle connection after %.0fs, before its keepalive ping was due", elapsed.Seconds())
 		}
-	case <-time.After(55 * time.Second):
-		t.Fatal("the node kept a connection to a panel that stopped answering for 55 s; it must ping an idle panel and close the connection when the ping is not acknowledged")
+		t.Logf("the node closed the connection %.1fs after the panel stopped answering", elapsed.Seconds())
+	case <-time.After(70 * time.Second):
+		t.Fatal("the node kept a connection to a panel that stopped answering for 70 s; it must ping an idle panel and close the connection when the ping is not acknowledged")
 	}
 }
