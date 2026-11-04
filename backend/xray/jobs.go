@@ -97,6 +97,7 @@ func (x *Xray) checkXrayHealth(baseCtx context.Context) {
 	restart := func(reason string) {
 		// Lock order: syncMu, then mu, then core.mu, as in the user syncs.
 		// syncMu keeps user syncs off the new core until its API answers.
+		x.abortRunningSync()
 		x.syncMu.Lock()
 		defer x.syncMu.Unlock()
 
