@@ -24,6 +24,19 @@ func isAccessLog(log string) bool {
 	return strings.Contains(log, " accepted tcp:") || strings.Contains(log, " accepted udp:")
 }
 
+// isAccessLogEntry reports whether line is an Xray access-log entry, accepted or rejected:
+// "[date time] from <source> accepted|rejected ...". It compares fields because Xray writes
+// two spaces after "rejected" when the entry has no destination.
+func isAccessLogEntry(line string) bool {
+	fields := strings.Fields(line)
+	for i := 0; i < len(fields) && i < 3; i++ {
+		if fields[i] == "from" {
+			return i+2 < len(fields) && (fields[i+2] == "accepted" || fields[i+2] == "rejected")
+		}
+	}
+	return false
+}
+
 func (c *Core) detectLogType(log string) {
 	if c.logger == nil {
 		return

@@ -18,6 +18,10 @@ const (
 	LogCritical LogLevel = "Critical"
 )
 
+// DisabledLog is the value Xray accepts for "access" or "error" to turn that log off.
+// It is not a file name.
+const DisabledLog = "none"
+
 type Logger struct {
 	outputLogs    bool
 	accessLogFile *os.File
@@ -33,8 +37,10 @@ func New(outputLogs bool) *Logger {
 	}
 }
 
+// openLogFile opens path for appending, creating the file and its directory if needed.
+// An empty path or DisabledLog means no file: it returns nil, nil.
 func openLogFile(path string) (*os.File, error) {
-	if path == "" {
+	if path == "" || path == DisabledLog {
 		return nil, nil
 	}
 

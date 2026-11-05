@@ -111,3 +111,27 @@ func TestDetectLogType(t *testing.T) {
 		})
 	}
 }
+
+// TestIsAccessLogEntry checks accepted and rejected entries, including the two spaces Xray writes
+// after "rejected", and that error lines mentioning "from" or "rejected" are not access entries.
+func TestIsAccessLogEntry(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{line: "2026/11/04 07:27:52.690940 from 203.0.113.7:60253 accepted tcp:example.com:443 [in -> out] email: user1", want: true},
+		{line: "2026/11/04 07:27:52.692433 from tcp:203.0.113.8:8436 accepted udp:1.1.1.1:53 [in >> direct] email: user2", want: true},
+		// Rejected entries have no destination, so Xray writes two spaces after "rejected".
+		{line: "2026/11/04 07:30:41.120004 from 198.51.100.4:54596 rejected  proxy/vless/encoding: invalid request user id: 00000000-0000-0000-0000-000000000000", want: true},
+		{line: "from 198.51.100.4:54596 rejected  proxy/vless/encoding: invalid request user id", want: true},
+		{line: "2026/11/04 07:27:53.000001 [Warning] rejected request from 10.0.0.1:443: connection not accepted by destination", want: false},
+		{line: "Failed to start: app/proxyman/inbound: failed to listen TCP on 443", want: false},
+		{line: "", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isAccessLogEntry(tt.line); got != tt.want {
+			t.Fatalf("isAccessLogEntry(%q) = %v, want %v", tt.line, got, tt.want)
+		}
+	}
+}
