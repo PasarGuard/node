@@ -91,12 +91,21 @@ func (c *Core) GenerateConfigFile(config []byte) error {
 	return err
 }
 
+var versionProbeTimeout = 10 * time.Second
+
 func (c *Core) refreshVersion() (string, error) {
-	cmd := exec.Command(c.executablePath, "version")
+	ctx, cancel := context.WithTimeout(context.Background(), versionProbeTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.executablePath, "version")
+	cmd.WaitDelay = time.Second
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
-	if err != nil {
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("xray version probe did not finish within %s: %w", versionProbeTimeout, ctx.Err())
+	}
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return "", err
 	}
 
