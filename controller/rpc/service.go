@@ -6,12 +6,19 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
+)
+
+var (
+	panelKeepaliveEnforcement = keepalive.EnforcementPolicy{MinTime: 5 * time.Second, PermitWithoutStream: true}
+	panelKeepalive            = keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}
 )
 
 type Service struct {
@@ -37,6 +44,8 @@ func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (
 		grpc.Creds(creds),
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
+		grpc.KeepaliveEnforcementPolicy(panelKeepaliveEnforcement),
+		grpc.KeepaliveParams(panelKeepalive),
 		grpc.UnaryInterceptor(ConditionalMiddleware(s)),
 		grpc.StreamInterceptor(ConditionalStreamMiddleware(s)),
 	)
