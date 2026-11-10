@@ -9,6 +9,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -151,7 +153,9 @@ type freezableProxy struct {
 	target       string
 	frozen       atomic.Bool
 	serverClosed chan struct{}
+	failed       chan error
 	once         sync.Once
+	failOnce     sync.Once
 }
 
 func startProxy(t *testing.T, target string) *freezableProxy {
@@ -160,20 +164,35 @@ func startProxy(t *testing.T, target string) *freezableProxy {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &freezableProxy{listener: l, target: target, serverClosed: make(chan struct{})}
-	t.Cleanup(func() { l.Close() })
-	go p.serve()
+	p := &freezableProxy{
+		listener:     l,
+		target:       target,
+		serverClosed: make(chan struct{}),
+		failed:       make(chan error, 1),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		l.Close()
+	})
+	go p.serve(ctx)
 	return p
 }
 
-func (p *freezableProxy) serve() {
+func (p *freezableProxy) fail(err error) {
+	p.failOnce.Do(func() { p.failed <- err })
+}
+
+func (p *freezableProxy) serve(ctx context.Context) {
+	var dialer net.Dialer
 	for {
 		client, err := p.listener.Accept()
 		if err != nil {
 			return
 		}
-		server, err := net.Dial("tcp", p.target)
+		server, err := dialer.DialContext(ctx, "tcp", p.target)
 		if err != nil {
+			p.fail(fmt.Errorf("the proxy could not reach the node at %s: %w", p.target, err))
 			client.Close()
 			continue
 		}
@@ -199,8 +218,10 @@ func (p *freezableProxy) serve() {
 					_, _ = client.Write(buf[:n])
 				}
 				if err != nil {
-					if err == io.EOF || p.frozen.Load() {
+					if errors.Is(err, io.EOF) || p.frozen.Load() {
 						p.once.Do(func() { close(p.serverClosed) })
+					} else {
+						p.fail(fmt.Errorf("the proxy lost its connection to the node before the freeze: %w", err))
 					}
 					client.Close()
 					return
@@ -226,6 +247,8 @@ func TestNodeClosesAConnectionWhosePanelStoppedAnswering(t *testing.T) {
 			t.Fatalf("the node closed a merely idle connection after %.0fs, before its keepalive ping was due", elapsed.Seconds())
 		}
 		t.Logf("the node closed the connection %.1fs after the panel stopped answering", elapsed.Seconds())
+	case err := <-proxy.failed:
+		t.Fatalf("the proxy's own link to the node broke, so this run proves nothing about the node: %v", err)
 	case <-time.After(70 * time.Second):
 		t.Fatal("the node kept a connection to a panel that stopped answering for 70 s; it must ping an idle panel and close the connection when the ping is not acknowledged")
 	}
