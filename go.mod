@@ -11,7 +11,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/vishvananda/netlink v1.3.1
 	github.com/xtls/xray-core v1.260327.1-0.20261021115930-1b1647cd9ddf
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
