@@ -54,20 +54,20 @@ func buildDeltaStats(name, link string, rx, tx int64) []*common.Stat {
 	}
 
 	stats := make([]*common.Stat, 0, 2)
-	if tx > 0 {
+	if rx > 0 {
 		stats = append(stats, &common.Stat{
 			Name:  name,
 			Type:  "uplink",
 			Link:  link,
-			Value: tx,
+			Value: rx,
 		})
 	}
-	if rx > 0 {
+	if tx > 0 {
 		stats = append(stats, &common.Stat{
 			Name:  name,
 			Type:  "downlink",
 			Link:  link,
-			Value: rx,
+			Value: tx,
 		})
 	}
 
