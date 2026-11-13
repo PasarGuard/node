@@ -26,10 +26,57 @@ type Xray struct {
 	cancelFunc context.CancelFunc
 	mu         sync.RWMutex
 	syncMu     sync.Mutex
+	abortMu    sync.Mutex
+	abortSync  context.CancelCauseFunc
+	restarts   int
+	aborted    bool
 	closed     bool // set by Shutdown under mu
 }
 
 var errXrayShutdown = errors.New("xray backend is shut down")
+
+var errSyncAborted = errors.New("user sync aborted by a core restart")
+
+func (x *Xray) beginSync(ctx context.Context) (context.Context, func()) {
+	syncCtx, cancel := context.WithCancelCause(ctx)
+	x.abortMu.Lock()
+	if x.restarts > 0 {
+		x.aborted = true
+		cancel(errSyncAborted)
+	} else {
+		x.abortSync = cancel
+	}
+	x.abortMu.Unlock()
+	return syncCtx, func() {
+		x.abortMu.Lock()
+		x.abortSync = nil
+		x.abortMu.Unlock()
+		cancel(nil)
+	}
+}
+
+func (x *Xray) lockSyncForRestart() (aborted bool) {
+	x.abortMu.Lock()
+	x.restarts++
+	if x.abortSync != nil {
+		x.abortSync(errSyncAborted)
+		x.aborted = true
+	}
+	x.abortMu.Unlock()
+
+	x.syncMu.Lock()
+
+	x.abortMu.Lock()
+	defer x.abortMu.Unlock()
+	x.restarts--
+	aborted = x.aborted
+	x.aborted = false
+	return aborted
+}
+
+func syncAborted(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), errSyncAborted)
+}
 
 // restartReadyTimeout bounds how long a restart holds syncMu waiting for the
 // new core's API.
@@ -152,7 +199,7 @@ func (x *Xray) Started() bool {
 // Restart restarts the core from the current config and waits until its API
 // answers.
 func (x *Xray) Restart() error {
-	x.syncMu.Lock()
+	x.lockSyncForRestart()
 	defer x.syncMu.Unlock()
 
 	return x.restartLocked(context.Background())
