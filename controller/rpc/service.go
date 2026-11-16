@@ -10,6 +10,7 @@ import (
 	"github.com/pasarguard/node/common"
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
+	"github.com/pasarguard/node/pkg/tlsutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -26,20 +27,24 @@ func New(cfg *config.Config) *Service {
 }
 
 func StartGRPCListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
+	if err := tlsutil.ValidateListener(tlsConfig, addr, cfg); err != nil {
+		return nil, nil, err
+	}
 	s := New(cfg)
-
-	creds := credentials.NewTLS(tlsConfig)
 
 	// Create the gRPC server with conditional middleware
 	// Set max message size to 64MB to handle large configs and user data
 	const maxMsgSize = 64 * 1024 * 1024 // 64MB
-	grpcServer := grpc.NewServer(
-		grpc.Creds(creds),
+	opts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
 		grpc.UnaryInterceptor(ConditionalMiddleware(s)),
 		grpc.StreamInterceptor(ConditionalStreamMiddleware(s)),
-	)
+	}
+	if tlsConfig != nil {
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+	}
+	grpcServer := grpc.NewServer(opts...)
 
 	// Register the service
 	common.RegisterNodeServiceServer(grpcServer, s)

@@ -64,6 +64,44 @@ func TestLoadAcceptsValidAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadTLSSettings(t *testing.T) {
+	t.Setenv("API_KEY", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+	unsetEnv(t, "TLS_ENABLED")
+	unsetEnv(t, "NODE_HOST")
+	cfg, err := Load()
+	if err != nil || !cfg.TLSEnabled || cfg.NodeHost != "0.0.0.0" {
+		t.Fatalf("TLS defaults: %+v, %v", cfg, err)
+	}
+	t.Setenv("TLS_ENABLED", "false")
+	cfg, err = Load()
+	if err != nil || cfg.TLSEnabled || cfg.NodeHost != "127.0.0.1" {
+		t.Fatalf("backend defaults: %+v, %v", cfg, err)
+	}
+	for _, value := range []string{"", "yes", "disabled", " true "} {
+		t.Setenv("TLS_ENABLED", value)
+		if _, err := Load(); err == nil {
+			t.Fatalf("accepted invalid TLS_ENABLED=%q", value)
+		}
+	}
+}
+
+func TestPrivateBackendHosts(t *testing.T) {
+	t.Setenv("API_KEY", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+	t.Setenv("TLS_ENABLED", "false")
+	for _, host := range []string{"127.0.0.1", "127.255.255.254", "::1", "10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.1", "fc00::1", "fdff::1", "::ffff:192.168.1.2"} {
+		t.Setenv("NODE_HOST", host)
+		if _, err := Load(); err != nil {
+			t.Errorf("rejected %q: %v", host, err)
+		}
+	}
+	for _, host := range []string{"", "localhost", "invalid", "0.0.0.0", "::", "8.8.8.8", "100.64.0.1", "169.254.1.1", "172.15.0.1", "172.32.0.1", "192.0.0.1", "192.0.2.1", "198.18.0.1", "224.0.0.1", "255.255.255.255", "2001:db8::1", "fe80::1", "ff02::1", "::ffff:8.8.8.8", "fd00::1%eth0", "[::1]"} {
+		t.Setenv("NODE_HOST", host)
+		if _, err := Load(); err == nil {
+			t.Errorf("accepted unsafe NODE_HOST=%q", host)
+		}
+	}
+}
+
 func TestLoadAcceptsNodeHostIPsAndLocalhost(t *testing.T) {
 	cases := map[string]string{
 		"0.0.0.0":      "0.0.0.0",

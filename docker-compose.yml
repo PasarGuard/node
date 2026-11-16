@@ -13,6 +13,10 @@ services:
     environment:
       SERVICE_PORT: 62050
       SERVICE_PROTOCOL: "grpc"
+      # External TLS termination: set TLS_ENABLED=false and NODE_HOST=127.0.0.1.
+      # Keep the backend private; the panel always connects to the TLS frontend.
+      # TLS_ENABLED: "true"
+      # NODE_HOST: "0.0.0.0"
       # Linux: enable runtime IPv4 forwarding and install scoped nftables NAT/forwarding rules.
       # NAT egress is auto-detected (ip route / /proc/net/route); set PG_NODE_WG_NAT_OUTPUT_INTERFACE to override (e.g. eth0, ens192).
       # For Xray TUN egress (no NAT) set PG_NODE_WG_NAT_DISABLE=1 and PG_NODE_WG_ROUTE_TABLE / PG_NODE_WG_ROUTE_OUT_INTERFACE (e.g. xray0). See .env.example.

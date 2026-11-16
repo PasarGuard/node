@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	TLSEnabled                  bool
 	ServicePort                 int
 	NodeHost                    string
 	XrayExecutablePath          string
@@ -46,6 +47,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
+		TLSEnabled:                  true,
 		ServicePort:                 GetEnvAsInt("SERVICE_PORT", 62050),
 		XrayExecutablePath:          GetEnv("XRAY_EXECUTABLE_PATH", "/usr/local/bin/xray"),
 		TelemtExecutablePath:        GetEnv("TELEMT_EXECUTABLE_PATH", "/usr/local/bin/telemt"),
@@ -89,9 +91,38 @@ func Load() (*Config, error) {
 		apiKeyErr = fmt.Errorf("invalid API_KEY: %w", apiKeyErr)
 	}
 
-	cfg.NodeHost = parseNodeHost(GetEnv("NODE_HOST", "0.0.0.0"))
+	var tlsErr error
+	if value, exists := os.LookupEnv("TLS_ENABLED"); exists {
+		cfg.TLSEnabled, tlsErr = strconv.ParseBool(value)
+		if tlsErr != nil {
+			tlsErr = fmt.Errorf("invalid TLS_ENABLED %q: expected a boolean", value)
+		}
+	}
+	defaultHost := "0.0.0.0"
+	if !cfg.TLSEnabled {
+		defaultHost = "127.0.0.1"
+	}
+	host := GetEnv("NODE_HOST", defaultHost)
+	var hostErr error
+	if cfg.TLSEnabled {
+		cfg.NodeHost = parseNodeHost(host)
+	} else {
+		cfg.NodeHost, hostErr = PrivateBackendHost(host)
+	}
+	return cfg, errors.Join(apiKeyErr, tlsErr, hostErr)
+}
 
-	return cfg, apiKeyErr
+// PrivateBackendHost permits only literal loopback, RFC1918 and IPv6 ULA
+// addresses. Do not resolve hostnames: DNS changes must never expose a backend.
+func PrivateBackendHost(value string) (string, error) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(value))
+	if err == nil && addr.Zone() == "" {
+		addr = addr.Unmap()
+		if addr.IsLoopback() || addr.IsPrivate() {
+			return addr.String(), nil
+		}
+	}
+	return "", fmt.Errorf("TLS_ENABLED=false requires NODE_HOST to be a loopback, RFC1918 IPv4 or IPv6 unique-local address; got %q", value)
 }
 
 // parseNodeHost returns the IPv4 or IPv6 address to listen on; "localhost" means 127.0.0.1.

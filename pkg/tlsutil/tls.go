@@ -4,10 +4,29 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/pasarguard/node/config"
 )
+
+// ValidateListener also guards direct callers that bypass config.Load.
+func ValidateListener(tlsConfig *tls.Config, addr string, cfg *config.Config) error {
+	if tlsConfig != nil {
+		return nil
+	}
+	if cfg.TLSEnabled {
+		return fmt.Errorf("TLS_ENABLED=true requires TLS credentials")
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	_, err = config.PrivateBackendHost(host)
+	return err
+}
 
 func LoadTLSCredentials(cert, key string) (*tls.Config, error) {
 	serverCert, err := tls.LoadX509KeyPair(cert, key)
