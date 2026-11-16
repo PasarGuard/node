@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -19,12 +21,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-// Exercise the shipped nginx snippets in CI, including HTTP streaming and gRPC
-// server streaming. Direct node listeners are covered by TestListenerTransports.
+// Exercise the shipped nginx snippets in CI, including HTTP streaming, gRPC
+// server streaming, and gRPC client streaming. Direct node listeners are covered
+// by TestListenerTransports.
 func TestNginxTLSFrontends(t *testing.T) {
 	nginx := os.Getenv("NODE_TEST_NGINX")
 	if nginx == "" {
@@ -64,7 +68,11 @@ func TestNginxTLSFrontends(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				s := grpc.NewServer()
+				const maxMsgSize = 64 * 1024 * 1024
+				s := grpc.NewServer(
+					grpc.MaxRecvMsgSize(maxMsgSize),
+					grpc.MaxSendMsgSize(maxMsgSize),
+				)
 				common.RegisterNodeServiceServer(s, proxyStreamService{})
 				go s.Serve(l)
 				t.Cleanup(s.Stop)
@@ -150,13 +158,21 @@ func TestNginxTLSFrontends(t *testing.T) {
 				checkHTTP(frontendAddr, "/", true)
 				checkHTTP(frontendAddr, "/logs", true)
 			} else {
-				conn, err := grpc.NewClient(frontendAddr, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: pool})))
+				const maxMsgSize = 64 * 1024 * 1024
+				conn, err := grpc.NewClient(
+					frontendAddr,
+					grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{RootCAs: pool})),
+					grpc.WithDefaultCallOptions(
+						grpc.MaxCallRecvMsgSize(maxMsgSize),
+						grpc.MaxCallSendMsgSize(maxMsgSize),
+					),
+				)
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer conn.Close()
 				client := common.NewNodeServiceClient(conn)
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				stream, err := client.GetLogs(ctx, &common.Empty{})
 				if err != nil {
@@ -176,8 +192,122 @@ func TestNginxTLSFrontends(t *testing.T) {
 						t.Fatalf("gRPC stream %d: %v %v", i, log, err)
 					}
 				}
+
+				// Regression case: client streaming whose total request size
+				// exceeds 64 MiB while each message remains within the 64 MiB limit.
+				uploadStream, err := client.SyncUsersChunked(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := uploadStream.CloseAndRecv(); status.Code(err) != codes.Unauthenticated {
+					t.Fatalf("gRPC client stream auth: %v", err)
+				}
+				uploadAuthCtx := metadata.NewOutgoingContext(ctx, metadata.Pairs("x-api-key", "proxy-test-key"))
+				uploadStream, err = client.SyncUsersChunked(uploadAuthCtx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				const (
+					chunkSize  = 8 * 1024 * 1024
+					chunkCount = 9
+				)
+				chunk := &common.UsersChunk{
+					Users: []*common.User{
+						{Email: strings.Repeat("a", chunkSize)},
+					},
+				}
+				for i := 0; i < chunkCount; i++ {
+					if err := uploadStream.Send(chunk); err != nil {
+						t.Fatalf("gRPC client stream send %d: %v", i, err)
+					}
+				}
+				if _, err := uploadStream.CloseAndRecv(); err != nil {
+					t.Fatalf("gRPC client stream close: %v", err)
+				}
 			}
 		})
+	}
+}
+
+// Exercise backend per-message limit and multi-message stream behavior directly.
+func TestGRPCClientStreamingLimits(t *testing.T) {
+	backendAddr := listenerAddress(t)
+	l, err := net.Listen("tcp", backendAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const maxMsgSize = 64 * 1024 * 1024
+	s := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
+	common.RegisterNodeServiceServer(s, proxyStreamService{})
+	go s.Serve(l)
+	t.Cleanup(s.Stop)
+
+	conn, err := grpc.NewClient(
+		backendAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxMsgSize),
+			grpc.MaxCallSendMsgSize(maxMsgSize),
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	client := common.NewNodeServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	authCtx := metadata.NewOutgoingContext(ctx, metadata.Pairs("x-api-key", "proxy-test-key"))
+
+	// Total stream size > 64 MiB with each message within limit succeeds.
+	stream, err := client.SyncUsersChunked(authCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := &common.UsersChunk{
+		Users: []*common.User{
+			{Email: strings.Repeat("a", 8*1024*1024)},
+		},
+	}
+	for i := 0; i < 9; i++ {
+		if err := stream.Send(chunk); err != nil {
+			t.Fatalf("stream send %d: %v", i, err)
+		}
+	}
+	if _, err := stream.CloseAndRecv(); err != nil {
+		t.Fatalf("stream close: %v", err)
+	}
+
+	// Single message exceeding the 64 MiB backend limit is rejected.
+	oversizedConn, err := grpc.NewClient(
+		backendAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallSendMsgSize(70 * 1024 * 1024),
+		),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oversizedConn.Close()
+
+	oversizedClient := common.NewNodeServiceClient(oversizedConn)
+	overStream, err := oversizedClient.SyncUsersChunked(authCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversizedChunk := &common.UsersChunk{
+		Users: []*common.User{
+			{Email: strings.Repeat("b", 65*1024*1024)},
+		},
+	}
+	_ = overStream.Send(oversizedChunk)
+	if _, err := overStream.CloseAndRecv(); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("expected ResourceExhausted for message >64 MiB, got: %v", err)
 	}
 }
 
@@ -197,4 +327,28 @@ func (proxyStreamService) GetLogs(_ *common.Empty, stream common.NodeService_Get
 		}
 	}
 	return nil
+}
+
+func (proxyStreamService) SyncUsersChunked(stream common.NodeService_SyncUsersChunkedServer) error {
+	md, _ := metadata.FromIncomingContext(stream.Context())
+	keys := md.Get("x-api-key")
+	if len(keys) == 0 || keys[0] != "proxy-test-key" {
+		return status.Error(codes.Unauthenticated, "missing key")
+	}
+	var totalBytes int
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			if totalBytes <= 64*1024*1024 {
+				return status.Errorf(codes.InvalidArgument, "total stream size %d does not exceed 64 MiB", totalBytes)
+			}
+			return stream.SendAndClose(&common.Empty{})
+		}
+		if err != nil {
+			return err
+		}
+		for _, u := range chunk.GetUsers() {
+			totalBytes += len(u.GetEmail())
+		}
+	}
 }
