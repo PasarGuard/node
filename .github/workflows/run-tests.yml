@@ -43,9 +43,13 @@ jobs:
           make generate_server_cert
           make generate_client_cert
 
+      - name: Install nginx for TLS frontend integration coverage
+        run: sudo apt-get update && sudo apt-get install -y nginx
+
       - name: Run regular test suite
         env:
           MTPROTO_TELEMT_BIN: /usr/local/bin/telemt
+          NODE_TEST_NGINX: /usr/sbin/nginx
         run: TEST_INTEGRATION=true go test ./... -v -p 1
 
       - name: Check Xray process status races

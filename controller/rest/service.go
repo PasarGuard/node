@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/pasarguard/node/config"
 	"github.com/pasarguard/node/controller"
+	"github.com/pasarguard/node/pkg/tlsutil"
 )
 
 func New(cfg *config.Config) *Service {
@@ -75,6 +77,9 @@ type Service struct {
 }
 
 func StartHttpListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (func(ctx context.Context) error, controller.Service, error) {
+	if err := tlsutil.ValidateListener(tlsConfig, addr, cfg); err != nil {
+		return nil, nil, err
+	}
 	s := New(cfg)
 
 	httpServer := &http.Server{
@@ -84,9 +89,12 @@ func StartHttpListener(tlsConfig *tls.Config, addr string, cfg *config.Config) (
 	}
 
 	// Test if we can listen on the port before starting the goroutine
-	listener, err := tls.Listen("tcp", addr, tlsConfig)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, nil, err
+	}
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
 	}
 
 	go func() {

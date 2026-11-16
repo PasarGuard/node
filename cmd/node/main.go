@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"net"
 	"os"
@@ -25,9 +26,12 @@ func main() {
 
 	addr := net.JoinHostPort(cfg.NodeHost, strconv.Itoa(cfg.ServicePort))
 
-	tlsConfig, err := tlsutil.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
-	if err != nil {
-		log.Fatal(err)
+	var tlsConfig *tls.Config
+	if cfg.TLSEnabled {
+		tlsConfig, err = tlsutil.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	log.Printf("Starting Node: v%s", controller.NodeVersion)
