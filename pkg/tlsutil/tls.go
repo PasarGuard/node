@@ -29,16 +29,11 @@ func ValidateListener(tlsConfig *tls.Config, addr string, cfg *config.Config) er
 }
 
 func LoadTLSCredentials(cert, key string) (*tls.Config, error) {
-	serverCert, err := tls.LoadX509KeyPair(cert, key)
+	holder, err := NewCertificateHolder(cert, key)
 	if err != nil {
 		return nil, err
 	}
-
-	config := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.NoClientCert,
-	}
-	return config, nil
+	return holder.TLSConfig(), nil
 }
 
 func LoadClientPool(cert string) (*x509.CertPool, error) {

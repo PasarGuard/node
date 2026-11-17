@@ -161,3 +161,21 @@ commands and real local certificates without contacting an ACME issuer. The
 maintenance repositories test startup, strict bindings, and authenticated HTTP
 and TLS connections. Live public ACME staging issuance remains a deployment
 integration check because it needs operator-controlled identifiers and routing.
+
+### Certificate hot reload
+
+The node validates the configured certificate/key pair, including certificate dates,
+ at startup. Send `SIGHUP` to the node process after replacing the configured files
+with a consistent pair. REST and gRPC use the same in-memory certificate holder.
+Reloads validate the full supplied chain and key before atomically publishing the
+replacement. Failed reloads retain the active pair. Logs report the active leaf's
+SHA-256 fingerprint and expiry on startup and after each reload attempt.
+
+Listeners, established connections, and streams remain running during reload and
+are not closed at certificate expiry. New connections validate the certificate
+under the client's saved trust policy. With external TLS (`TLS_ENABLED=false`),
+`SIGHUP` logs a no-op. Reload the external TLS server separately.
+
+Node-serviced supports the same signal for its separate maintenance certificate.
+This feature does not schedule renewals or regenerate self-signed certificates.
+Installing this support requires an initial service restart.

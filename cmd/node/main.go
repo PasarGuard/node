@@ -27,11 +27,14 @@ func main() {
 	addr := net.JoinHostPort(cfg.NodeHost, strconv.Itoa(cfg.ServicePort))
 
 	var tlsConfig *tls.Config
+	var certificates *tlsutil.CertificateHolder
 	if cfg.TLSEnabled {
-		tlsConfig, err = tlsutil.LoadTLSCredentials(cfg.SslCertFile, cfg.SslKeyFile)
+		certificates, err = tlsutil.NewCertificateHolder(cfg.SslCertFile, cfg.SslKeyFile)
 		if err != nil {
 			log.Fatal(err)
 		}
+		tlsConfig = certificates.TLSConfig()
+		log.Printf("TLS active %s", certificates.Status())
 	}
 
 	log.Printf("Starting Node: v%s", controller.NodeVersion)
@@ -51,9 +54,15 @@ func main() {
 	defer service.Disconnect()
 
 	stopChan := make(chan os.Signal, 1)
-	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
-
-	<-stopChan
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(stopChan)
+	for sig := range stopChan {
+		if sig == syscall.SIGHUP {
+			certificates.LogReload(log.Printf)
+			continue
+		}
+		break
+	}
 	log.Println("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
