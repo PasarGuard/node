@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pasarguard/node/backend"
 	"github.com/pasarguard/node/backend/xray/api"
 	"github.com/pasarguard/node/common"
 )
@@ -242,6 +243,8 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx, endSync := x.beginSync(ctx)
+	defer endSync()
 
 	proxySetting, wireguardErr := setupUserAccount(user)
 
@@ -274,13 +277,13 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		if isActive {
 			removeFirst := inbound.removeBeforeAdd(account)
 			if removeFirst {
-				if err := handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+				if err := handler.RemoveInboundUser(ctx, inbound.Tag, user.GetEmail()); err != nil && inbound.Protocol == Wireguard && !syncAborted(ctx) {
 					return fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", user.GetEmail(), inbound.Tag, err)
 				}
 			}
 			inbound.updateUser(account)
 			err := handler.AddInboundUser(ctx, inbound.Tag, accountForAPI(inbound, account))
-			if err != nil {
+			if err != nil && !syncAborted(ctx) {
 				inbound.removeUser(user.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
@@ -291,6 +294,9 @@ func (x *Xray) SyncUser(ctx context.Context, user *common.User) error {
 		}
 	}
 
+	if syncAborted(ctx) {
+		return backend.RetryLater(fmt.Errorf("failed to sync user %s: %w", user.GetEmail(), errSyncAborted))
+	}
 	if errMessage.String() != "" {
 		return errors.New("failed to add user:" + errMessage.String())
 	}
@@ -372,6 +378,8 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	ctx, endSync := x.beginSync(ctx)
+	defer endSync()
 
 	handler := x.handler
 	inboundByTag, updates := x.config.buildInboundUpdates(users)
@@ -397,14 +405,14 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 
 		for n, account := range accounts {
 			if removeFirst[n] {
-				if err := handler.RemoveInboundUser(ctx, tag, account.GetEmail()); err != nil && inbound.Protocol == Wireguard {
+				if err := handler.RemoveInboundUser(ctx, tag, account.GetEmail()); err != nil && inbound.Protocol == Wireguard && !syncAborted(ctx) {
 					removeErr := fmt.Errorf("failed to remove wireguard user %s from inbound %s: %w", account.GetEmail(), tag, err)
 					log.Println(removeErr)
 					errMessage.WriteString("\n" + removeErr.Error())
 					continue
 				}
 			}
-			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil {
+			if err := handler.AddInboundUser(ctx, tag, accountForAPI(inbound, account)); err != nil && !syncAborted(ctx) {
 				inbound.removeUser(account.GetEmail())
 				log.Println(err)
 				errMessage.WriteString("\n" + err.Error())
@@ -414,6 +422,9 @@ func (x *Xray) UpdateUsers(ctx context.Context, users []*common.User) error {
 		}
 	}
 
+	if syncAborted(ctx) {
+		return backend.RetryLater(fmt.Errorf("failed to update users: %w", errSyncAborted))
+	}
 	if errMessage.String() != "" {
 		return errors.New("failed to update users:" + errMessage.String())
 	}
