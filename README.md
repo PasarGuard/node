@@ -24,6 +24,43 @@ The easiest way to install PasarGuard Node is using our automated installation s
 sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
 ```
 
+## AmneziaWG 3.1 on Linux
+
+Add an `amnezia` object to a native WireGuard core's JSON to use the embedded
+AmneziaWG backend. The WireGuard node still manages peers, addresses and traffic
+counters. Omit `amnezia` to use the Linux WireGuard backend for that core.
+
+For example, merge these settings into the core config:
+
+```json
+{
+  "amnezia": {
+    "jc": 4,
+    "jmin": 40,
+    "jmax": 90,
+    "s1": 24,
+    "s2": 24,
+    "s3": 24,
+    "s4": 24,
+    "content_padding_addition": "5-12",
+    "random_trailers": "on"
+  }
+}
+```
+
+Field names use lowercase and underscores (for example, `header_protection_key`
+for `HeaderProtectionKey`). That key uses the base64 form produced by `awg genkey`.
+Import the matching `.conf` profile in an AmneziaWG 3.1 client. Use the same
+interface settings on both ends. See the [AmneziaWG documentation](https://docs.amnezia.org/documentation/amnezia-wg/).
+
+The node needs `CAP_NET_ADMIN` and access to `/dev/net/tun`. In Docker, add this
+device mapping under the `node` service in your Compose file:
+
+```yaml
+devices:
+  - /dev/net/tun:/dev/net/tun
+```
+
 # MTProto backend
 Besides Xray and WireGuard, the node can serve Telegram MTProto proxy users. The panel picks the backend per core, and a node runs one backend at a time.
 

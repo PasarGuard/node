@@ -113,6 +113,11 @@ func (wg *WireGuard) ensureRunningWithManagerLocked() error {
 
 // New creates a new WireGuard backend instance
 func New(cfg *config.Config, wgConfig *Config, users []*common.User) (*WireGuard, error) {
+	if wgConfig != nil && wgConfig.Amnezia != nil {
+		return newWithManagerFactory(cfg, wgConfig, users, func(name string) (*Manager, error) {
+			return newAmneziaManager(name, *wgConfig.Amnezia)
+		})
+	}
 	return newWithManagerFactory(cfg, wgConfig, users, NewManager)
 }
 
@@ -126,7 +131,10 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 	wgCtx, wgCancel := context.WithCancel(context.Background())
 
 	// Get WireGuard version before starting
-	version := getWireGuardVersion()
+	version := "AmneziaWG 3.1"
+	if wgConfig == nil || wgConfig.Amnezia == nil {
+		version = getWireGuardVersion()
+	}
 
 	wg := &WireGuard{
 		cancelFunc:     wgCancel,
@@ -180,7 +188,7 @@ func newWithManagerFactory(cfg *config.Config, wgConfig *Config, users []*common
 		return nil, fmt.Errorf("failed to create manager: %w", err)
 	}
 
-	// Initialize the WireGuard interface with peers in the same kernel configure call.
+	// Initialize the WireGuard interface with peers in the same configure call.
 	if err = manager.initializeWithPeers(privateKey, wgConfig.ListenPort, wgConfig.Address, startupPeerConfigs, wgConfig.MTU); err != nil {
 		manager.Close()
 		return nil, fmt.Errorf("failed to initialize interface: %w", err)

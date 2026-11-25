@@ -78,6 +78,8 @@ type Manager struct {
 	iFaceName  string
 	nl         netlinkOps
 	configure  configureDeviceFunc
+	createLink func() error
+	startLink  func() error
 	setLinkMTU func(netlink.Link, int) error
 	defaultMTU int
 	mtuManaged bool
@@ -156,19 +158,22 @@ func (m *Manager) initializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 		parsedAddrs = append(parsedAddrs, addr)
 	}
 
-	// Clean up any existing interface
-	if err := m.cleanupExistingInterface(); err != nil {
-		return fmt.Errorf("failed to cleanup existing interface: %w", err)
-	}
-
-	// Create WireGuard interface
-	link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: m.iFaceName}}
-	if err := nl.LinkAdd(link); err != nil {
-		return fmt.Errorf("failed to add link: %w", wrapPermissionDeniedError("creating wireguard interface", err))
+	if m.createLink != nil {
+		if err := m.createLink(); err != nil {
+			return err
+		}
+	} else {
+		if err := m.cleanupExistingInterface(); err != nil {
+			return fmt.Errorf("failed to cleanup existing interface: %w", err)
+		}
+		link := &netlink.Wireguard{LinkAttrs: netlink.LinkAttrs{Name: m.iFaceName}}
+		if err := nl.LinkAdd(link); err != nil {
+			return fmt.Errorf("failed to add link: %w", wrapPermissionDeniedError("creating wireguard interface", err))
+		}
 	}
 	cleanupOnError := true
 	defer func() {
-		if cleanupOnError {
+		if cleanupOnError && m.createLink == nil {
 			_ = m.cleanupExistingInterface()
 		}
 	}()
@@ -203,6 +208,11 @@ func (m *Manager) initializeWithPeers(privateKey wgtypes.Key, listenPort int, se
 	// Bring interface up
 	if err := nl.LinkSetUp(link2); err != nil {
 		return fmt.Errorf("failed to bring up interface: %w", wrapPermissionDeniedError("bringing wireguard interface up", err))
+	}
+	if m.startLink != nil {
+		if err := m.startLink(); err != nil {
+			return fmt.Errorf("failed to start tunnel: %w", err)
+		}
 	}
 
 	cleanupOnError = false
@@ -322,9 +332,11 @@ func (m *Manager) Close() error {
 		}
 	}
 
-	// Remove interface
-	if err := m.cleanupExistingInterface(); err != nil {
-		errs = append(errs, err)
+	// A userspace tunnel owns its TUN device and removes it on close.
+	if m.createLink == nil {
+		if err := m.cleanupExistingInterface(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {
