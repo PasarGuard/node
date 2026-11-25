@@ -20,6 +20,7 @@ type Config struct {
 	MTU           *int           `json:"mtu,omitempty"`
 	Address       []string       `json:"address"`
 	Latency       *LatencyConfig `json:"latency,omitempty"`
+	Amnezia       *AmneziaConfig `json:"amnezia,omitempty"`
 
 	privateKeyValue   wgtypes.Key
 	privateKeySet     bool
@@ -64,6 +65,11 @@ func NewConfig(config string) (*Config, error) {
 	// Validate configuration
 	if err := validateMTU(wgConfig.MTU); err != nil {
 		return nil, err
+	}
+	if wgConfig.Amnezia != nil {
+		if _, err := wgConfig.Amnezia.uapi(); err != nil {
+			return nil, err
+		}
 	}
 	if wgConfig.InterfaceName == "" {
 		wgConfig.InterfaceName = "wg0"
