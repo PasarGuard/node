@@ -30,10 +30,10 @@ func TestStatsTracker_GetStats(t *testing.T) {
 	}
 
 	for _, s := range resp.Stats {
-		if s.Type == "downlink" && s.Value != 1000 {
+		if s.Type == "uplink" && s.Value != 1000 {
 			t.Errorf("Expected rx=1000, got %d", s.Value)
 		}
-		if s.Type == "uplink" && s.Value != 2000 {
+		if s.Type == "downlink" && s.Value != 2000 {
 			t.Errorf("Expected tx=2000, got %d", s.Value)
 		}
 	}
@@ -48,10 +48,10 @@ func TestStatsTracker_GetStatsReset(t *testing.T) {
 
 	resp := tracker.GetStats(ctx, []string{"key1"}, true)
 	for _, s := range resp.Stats {
-		if s.Type == "downlink" && s.Value != 2000 {
+		if s.Type == "uplink" && s.Value != 2000 {
 			t.Errorf("Expected rx=2000, got %d", s.Value)
 		}
-		if s.Type == "uplink" && s.Value != 4000 {
+		if s.Type == "downlink" && s.Value != 4000 {
 			t.Errorf("Expected tx=4000, got %d", s.Value)
 		}
 	}
@@ -200,10 +200,10 @@ func TestStatsTracker_ReaddAfterDeletePreservesPendingDelta(t *testing.T) {
 
 	resp := tracker.GetStats(ctx, []string{"key1"}, false)
 	for _, s := range resp.Stats {
-		if s.Type == "downlink" && s.Value != 1100 {
+		if s.Type == "uplink" && s.Value != 1100 {
 			t.Errorf("Expected pending plus new rx=1100, got %d", s.Value)
 		}
-		if s.Type == "uplink" && s.Value != 2200 {
+		if s.Type == "downlink" && s.Value != 2200 {
 			t.Errorf("Expected pending plus new tx=2200, got %d", s.Value)
 		}
 	}
@@ -220,9 +220,9 @@ func TestStatsTracker_ReaddAfterDeletePreservesPendingDelta(t *testing.T) {
 func pullTotals(tracker *Tracker) (rx, tx int64) {
 	for _, s := range tracker.GetUsersStats(context.Background(), true).Stats {
 		switch s.Type {
-		case "downlink":
-			rx += s.Value
 		case "uplink":
+			rx += s.Value
+		case "downlink":
 			tx += s.Value
 		}
 	}
